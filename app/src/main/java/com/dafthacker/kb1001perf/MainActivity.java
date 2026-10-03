@@ -1,247 +1,259 @@
 package com.dafthacker.kb1001perf;
 
-import android.app.Activity;
-import android.app.AlertDialog;
+import android.Manifest;
+import android.app.*;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.graphics.Typeface;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
+import android.net.Uri;
+import android.os.*;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
-import android.widget.Toast;
+import android.widget.*;
 
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private TextView status;
+    private LinearLayout page;
+    private TextView headerState;
+    private TextView liveText;
+    private TextView logText;
+    private int tab;
     private boolean active;
+    private boolean showHudAfterPermission;
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    @Override protected void onCreate(Bundle b) {
+        super.onCreate(b);
+        TelemetryStore.ensureSnapshot(this);
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 41);
+        }
         setContentView(buildUi());
+        showTab(0);
+        io.execute(() -> RootBridge.get().ctl("status")); // one Magisk grant, one persistent root shell
     }
 
     private View buildUi() {
-        int pad = dp(16);
-        ScrollView scroll = new ScrollView(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(pad, pad, pad, pad);
-        scroll.addView(root);
+        root.setPadding(dp(18), dp(18), dp(18), dp(12));
+        root.setBackgroundResource(R.drawable.bg_app);
 
-        TextView title = new TextView(this);
-        title.setText("KB1001 Performance Manager");
-        title.setTextSize(24);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        root.addView(title);
+        TextView brand = text("KB1001", 13, Color.rgb(92,232,255), true);
+        brand.setLetterSpacing(.18f);
+        root.addView(brand);
+        root.addView(text("Performance Manager", 30, Color.WHITE, true));
+        headerState = text("Root backend • connecting…", 13, Color.rgb(156,176,201), false);
+        headerState.setPadding(0, dp(4), 0, dp(14));
+        root.addView(headerState);
 
-        TextView sub = new TextView(this);
-        sub.setText("Allwinner A333 • rooted KB1001 • GPU-first alpha\nAutoBoost never uses Extreme 792 and does not disable thermal protection.");
-        sub.setTextSize(14);
-        sub.setPadding(0, dp(4), 0, dp(12));
-        root.addView(sub);
+        LinearLayout tabs = row();
+        tabs.addView(tabButton("CONTROL",0), weight());
+        tabs.addView(tabButton("GAMES",1), weight());
+        tabs.addView(tabButton("LOGS",2), weight());
+        root.addView(tabs);
 
-        addHeader(root, "Manual GPU profile");
-        LinearLayout row1 = row();
-        row1.addView(button("Dynamic 744", v -> ctl("persist dynamic744")), weight());
-        row1.addView(button("Performance 744", v -> ctl("persist performance744")), weight());
-        root.addView(row1);
-
-        LinearLayout row2 = row();
-        row2.addView(button("Stock 696", v -> ctl("persist stock")), weight());
-        row2.addView(button("Extreme 792 TEST", v -> confirmExtreme()), weight());
-        root.addView(row2);
-
-        addHeader(root, "Automatic game boost");
-        LinearLayout row3 = row();
-        row3.addView(button("Enable AutoBoost", v -> ctl("auto enable")), weight());
-        row3.addView(button("Disable AutoBoost", v -> ctl("auto disable")), weight());
-        root.addView(row3);
-
-        LinearLayout row4 = row();
-        row4.addView(button("Games → Perf 744", v -> ctl("auto profile performance744")), weight());
-        row4.addView(button("Games → Dynamic 744", v -> ctl("auto profile dynamic744")), weight());
-        root.addView(row4);
-
-        TextView idleLabel = new TextView(this);
-        idleLabel.setText("Idle profile");
-        idleLabel.setTextSize(14);
-        idleLabel.setPadding(0, dp(8), 0, dp(2));
-        root.addView(idleLabel);
-
-        LinearLayout row5 = row();
-        row5.addView(button("Idle → Dynamic 744", v -> ctl("auto idle dynamic744")), weight());
-        row5.addView(button("Idle → Stock 696", v -> ctl("auto idle stock")), weight());
-        root.addView(row5);
-
-        TextView pollLabel = new TextView(this);
-        pollLabel.setText("Detection interval");
-        pollLabel.setTextSize(14);
-        pollLabel.setPadding(0, dp(8), 0, dp(2));
-        root.addView(pollLabel);
-
-        LinearLayout row6 = row();
-        row6.addView(button("1 sec", v -> ctl("auto poll 1")), weight());
-        row6.addView(button("2 sec", v -> ctl("auto poll 2")), weight());
-        row6.addView(button("5 sec", v -> ctl("auto poll 5")), weight());
-        root.addView(row6);
-
-        Button games = button("Choose AutoBoost games", v -> startActivity(new Intent(this, GamePickerActivity.class)));
-        root.addView(games, full());
-
-        addHeader(root, "Live status");
-        status = new TextView(this);
-        status.setText("Requesting root / reading module…");
-        status.setTextSize(13);
-        status.setTypeface(Typeface.MONOSPACE);
-        status.setTextIsSelectable(true);
-        status.setPadding(dp(10), dp(10), dp(10), dp(10));
-        root.addView(status, full());
-
-        LinearLayout backendRow = row();
-        backendRow.addView(button("Refresh", v -> refresh()), weight());
-        backendRow.addView(button("Restart backend", v -> restartBackend()), weight());
-        root.addView(backendRow);
-
-        TextView note = new TextView(this);
-        note.setText("v0.1: the Magisk layer detects the foreground app and owns AutoBoost, so it keeps working if this app is closed. CPU/DDR controls will be added only after the tablet's real interfaces are mapped.");
-        note.setTextSize(12);
-        note.setPadding(0, dp(12), 0, dp(24));
-        root.addView(note);
-
-        return scroll;
+        ScrollView scroll = new ScrollView(this);
+        page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setPadding(0, dp(10), 0, dp(24));
+        scroll.addView(page);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1,0,1));
+        return root;
     }
 
-    private void addHeader(LinearLayout root, String text) {
-        TextView h = new TextView(this);
-        h.setText(text);
-        h.setTextSize(18);
-        h.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        h.setPadding(0, dp(14), 0, dp(6));
-        root.addView(h);
+    private void showTab(int index) {
+        tab = index;
+        page.removeAllViews();
+        if (index == 0) controlPage();
+        else if (index == 1) gamesPage();
+        else logsPage();
+        refreshTelemetry();
     }
 
-    private LinearLayout row() {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER);
-        return row;
+    private void controlPage() {
+        section("IN-GAME HUD", "Draggable overlay with live profile, GPU, CPU, thermals, RAM and logger state.");
+        LinearLayout r = row();
+        r.addView(button("SHOW HUD", true, v -> showHud()), weight());
+        r.addView(button("HIDE HUD", false, v -> stopService(new Intent(this, OverlayService.class))), weight());
+        page.addView(card(r), full());
+
+        LinearLayout ar = row();
+        ar.addView(button("AUTO-SHOW IN GAMES", false, v -> ctl("overlay auto enable")), weight());
+        ar.addView(button("AUTO-SHOW OFF", false, v -> ctl("overlay auto disable")), weight());
+        page.addView(card(ar), full());
+
+        section("GPU PROFILES", "792 MHz is experimental—not proven to be the A333 ceiling. AutoBoost never selects it.");
+        LinearLayout p1 = row();
+        p1.addView(button("DYNAMIC 744", true, v -> ctl("persist dynamic744")), weight());
+        p1.addView(button("PERFORMANCE 744", false, v -> ctl("persist performance744")), weight());
+        page.addView(card(p1), full());
+        LinearLayout p2 = row();
+        p2.addView(button("STOCK 696", false, v -> ctl("persist stock")), weight());
+        p2.addView(button("EXPERIMENTAL 792", false, v -> experimental()), weight());
+        page.addView(card(p2), full());
+
+        section("AUTOBOOST", "The Magisk daemon remains alive with this app closed.");
+        LinearLayout a = row();
+        a.addView(button("ENABLE", true, v -> ctl("auto enable")), weight());
+        a.addView(button("DISABLE", false, v -> ctl("auto disable")), weight());
+        page.addView(card(a), full());
+
+        liveText = mono("Waiting for telemetry…");
+        page.addView(card(liveText), full());
     }
 
-    private Button button(String text, View.OnClickListener listener) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setOnClickListener(listener);
-        return b;
+    private void gamesPage() {
+        section("GAME LIBRARY", "Selected launcher packages trigger the game profile and can auto-open the HUD.");
+        page.addView(card(button("CHOOSE AUTOBOOST GAMES", true,
+                v -> startActivity(new Intent(this, GamePickerActivity.class)))), full());
+
+        section("DETECTION", "Foreground detection belongs to the root backend, not the overlay.");
+        LinearLayout r = row();
+        r.addView(button("1 SEC", false, v -> ctl("auto poll 1")), weight());
+        r.addView(button("2 SEC", false, v -> ctl("auto poll 2")), weight());
+        r.addView(button("5 SEC", false, v -> ctl("auto poll 5")), weight());
+        page.addView(card(r), full());
+
+        TextView info = mono("AutoBoost: root daemon\nHUD: visual client\nApp closed: detection still active\nHUD closed: detection still active");
+        page.addView(card(info), full());
     }
 
-    private LinearLayout.LayoutParams weight() {
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        p.setMargins(dp(2), dp(2), dp(2), dp(2));
-        return p;
+    private void logsPage() {
+        section("PERFORMANCE LOGGER", "The root daemon samples hardware once; the app/HUD reads its mirrored snapshot without repeated su calls.");
+        LinearLayout r = row();
+        r.addView(button("START FILE LOG", true, v -> ctl("logger file on")), weight());
+        r.addView(button("STOP FILE LOG", false, v -> ctl("logger file off")), weight());
+        page.addView(card(r), full());
+
+        LinearLayout rate = row();
+        rate.addView(button("1 SEC", false, v -> ctl("logger interval 1")), weight());
+        rate.addView(button("2 SEC", false, v -> ctl("logger interval 2")), weight());
+        rate.addView(button("5 SEC", false, v -> ctl("logger interval 5")), weight());
+        page.addView(card(rate), full());
+
+        Button refresh = button("REFRESH RECENT SAMPLES", false, v -> refreshLogTail());
+        page.addView(card(refresh), full());
+        logText = mono("Open this tab and refresh to load the root history.\nCSV logging is optional and saved under Documents/KB1001Performance/logs.");
+        page.addView(card(logText), full());
+        refreshLogTail();
     }
 
-    private LinearLayout.LayoutParams full() {
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        p.setMargins(0, dp(3), 0, dp(3));
-        return p;
+    private void refreshLogTail() {
+        if (logText == null) return;
+        io.execute(() -> {
+            RootBridge.Result r = RootBridge.get().ctl("logger tail 60");
+            runOnUiThread(() -> { if (logText != null) logText.setText(r.ok() ? r.output : "Logger history unavailable:\n" + r.output); });
+        });
     }
 
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+    private void showHud() {
+        if (!Settings.canDrawOverlays(this)) {
+            showHudAfterPermission = true;
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())));
+            return;
+        }
+        Intent i = new Intent(this, OverlayService.class);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
     }
 
-    private void confirmExtreme() {
+    private void experimental() {
         new AlertDialog.Builder(this)
-                .setTitle("Extreme 792 MHz")
-                .setMessage("This is the existing session-only test profile. It is not stability-qualified and will never be used by AutoBoost. Reboot fallback remains Dynamic 744. Apply it now?")
+                .setTitle("Experimental 792 MHz")
+                .setMessage("792 MHz works as a session-only OPP on this tablet, but we have not yet established its thermal or stability margin. It is not automatically selected. Apply it for a logged test session?")
                 .setNegativeButton("Cancel", null)
-                .setPositiveButton("Apply", (d, w) -> ctl("apply extreme792"))
+                .setPositiveButton("Apply", (d,w) -> ctl("apply experimental792"))
                 .show();
     }
 
-    private void ctl(String args) {
-        status.setText("Running: kb1001ctl " + args + " …");
-        executor.execute(() -> {
-            RootShell.Result result = RootShell.ctl(args);
+    private void ctl(String command) {
+        io.execute(() -> {
+            RootBridge.Result r = RootBridge.get().ctl(command);
             runOnUiThread(() -> {
-                if (!result.ok()) {
-                    Toast.makeText(this, "Command failed (root/module?)", Toast.LENGTH_LONG).show();
-                    status.setText("Command failed, exit=" + result.exitCode + "\n" + result.output);
-                } else {
-                    refresh();
-                }
+                if (!r.ok()) Toast.makeText(this, "Backend command failed: " + r.output, Toast.LENGTH_LONG).show();
+                refreshTelemetry();
+                if (tab == 2) refreshLogTail();
             });
         });
     }
 
-    private void restartBackend() {
-        status.setText("Restarting AutoBoost backend…");
-        executor.execute(() -> {
-            RootShell.Result stop = RootShell.ctl("auto stop");
-            RootShell.Result start = RootShell.ctl("auto start");
-            runOnUiThread(() -> {
-                if (!start.ok()) {
-                    status.setText("Backend restart failed.\n" + stop.output + "\n" + start.output);
-                } else {
-                    refresh();
-                }
-            });
-        });
+    private void refreshTelemetry() {
+        Map<String,String> m = TelemetryStore.read(this);
+        String mode = TelemetryStore.get(m,"mode","waiting");
+        String profile = TelemetryStore.get(m,"profile","—");
+        String gpu = TelemetryStore.get(m,"gpu_clock_mhz","—");
+        String temp = TelemetryStore.get(m,"thermal_max_c","—");
+        headerState.setText(mode.toUpperCase() + "  •  " + profile + "  •  GPU " + gpu + " MHz  •  " + temp + "°C");
+        if (liveText != null) liveText.setText(TelemetryStore.pretty(m));
     }
 
-    private void refresh() {
-        executor.execute(() -> {
-            RootShell.Result result = RootShell.ctl("status");
-            String text;
-            if (result.ok()) {
-                text = result.output;
-            } else {
-                RootShell.Result id = RootShell.exec("id; test -x " + RootShell.CONTROLLER + "; echo module_controller=$?");
-                text = "Unable to read KB1001 module.\n\n" + id.output +
-                        "\n\nInstall/enable KB1001 GPU Profiles v1.2-AutoBoost, reboot, and grant this app root.";
-            }
-            runOnUiThread(() -> status.setText(text));
-        });
-    }
-
-    private final Runnable refresher = new Runnable() {
+    private final Runnable ticker = new Runnable() {
         @Override public void run() {
             if (!active) return;
-            refresh();
-            handler.postDelayed(this, 3500);
+            refreshTelemetry();
+            handler.postDelayed(this, 1000);
         }
     };
 
-    @Override
-    protected void onResume() {
+    @Override protected void onResume() {
         super.onResume();
         active = true;
-        handler.removeCallbacks(refresher);
-        handler.post(refresher);
+        if (showHudAfterPermission && Settings.canDrawOverlays(this)) {
+            showHudAfterPermission = false;
+            showHud();
+        }
+        handler.removeCallbacks(ticker);
+        handler.post(ticker);
     }
 
-    @Override
-    protected void onPause() {
+    @Override protected void onPause() {
         active = false;
-        handler.removeCallbacks(refresher);
+        handler.removeCallbacks(ticker);
         super.onPause();
     }
 
-    @Override
-    protected void onDestroy() {
-        handler.removeCallbacks(refresher);
-        executor.shutdownNow();
+    @Override protected void onDestroy() {
+        io.shutdownNow();
         super.onDestroy();
     }
+
+    private void section(String title, String subtitle) {
+        TextView t = text(title, 16, Color.WHITE, true);
+        t.setPadding(0, dp(16), 0, dp(2)); page.addView(t);
+        TextView s = text(subtitle, 12, Color.rgb(156,176,201), false);
+        s.setPadding(0, 0, 0, dp(7)); page.addView(s);
+    }
+
+    private LinearLayout card(View child) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackgroundResource(R.drawable.bg_card);
+        c.setPadding(dp(12),dp(10),dp(12),dp(10));
+        c.addView(child);
+        return c;
+    }
+
+    private Button tabButton(String s, int i) { return button(s, false, v -> showTab(i)); }
+    private Button button(String s, boolean primary, View.OnClickListener l) {
+        Button b = new Button(this); b.setText(s); b.setAllCaps(false); b.setTextColor(Color.WHITE);
+        b.setTextSize(12); b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        b.setBackgroundResource(primary ? R.drawable.bg_button_primary : R.drawable.bg_button_secondary);
+        b.setOnClickListener(l); return b;
+    }
+    private TextView text(String s,int sp,int color,boolean bold) {
+        TextView v=new TextView(this); v.setText(s); v.setTextSize(sp); v.setTextColor(color);
+        if(bold) v.setTypeface(Typeface.DEFAULT,Typeface.BOLD); return v;
+    }
+    private TextView mono(String s) { TextView v=text(s,12,Color.WHITE,false); v.setTypeface(Typeface.MONOSPACE); v.setTextIsSelectable(true); return v; }
+    private LinearLayout row(){LinearLayout r=new LinearLayout(this);r.setOrientation(LinearLayout.HORIZONTAL);r.setGravity(Gravity.CENTER);return r;}
+    private LinearLayout.LayoutParams weight(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(dp(3),dp(3),dp(3),dp(3));return p;}
+    private LinearLayout.LayoutParams full(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(4),0,dp(4));return p;}
+    private int dp(int x){return Math.round(x*getResources().getDisplayMetrics().density);}
 }
