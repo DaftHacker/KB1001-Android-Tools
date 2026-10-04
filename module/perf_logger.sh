@@ -359,12 +359,9 @@ sample(){
  FPS=0
  FPS_SOURCE=none
  FPS_LAYER=""
- if [ "$MODE" = game ] && [ -n "$PACKAGE" ] && { demand_active || [ "$(conf_get file_logging 0)" = 1 ]; }; then
+ if [ "$MODE" = game ] && [ -n "$PACKAGE" ] && { [ -e "$UI_DEMAND" ] || [ "$(conf_get file_logging 0)" = 1 ]; }; then
   now_s="$(date +%s)"
   fps_interval=3
-  if [ -e "$HUD_DEMAND" ] && [ ! -e "$UI_DEMAND" ] && [ "$(conf_get file_logging 0)" != 1 ]; then
-   fps_interval=10
-  fi
   if [ "$PACKAGE" != "$FPS_CACHE_PACKAGE" ] || [ $((now_s-FPS_CACHE_TS)) -ge "$fps_interval" ]; then
    fps_sample="$(sample_fps "$PACKAGE")"
    FPS_CACHE="$(printf '%s' "$fps_sample" | cut -d'|' -f1)"
