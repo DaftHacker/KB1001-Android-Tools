@@ -200,15 +200,7 @@ public class MainActivity extends Activity {
     }
 
     private void showCpuMenu() {
-        Map<String,String> m = TelemetryStore.read(this);
-        CpuPolicies cpu = parseCpuPolicies(TelemetryStore.get(m,"cpu_policies",""));
-        new AlertDialog.Builder(this)
-                .setTitle("A333 CPU")
-                .setMessage(
-                        (cpu.summary.isEmpty() ? "CPU policy data is not available yet." : cpu.summary) +
-                        "\n\nCPU controls are intentionally read-only until we validate the A333 cluster limits and governors on this tablet.")
-                .setPositiveButton("OK",null)
-                .show();
+        startActivity(new Intent(this,CpuActivity.class));
     }
 
     private void gamesPage() {
