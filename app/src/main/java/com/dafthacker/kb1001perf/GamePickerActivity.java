@@ -72,10 +72,6 @@ public class GamePickerActivity extends Activity {
         titles.addView(text("Choose any installed launcher app",11,ACCENT_SOFT,true));
         top.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
 
-        TextView badge=text("APPS",10,Color.rgb(25,10,32),true);
-        badge.setGravity(Gravity.CENTER);
-        badge.setBackground(pill(ACCENT));
-        top.addView(badge,new LinearLayout.LayoutParams(dp(58),dp(30)));
         root.addView(top);
 
         LinearLayout searchRow=row();
