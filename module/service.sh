@@ -6,6 +6,7 @@ AUTO_CONF="$STATE_DIR/auto_boost.conf"
 LOGGER_CONF="$STATE_DIR/logger.conf"
 
 rm -f "$SESSION_EXTREME"
+echo stock > "$STATE_DIR/cpu_mode.conf"
 log "KB1001 Performance Manager boot service started."
 
 wait_for_sysfs || { log "ERROR: GPU sysfs controls did not appear."; exit 1; }
