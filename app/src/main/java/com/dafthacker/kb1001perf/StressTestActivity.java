@@ -169,7 +169,7 @@ public final class StressTestActivity extends Activity {
         gpuSurfaceCard.setPadding(dp(9),dp(9),dp(9),dp(9));
         gpuSurfaceCard.setBackground(cardBg(GPU,45));
         gpuSurfaceCard.addView(text("GPU workload surface",10,GPU,true));
-        gpuSurfaceCard.addView(gpuStress,new LinearLayout.LayoutParams(-1,dp(112)));
+        gpuSurfaceCard.addView(gpuStress,new LinearLayout.LayoutParams(-1,dp(240)));
         content.addView(gpuSurfaceCard,full());
 
         testButton=button("Start Test",CPU,v->{
