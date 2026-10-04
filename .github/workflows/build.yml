@@ -71,8 +71,14 @@ jobs:
 
           grep -q 'STATE_DIR="/data/local/kb1001perf/state"' app/src/main/assets/backend/common.sh
 
-          if grep -R '/data/adb/modules/kb1001_gpu_profiles' app/src/main/assets/backend app/src/main/java; then
-            echo "Runtime code still references the legacy Magisk module path."
+          if grep -R '/data/adb/modules/kb1001_gpu_profiles' app/src/main/assets/backend; then
+            echo "Bundled runtime scripts still reference the legacy Magisk module path."
+            exit 1
+          fi
+
+          if grep -R '/data/adb/modules/kb1001_gpu_profiles' app/src/main/java \
+              | grep -v 'BackendManager.java'; then
+            echo "Android runtime code still references the legacy module outside migration code."
             exit 1
           fi
 
