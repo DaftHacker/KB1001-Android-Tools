@@ -94,7 +94,6 @@ public class OverlayService extends Service {
         overlay.setOrientation(LinearLayout.VERTICAL);
         overlay.setPadding(dp(12),dp(10),dp(12),dp(10));
         overlay.setBackground(overlayBackground(Color.rgb(58,105,107)));
-        overlay.setElevation(dp(18));
 
         LinearLayout head=new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
@@ -218,18 +217,14 @@ public class OverlayService extends Service {
             boolean thermalThrottling="1".equals(TelemetryStore.get(m,"thermal_throttling","0"));
             float temp=parseFloat(TelemetryStore.get(m,"thermal_max_c","0"));
 
-            ActivityManager.MemoryInfo mi=new ActivityManager.MemoryInfo();
-            ((ActivityManager)getSystemService(ACTIVITY_SERVICE)).getMemoryInfo(mi);
-            long total=mi.totalMem/1024/1024;
-            long avail=mi.availMem/1024/1024;
+            long total=parseInt(TelemetryStore.get(m,"mem_total_mb","0"));
+            long avail=parseInt(TelemetryStore.get(m,"mem_available_mb","0"));
             long used=Math.max(0,total-avail);
             int ramPct=total>0?(int)Math.min(100,used*100/total):0;
 
             CpuClock clocks=parseCpu(TelemetryStore.get(m,"cpu_policies",""));
             int tempPct=Math.max(0,Math.min(100,Math.round(temp/85f*100)));
-
-            BatteryManager bm=(BatteryManager)getSystemService(BATTERY_SERVICE);
-            int batt=bm==null?-1:bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+            int batt=parseInt(TelemetryStore.get(m,"battery_capacity","-1"));
 
             int thermalColor=temp>=70f?THERMAL_HOT:(temp>=55f?THERMAL_WARM:THERMAL_COOL);
             int batteryColor=batt>=50?BATTERY_GOOD:(batt>=20?BATTERY_WARN:BATTERY_LOW);
@@ -280,40 +275,29 @@ public class OverlayService extends Service {
             else limit="HEADROOM";
             footer.setText((recording?"● REC  •  ":"")+switchState+limit+" • drag • — collapse");
 
-            handler.postDelayed(this,1000);
+            handler.postDelayed(this,2000);
         }
     };
 
     private OverlayMetric metric(String name,int accent){
         LinearLayout root=new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(7),dp(4),dp(7),dp(5));
+        root.setOrientation(LinearLayout.HORIZONTAL);
+        root.setGravity(Gravity.CENTER_VERTICAL);
+        root.setPadding(dp(8),dp(5),dp(8),dp(5));
         root.setBackground(metricBackground(accent));
-
-        LinearLayout header=new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView label=txt(name,9,accent,true);
         TextView value=txt("—",11,Color.rgb(236,244,242),true);
-        value.setGravity(Gravity.END);
+        value.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
 
-        header.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-        header.addView(value,new LinearLayout.LayoutParams(dp(80),-2));
-        root.addView(header);
-
-        SparklineView graph=new SparklineView(this);
-        graph.setAccentColor(accent);
-        graph.setRenderScale(uiScale);
-        LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,dp(34));
-        gp.setMargins(0,dp(1),0,0);
-        root.addView(graph,gp);
+        root.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        root.addView(value,new LinearLayout.LayoutParams(dp(118),-2));
 
         LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);
         rp.setMargins(0,dp(2),0,dp(2));
         root.setLayoutParams(rp);
 
-        return new OverlayMetric(root,label,value,graph);
+        return new OverlayMetric(root,label,value);
     }
 
     private GradientDrawable metricBackground(int accent){
@@ -481,7 +465,7 @@ public class OverlayService extends Service {
                     CHANNEL,
                     "Performance HUD",
                     NotificationManager.IMPORTANCE_LOW);
-            c.setDescription("Live game performance graphs and quick controls.");
+            c.setDescription("Low-overhead live game performance monitor and quick controls.");
             ((NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(c);
         }
     }
@@ -537,23 +521,19 @@ public class OverlayService extends Service {
         final LinearLayout root;
         final TextView label;
         final TextView value;
-        final SparklineView graph;
 
-        OverlayMetric(LinearLayout root,TextView label,TextView value,SparklineView graph){
+        OverlayMetric(LinearLayout root,TextView label,TextView value){
             this.root=root;
             this.label=label;
             this.value=value;
-            this.graph=graph;
         }
 
         void set(String text,int percent){
             value.setText(text);
-            graph.addValue(Math.max(0,Math.min(100,percent)));
         }
 
         void setAccent(int color){
             label.setTextColor(color);
-            graph.setAccentColor(color);
             GradientDrawable bg=new GradientDrawable();
             bg.setColor(Color.rgb(13,22,22));
             bg.setCornerRadius(10f*root.getResources().getDisplayMetrics().density);
