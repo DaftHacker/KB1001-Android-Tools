@@ -309,7 +309,6 @@ public class CpuActivity extends Activity {
             Map<String,String> state=parseKeyValue(r.output);
             boolean applied=r.ok() && "applied".equals(state.get("state")) &&
                     modeKey.equals(state.get("mode"));
-            if(applied)RootBridge.get().ctl("logger refresh");
 
             runOnUiThread(()->{
                 if(applied){
@@ -325,6 +324,10 @@ public class CpuActivity extends Activity {
                 }
                 handler.postDelayed(this::refresh,350);
             });
+
+            // Refresh telemetry after the UI has accepted the confirmed backend state.
+            // confirmedCpuMode prevents stale telemetry from visually reverting the button.
+            if(applied)RootBridge.get().ctl("logger refresh");
         });
     }
 
