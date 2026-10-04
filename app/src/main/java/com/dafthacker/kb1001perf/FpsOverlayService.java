@@ -37,6 +37,7 @@ public final class FpsOverlayService extends Service {
     @Override public void onCreate(){
         super.onCreate();
         running=true;
+        getSharedPreferences("fps_hud",MODE_PRIVATE).edit().putBoolean("runtime_running",true).apply();
         createChannel();
         startForeground(1002,notification());
 
@@ -193,7 +194,7 @@ public final class FpsOverlayService extends Service {
             int v=Integer.parseInt(line.trim());
             return Math.max(-1,Math.min(240,v));
         }catch(Exception e){
-            return 0;
+            return -1;
         }
     }
 
@@ -229,6 +230,7 @@ public final class FpsOverlayService extends Service {
 
     @Override public void onDestroy(){
         running=false;
+        getSharedPreferences("fps_hud",MODE_PRIVATE).edit().putBoolean("runtime_running",false).apply();
 
         try{
             if(sampler!=null){
