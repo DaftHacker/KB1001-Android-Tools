@@ -212,6 +212,9 @@ public class OverlayService extends Service {
             String pkg=TelemetryStore.get(m,"package","");
             int fps=parseInt(TelemetryStore.get(m,"fps","0"));
             int gpuMhz=parseInt(TelemetryStore.get(m,"gpu_clock_mhz","0"));
+            int cpuUtil=Math.max(0,Math.min(100,parseInt(TelemetryStore.get(m,"cpu_util_pct","0"))));
+            int gpuUtil=Math.max(0,Math.min(100,parseInt(TelemetryStore.get(m,"gpu_util_pct","0"))));
+            boolean thermalThrottling="1".equals(TelemetryStore.get(m,"thermal_throttling","0"));
             float temp=parseFloat(TelemetryStore.get(m,"thermal_max_c","0"));
 
             ActivityManager.MemoryInfo mi=new ActivityManager.MemoryInfo();
@@ -222,7 +225,6 @@ public class OverlayService extends Service {
             int ramPct=total>0?(int)Math.min(100,used*100/total):0;
 
             CpuClock clocks=parseCpu(TelemetryStore.get(m,"cpu_policies",""));
-            int gpuPct=Math.max(0,Math.min(100,Math.round(gpuMhz*100f/792f)));
             int tempPct=Math.max(0,Math.min(100,Math.round(temp/85f*100)));
 
             BatteryManager bm=(BatteryManager)getSystemService(BATTERY_SERVICE);
@@ -259,8 +261,8 @@ public class OverlayService extends Service {
                 fpsValue.setTextColor(fps>=55?CPU_COLOR:(fps>=30?RAM_COLOR:THERMAL_HOT));
             }
 
-            cpu.set(clocks.current+" MHz",clocks.percent);
-            gpu.set(gpuMhz>0?gpuMhz+" MHz":"—",gpuPct);
+            cpu.set(cpuUtil+"% • "+clocks.current,cpuUtil);
+            gpu.set(gpuUtil+"% • "+(gpuMhz>0?gpuMhz:"—"),gpuUtil);
             ram.set(ramPct+"%",ramPct);
             thermal.set(String.format(Locale.US,"%.1f°C",temp),tempPct);
             battery.set(batt<0?"—":batt+"%",Math.max(0,batt));
@@ -269,7 +271,13 @@ public class OverlayService extends Service {
             String switchState="";
             if("waiting".equals(requestState)) switchState="GPU switch waiting for idle • ";
             else if("applying".equals(requestState)) switchState="GPU switching • ";
-            footer.setText((recording?"● RECORDING  •  ":"")+switchState+"drag header • collapse with —");
+            String limit;
+            if(thermalThrottling) limit="THERMAL LIMIT";
+            else if(cpuUtil>=88 && gpuUtil<85) limit="CPU LIMIT";
+            else if(gpuUtil>=90 && cpuUtil<90) limit="GPU LIMIT";
+            else if(cpuUtil>=88 && gpuUtil>=88) limit="SYSTEM SATURATED";
+            else limit="HEADROOM";
+            footer.setText((recording?"● REC  •  ":"")+switchState+limit+" • drag • — collapse");
 
             handler.postDelayed(this,1000);
         }
