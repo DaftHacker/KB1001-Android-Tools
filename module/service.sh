@@ -6,6 +6,7 @@ AUTO_CONF="$STATE_DIR/auto_boost.conf"
 LOGGER_CONF="$STATE_DIR/logger.conf"
 
 rm -f "$SESSION_EXTREME"
+rm -f /data/local/tmp/kb1001_telemetry_ui /data/local/tmp/kb1001_telemetry_hud
 "$MODDIR/cpu_control.sh" init >/dev/null 2>&1 || log "WARNING: could not capture CPU boot state."
 log "KB1001 Performance Manager boot service started."
 
