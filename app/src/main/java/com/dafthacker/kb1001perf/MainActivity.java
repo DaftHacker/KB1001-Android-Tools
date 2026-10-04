@@ -425,6 +425,8 @@ public class MainActivity extends Activity {
                 });
         page.addView((View)hudSwitch.getParent());
 
+        page.addView(overlayScaleCard(),full());
+
         LinearLayout rates = row();
         rates.addView(button("Detect 1 sec",false,v -> ctl("auto poll 1")),weight());
         rates.addView(button("Detect 2 sec",true,v -> ctl("auto poll 2")),weight());
@@ -447,6 +449,56 @@ public class MainActivity extends Activity {
                 "The HUD can stay alive after this window closes. The service/module abstraction is being kept so the persistent module backend can eventually become optional without changing the UI API.",
                 11,Color.rgb(190,205,202),false);
         page.addView(card(info),full());
+    }
+
+    private View overlayScaleCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(13),dp(11),dp(13),dp(11));
+        card.setBackground(metricBackground(GPU_COLOR));
+
+        LinearLayout head = row();
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.addView(text("Overlay size",15,Color.rgb(231,240,238),true));
+        labels.addView(text("Scales the entire HUD: text, graphs, spacing and controls.",10,MUTED,false));
+        head.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+
+        float saved = getSharedPreferences("hud",MODE_PRIVATE).getFloat("scale",1f);
+        TextView value = text(Math.round(saved*100f)+"%",12,GPU_COLOR,true);
+        value.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+        head.addView(value,new LinearLayout.LayoutParams(dp(64),-2));
+        card.addView(head);
+
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(125);
+        seek.setProgress(Math.round(saved*100f)-50);
+        seek.setPadding(0,dp(8),0,0);
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar,int progress,boolean fromUser) {
+                int pct=50+progress;
+                value.setText(pct+"%");
+            }
+
+            @Override public void onStartTrackingTouch(SeekBar bar) {}
+
+            @Override public void onStopTrackingTouch(SeekBar bar) {
+                int pct=50+bar.getProgress();
+                float scale=pct/100f;
+                getSharedPreferences("hud",MODE_PRIVATE).edit().putFloat("scale",scale).apply();
+
+                if(OverlayService.isRunning()) {
+                    stopService(new Intent(MainActivity.this,OverlayService.class));
+                    handler.postDelayed(() -> {
+                        Intent restart=new Intent(MainActivity.this,OverlayService.class);
+                        if(Build.VERSION.SDK_INT>=26) startForegroundService(restart);
+                        else startService(restart);
+                    },120);
+                }
+            }
+        });
+        card.addView(seek,new LinearLayout.LayoutParams(-1,-2));
+        return card;
     }
 
     private Switch toggleCard(String title,String subtitle,ToggleAction action) {
