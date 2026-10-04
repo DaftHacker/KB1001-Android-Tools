@@ -108,6 +108,8 @@ sample(){
   case "$FPS" in ''|*[!0-9]*) FPS=0;; esac
  fi
 
+ PROFILE_REQUEST_STATE="$(grep -m1 '^state=' "$STATE_DIR/manual_profile.state" 2>/dev/null | cut -d= -f2-)"
+ PROFILE_REQUEST_PROFILE="$(grep -m1 '^profile=' "$STATE_DIR/manual_profile.state" 2>/dev/null | cut -d= -f2-)"
  FILE_LOGGING="$(conf_get file_logging 0)"; FILE_PATH="$(conf_get file_path "")"
 
  tmp="$SNAPSHOT.tmp.$$"
@@ -116,7 +118,8 @@ sample(){
   echo "gpu_clock_mhz=$GPU_MHZ"; echo "gpu_voltage=$GPU_VOLTAGE"; echo "gpu_runtime=$GPU_RUNTIME"; echo "gpu_governor=$GPU_GOV"; echo "gpu_dvfs=$GPU_DVFS"
   echo "thermal_max_c=$THERMAL_MAX"; echo "thermal_zones=$zones"; echo "battery_temp_c=$BATTERY_C"
   echo "cpu_summary=$CPU_SUMMARY"; echo "cpu_policies=$cpu_detail"; echo "cpu_available=$cpu_available"; echo "devfreq=$devs"
-  echo "fps=$FPS"; echo "mem_available_mb=$MEM_MB"; echo "loadavg=$LOADAVG"; echo "file_logging=$FILE_LOGGING"; echo "file_path=$FILE_PATH"
+  echo "fps=$FPS"; echo "profile_request_state=$PROFILE_REQUEST_STATE"; echo "profile_request_profile=$PROFILE_REQUEST_PROFILE"
+  echo "mem_available_mb=$MEM_MB"; echo "loadavg=$LOADAVG"; echo "file_logging=$FILE_LOGGING"; echo "file_path=$FILE_PATH"
  } > "$tmp" && mv "$tmp" "$SNAPSHOT"
  chmod 0644 "$SNAPSHOT" 2>/dev/null
 
