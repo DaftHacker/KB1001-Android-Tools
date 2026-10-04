@@ -421,13 +421,10 @@ public class MainActivity extends Activity {
 
         page.addView(overlayScaleCard(),full());
 
-        section("DIAGNOSTICS","Bounded stress tests with live graphs, render FPS, timing and thermal safety.");
+        section("DIAGNOSTICS","Bounded CPU, GPU and combined stress testing with live graphs and thermal safety.");
 
-        LinearLayout stressRow = row();
-        stressRow.addView(stressButton("CPU Stress",CPU_COLOR,"cpu"),weight());
-        stressRow.addView(stressButton("GPU Stress",GPU_COLOR,"gpu"),weight());
-        stressRow.addView(stressButton("Combined",SESSION_COLOR,"combined"),weight());
-        page.addView(stressRow,full());
+        Button stress = stressButton("Stress Test",SESSION_COLOR);
+        page.addView(stress,full());
 
         section("SOFTWARE","One update operation handles the app and persistent backend together.");
 
@@ -497,19 +494,15 @@ public class MainActivity extends Activity {
         return card;
     }
 
-    private Button stressButton(String label,int color,String mode) {
+    private Button stressButton(String label,int color) {
         Button b = new Button(this);
         b.setText(label);
         b.setAllCaps(false);
-        b.setTextSize(10);
+        b.setTextSize(12);
         b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         b.setTextColor(Color.rgb(236,244,242));
         b.setBackground(metricBackground(color));
-        b.setOnClickListener(v -> {
-            Intent i = new Intent(this,StressTestActivity.class);
-            i.putExtra("mode",mode);
-            startActivity(i);
-        });
+        b.setOnClickListener(v -> startActivity(new Intent(this,StressTestActivity.class)));
         return b;
     }
 
