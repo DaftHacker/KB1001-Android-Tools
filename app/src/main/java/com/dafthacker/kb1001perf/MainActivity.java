@@ -184,12 +184,6 @@ public class MainActivity extends Activity {
                 checked -> ctl("logger file " + (checked ? "on" : "off")));
         page.addView((View)loggingSwitch.getParent());
 
-        LinearLayout rate = row();
-        rate.addView(button("1 sec",true,v -> ctl("logger interval 1")),weight());
-        rate.addView(button("2 sec",false,v -> ctl("logger interval 2")),weight());
-        rate.addView(button("5 sec",false,v -> ctl("logger interval 5")),weight());
-        page.addView(card(rate),full());
-
         loggerPath = text("No active recording.",10,MUTED,false);
         loggerPath.setTextIsSelectable(true);
         page.addView(card(loggerPath),full());
@@ -427,11 +421,13 @@ public class MainActivity extends Activity {
 
         page.addView(overlayScaleCard(),full());
 
-        LinearLayout rates = row();
-        rates.addView(button("Detect 1 sec",false,v -> ctl("auto poll 1")),weight());
-        rates.addView(button("Detect 2 sec",true,v -> ctl("auto poll 2")),weight());
-        rates.addView(button("Detect 5 sec",false,v -> ctl("auto poll 5")),weight());
-        page.addView(card(rates),full());
+        section("DIAGNOSTICS","Bounded stress tests with live graphs, render FPS, timing and thermal safety.");
+
+        LinearLayout stressRow = row();
+        stressRow.addView(stressButton("CPU Stress",CPU_COLOR,"cpu"),weight());
+        stressRow.addView(stressButton("GPU Stress",GPU_COLOR,"gpu"),weight());
+        stressRow.addView(stressButton("Combined",SESSION_COLOR,"combined"),weight());
+        page.addView(stressRow,full());
 
         section("SOFTWARE","One update operation handles the app and persistent backend together.");
 
@@ -499,6 +495,22 @@ public class MainActivity extends Activity {
         });
         card.addView(seek,new LinearLayout.LayoutParams(-1,-2));
         return card;
+    }
+
+    private Button stressButton(String label,int color,String mode) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setAllCaps(false);
+        b.setTextSize(10);
+        b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        b.setTextColor(Color.rgb(236,244,242));
+        b.setBackground(metricBackground(color));
+        b.setOnClickListener(v -> {
+            Intent i = new Intent(this,StressTestActivity.class);
+            i.putExtra("mode",mode);
+            startActivity(i);
+        });
+        return b;
     }
 
     private Switch toggleCard(String title,String subtitle,ToggleAction action) {
