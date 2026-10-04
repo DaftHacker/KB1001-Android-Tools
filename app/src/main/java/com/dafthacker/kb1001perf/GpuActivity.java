@@ -304,10 +304,7 @@ public class GpuActivity extends Activity {
     }
 
     private void ctl(String command){
-        String selectedProfile = profileFromCommand(command);
-        if(selectedProfile != null && runtimeValue != null){
-            runtimeValue.setText(displayProfile(selectedProfile));
-        }
+        applyOptimisticState(command);
 
         io.execute(() -> {
             RootBridge.Result r=RootBridge.get().ctl(command);
@@ -319,17 +316,39 @@ public class GpuActivity extends Activity {
                     Toast.makeText(this,"GPU command failed",Toast.LENGTH_LONG).show();
                 }
                 refreshStatus();
-                handler.postDelayed(this::refreshStatus,350);
+                handler.postDelayed(this::refreshStatus,250);
+                handler.postDelayed(this::refreshStatus,750);
             });
         });
     }
 
-    private String profileFromCommand(String command){
-        if(command == null) return null;
+    private void applyOptimisticState(String command){
+        if(command==null)return;
         String[] p=command.trim().split("\\s+");
-        if(p.length<2) return null;
-        if("persist".equals(p[0]) || "apply".equals(p[0])) return p[1];
-        return null;
+        if(p.length<2)return;
+
+        if("persist".equals(p[0])){
+            String profile=p[1];
+            if(defaultValue!=null) defaultValue.setText(displayProfile(profile));
+            if(runtimeValue!=null) runtimeValue.setText(displayProfile(profile)+" • applying");
+            if(dvfsValue!=null) dvfsValue.setText(isPinned(profile)?"Pinned":"Dynamic");
+        }else if("apply".equals(p[0])){
+            String profile=p[1];
+            if(runtimeValue!=null) runtimeValue.setText(displayProfile(profile)+" • applying");
+            if(dvfsValue!=null) dvfsValue.setText(isPinned(profile)?"Pinned":"Dynamic");
+        }else if("auto".equals(p[0]) && p.length>=3){
+            if("profile".equals(p[1]) && gameValue!=null){
+                gameValue.setText(displayProfile(p[2]));
+            }else if("idle".equals(p[1]) && outsideValue!=null){
+                outsideValue.setText(displayProfile(p[2]));
+            }
+        }
+    }
+
+    private boolean isPinned(String profile){
+        return "performance744".equals(profile) ||
+                "extreme792_full".equals(profile) ||
+                "performance792".equals(profile);
     }
 
     private void refreshStatus(){
