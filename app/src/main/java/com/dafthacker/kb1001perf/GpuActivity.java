@@ -81,11 +81,6 @@ public class GpuActivity extends Activity {
         titles.addView(text("GPU Control",11,ORANGE,true));
         top.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
 
-        TextView badge=text("GPU",11,Color.rgb(30,18,9),true);
-        badge.setGravity(Gravity.CENTER);
-        badge.setBackground(pill(ORANGE));
-        top.addView(badge,new LinearLayout.LayoutParams(dp(54),dp(30)));
-
         root.addView(top);
 
         ScrollView scroll = new ScrollView(this);
