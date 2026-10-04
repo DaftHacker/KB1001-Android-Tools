@@ -1,6 +1,6 @@
 id=kb1001_gpu_profiles
-name=KB1001 Performance Manager GPU Profiles
-version=v1.2-AutoBoost
-versionCode=12
+name=KB1001 Performance Manager
+version=v1.3-HUD-Logger
+versionCode=13
 author=DaftHacker
-description=KB1001/A333 safe GPU profiles plus automatic foreground-game boost. Dynamic 744 idle, Performance 744 in selected games, session-only Extreme 792. Thermal protection remains enabled.
+description=KB1001/A333 GPU profiles, persistent AutoBoost, in-game HUD integration and read-only performance telemetry. 792 MHz is experimental/session-only. Thermal protection remains enabled.
