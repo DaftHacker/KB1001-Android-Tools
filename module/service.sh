@@ -22,6 +22,7 @@ profile="$(cat "$CONFIG" 2>/dev/null)"
 case "$profile" in stock|dynamic744|performance744) ;; *) profile=dynamic744; echo "$profile" > "$CONFIG";; esac
 
 enabled="$(grep -m1 '^enabled=' "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
+overlay_enabled="$(grep -m1 '^overlay_auto=' "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
 if [ "$enabled" = 1 ]; then
     idle="$(grep -m1 '^idle_profile=' "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
     case "$idle" in stock|dynamic744|performance744) profile="$idle";; esac
@@ -32,7 +33,9 @@ while [ $tries -lt 900 ]; do
     apply_profile "$profile" 2
     rc=$?
     if [ $rc -eq 0 ]; then
-        [ "$enabled" = 1 ] && nohup "$MODDIR/game_boost.sh" --daemon >/dev/null 2>&1 &
+        if [ "$enabled" = 1 ] || [ "$overlay_enabled" = 1 ]; then
+            nohup "$MODDIR/game_boost.sh" --daemon >/dev/null 2>&1 &
+        fi
         exit 0
     fi
     [ $rc -eq 1 ] && exit 1
