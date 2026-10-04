@@ -17,7 +17,12 @@ to_c(){ v="$1"; case "$v" in ''|*[!0-9-]*) echo "0.0";; *) if [ "$v" -gt 1000 ] 
 sample(){
  MODE="$(grep -m1 '^mode=' "$AUTO_STATE" 2>/dev/null|cut -d= -f2-)"; [ -n "$MODE" ]||MODE=idle
  PACKAGE="$(grep -m1 '^package=' "$AUTO_STATE" 2>/dev/null|cut -d= -f2-)"
- PROFILE="$(grep -m1 '^profile=' "$AUTO_STATE" 2>/dev/null|cut -d= -f2-)"; [ -n "$PROFILE" ]||PROFILE="$(cat "$CONFIG" 2>/dev/null)"
+ PROFILE="$(grep -m1 '^profile=' "$AUTO_STATE" 2>/dev/null|cut -d= -f2-)"
+ runtime_profile="$(cat "$RUNTIME_PROFILE" 2>/dev/null)"
+ if [ -f "$SESSION_EXTREME" ] && [ -n "$runtime_profile" ]; then
+  PROFILE="$runtime_profile"
+ fi
+ [ -n "$PROFILE" ]||PROFILE="$(cat "$CONFIG" 2>/dev/null)"
 
  raw="$(cat "$DEVFREQ/cur_freq" 2>/dev/null | head -1)"
  [ -n "$raw" ] || raw="$(cat "$FREQ" 2>/dev/null | head -1)"
