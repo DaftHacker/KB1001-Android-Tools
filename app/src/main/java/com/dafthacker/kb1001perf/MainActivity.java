@@ -23,8 +23,6 @@ public class MainActivity extends Activity {
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private ServiceManager serviceManager;
-    private ModuleManager moduleManager;
 
     private LinearLayout page;
     private TextView headerState;
@@ -60,8 +58,6 @@ public class MainActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         TelemetryStore.ensureSnapshot(this);
-        serviceManager = new ServiceManager(this);
-        moduleManager = new ModuleManager(RootBridge.get());
 
         if (Build.VERSION.SDK_INT >= 33 &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -72,7 +68,7 @@ public class MainActivity extends Activity {
         showTab(0);
 
         io.execute(() -> {
-            backendCtl("status");
+            RootBridge.get().ctl("status");
             autoDetectGames();
         });
 
@@ -226,7 +222,7 @@ public class MainActivity extends Activity {
 
     private void showGpuMenu() {
         io.execute(() -> {
-            BackendResult r = backendCtl("status");
+            RootBridge.Result r = RootBridge.get().ctl("status");
             Map<String,String> state = r.ok() ? parseStatus(r.output) : new HashMap<>();
             String current = state.get("Persistent profile");
             String[] labels = {
@@ -349,7 +345,7 @@ public class MainActivity extends Activity {
         gamesContainer.addView(loading);
 
         io.execute(() -> {
-            BackendResult r = backendCtl("game list");
+            RootBridge.Result r = RootBridge.get().ctl("game list");
             selectedGames.clear();
             if (r.ok()) {
                 for (String line : r.output.split("\\R")) {
@@ -419,7 +415,7 @@ public class MainActivity extends Activity {
 
     private void removeGame(String pkg,boolean autoDetected) {
         io.execute(() -> {
-            backendCtl("game remove " + pkg);
+            RootBridge.get().ctl("game remove " + pkg);
             if (autoDetected) {
                 SharedPreferences prefs = getSharedPreferences("game_library",MODE_PRIVATE);
                 Set<String> ignored = new LinkedHashSet<>(prefs.getStringSet("ignored_games",Collections.emptySet()));
@@ -455,7 +451,7 @@ public class MainActivity extends Activity {
 
     private void addGame(LauncherApp app) {
         io.execute(() -> {
-            BackendResult r = backendCtl("game add " + app.pkg);
+            RootBridge.Result r = RootBridge.get().ctl("game add " + app.pkg);
             if (r.ok()) {
                 SharedPreferences prefs = getSharedPreferences("game_library",MODE_PRIVATE);
                 Set<String> ignored = new LinkedHashSet<>(prefs.getStringSet("ignored_games",Collections.emptySet()));
@@ -509,7 +505,7 @@ public class MainActivity extends Activity {
 
         for (LauncherApp app : launcherApps) {
             if (!app.androidGame || ignored.contains(app.pkg)) continue;
-            backendCtl("game add " + app.pkg);
+            RootBridge.get().ctl("game add " + app.pkg);
         }
     }
 
@@ -585,7 +581,7 @@ public class MainActivity extends Activity {
 
     private void refreshBackendState() {
         io.execute(() -> {
-            BackendResult r = backendCtl("status");
+            RootBridge.Result r = RootBridge.get().ctl("status");
             if (!r.ok()) return;
             Map<String,String> status = parseStatus(r.output);
 
@@ -795,7 +791,7 @@ public class MainActivity extends Activity {
                     File module = UpdateManager.download(this,info.module,null);
 
                     runOnUiThread(() -> progress.setMessage("Installing backend…"));
-                    BackendResult result = UpdateManager.installModule(module);
+                    RootBridge.Result result = UpdateManager.installModule(module);
                     if (!result.ok()) throw new IllegalStateException("Backend install failed:\n" + result.output);
                 }
 
@@ -876,15 +872,9 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    private BackendResult backendCtl(String command) {
-        BackendResult result = serviceManager.execute(command);
-        if (result.ok()) return result;
-        return moduleManager.execute(command);
-    }
-
     private void ctl(String command) {
         io.execute(() -> {
-            BackendResult r = backendCtl(command);
+            RootBridge.Result r = RootBridge.get().ctl(command);
             runOnUiThread(() -> {
                 if (!r.ok()) Toast.makeText(this,"Backend command failed",Toast.LENGTH_LONG).show();
                 refreshTelemetry();
