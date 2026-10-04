@@ -10,6 +10,8 @@ LOGGER_PID="/data/local/tmp/kb1001_perf_logger.pid"
 HISTORY="$STATE_DIR/telemetry_history.log"
 SNAPSHOT="$STATE_DIR/telemetry.txt"
 PROFILE_REQUEST_STATE="$STATE_DIR/manual_profile.state"
+UI_DEMAND="/data/local/tmp/kb1001_telemetry_ui"
+HUD_DEMAND="/data/local/tmp/kb1001_telemetry_hud"
 
 ensure_configs(){
  mkdir -p "$STATE_DIR"
@@ -72,6 +74,8 @@ status(){
  echo "Overlay auto: $(get_conf "$AUTO_CONF" overlay_auto 0)"
  echo "Logger interval: $(get_conf "$LOGGER_CONF" interval_seconds 1)s"
  echo "Logger PID: $(cat "$LOGGER_PID" 2>/dev/null)"
+ echo "UI telemetry demand: $([ -e "$UI_DEMAND" ] && echo 1 || echo 0)"
+ echo "HUD telemetry demand: $([ -e "$HUD_DEMAND" ] && echo 1 || echo 0)"
  echo "File logging: $(get_conf "$LOGGER_CONF" file_logging 0)"
  echo "Log file: $(get_conf "$LOGGER_CONF" file_path "")"
  echo "--- Telemetry ---"
@@ -149,6 +153,15 @@ case "$cmd" in
    esac ;;
  logger)
    case "$1" in
+     demand)
+       case "$2:$3" in
+         ui:on) touch "$UI_DEMAND"; "$MODDIR/perf_logger.sh" --once >/dev/null 2>&1 ;;
+         ui:off) rm -f "$UI_DEMAND" ;;
+         hud:on) touch "$HUD_DEMAND"; "$MODDIR/perf_logger.sh" --once >/dev/null 2>&1 ;;
+         hud:off) rm -f "$HUD_DEMAND" ;;
+         *) exit 2 ;;
+       esac
+       ;;
      repair) repair_logger ;;
      start) start_logger ;;
      stop) stop_logger_instances ;;
