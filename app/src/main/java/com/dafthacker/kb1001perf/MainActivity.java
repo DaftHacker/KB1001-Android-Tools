@@ -36,6 +36,7 @@ public class MainActivity extends Activity {
     private static final int SESSION_COLOR = Color.rgb(238,102,190);
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final ExecutorService scanIo = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private LinearLayout page;
@@ -80,10 +81,7 @@ public class MainActivity extends Activity {
         setContentView(buildUi());
         showTab(0);
 
-        io.execute(() -> {
-            RootBridge.get().ctl("status");
-            autoDetectGames();
-        });
+        io.execute(() -> RootBridge.get().ctl("status"));
 
         quietUpdateCheck();
     }
@@ -293,8 +291,14 @@ public class MainActivity extends Activity {
                 }
             }
 
-            if(launcherApps.isEmpty()) scanLauncherApps();
             runOnUiThread(this::renderGamesInline);
+
+            if(launcherApps.isEmpty()){
+                scanIo.execute(() -> {
+                    scanLauncherApps();
+                    runOnUiThread(this::renderGamesInline);
+                });
+            }
         });
     }
 
@@ -1411,6 +1415,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         io.shutdownNow();
+        scanIo.shutdownNow();
         super.onDestroy();
     }
 
