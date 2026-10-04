@@ -40,8 +40,7 @@ public final class StressTestActivity extends Activity {
     private TextView stateValue;
     private TextView renderFpsValue;
     private TextView workersValue;
-    private Button startButton;
-    private Button stopButton;
+    private Button testButton;
     private final Button[] modeButtons=new Button[3];
     private final Button[] durationButtons=new Button[3];
 
@@ -173,12 +172,11 @@ public final class StressTestActivity extends Activity {
         gpuSurfaceCard.addView(gpuStress,new LinearLayout.LayoutParams(-1,dp(112)));
         content.addView(gpuSurfaceCard,full());
 
-        LinearLayout controls=row();
-        startButton=button("Start test",CPU,v->startTest());
-        stopButton=button("Stop",Color.rgb(145,57,57),v->stopTest("Stopped by user",true));
-        controls.addView(startButton,new LinearLayout.LayoutParams(0,dp(48),2));
-        controls.addView(stopButton,new LinearLayout.LayoutParams(0,dp(48),1));
-        content.addView(controls,full());
+        testButton=button("Start Test",CPU,v->{
+            if(running) stopTest("Stopped by user",true);
+            else startTest();
+        });
+        content.addView(testButton,new LinearLayout.LayoutParams(-1,dp(50)));
 
         TextView note=text(
                 "The CPU test loads all app-visible cores. The GPU test continuously renders a fragment-heavy OpenGL workload. Combined runs both. Android/kernel thermal throttling remains enabled, and this screen adds its own 80°C stop.",
@@ -210,8 +208,9 @@ public final class StressTestActivity extends Activity {
 
         stateValue.setText("RUNNING • "+mode.toUpperCase(Locale.US));
         stateValue.setTextColor(modeColor());
-        startButton.setEnabled(false);
-        stopButton.setEnabled(true);
+        testButton.setText("Stop Test");
+        testButton.setTextColor(TEXT);
+        testButton.setBackground(cardBg(Color.rgb(210,74,74),155));
         workersValue.setText(hasCpu()
                 ? Runtime.getRuntime().availableProcessors()+" CPU workers"
                 : "GPU renderer active");
@@ -310,8 +309,9 @@ public final class StressTestActivity extends Activity {
 
         stateValue.setText(reason.toUpperCase(Locale.US));
         stateValue.setTextColor("Completed".equals(reason)?CPU:Color.rgb(255,196,73));
-        startButton.setEnabled(true);
-        stopButton.setEnabled(false);
+        testButton.setText("Start Test");
+        testButton.setTextColor(TEXT);
+        testButton.setBackground(cardBg(CPU,125));
 
         if(showSummary && !isFinishing()){
             double n=Math.max(1,samples);
@@ -339,7 +339,11 @@ public final class StressTestActivity extends Activity {
         renderFpsValue.setText("Render FPS —");
         workersValue.setText("Thermal cutoff "+(int)THERMAL_STOP_C+"°C");
         gauge.setGauge(0,"—","THERMAL LOAD");
-        stopButton.setEnabled(false);
+        if(testButton!=null){
+            testButton.setText("Start Test");
+            testButton.setTextColor(TEXT);
+            testButton.setBackground(cardBg(CPU,125));
+        }
     }
 
     private void updateSelections(){
