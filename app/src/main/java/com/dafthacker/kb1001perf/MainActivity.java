@@ -5,6 +5,7 @@ import android.app.*;
 import android.content.*;
 import android.content.pm.*;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -30,11 +31,15 @@ public class MainActivity extends Activity {
     private static final int BATTERY_GOOD = Color.rgb(83,205,109);
     private static final int BATTERY_WARN = Color.rgb(255,207,69);
     private static final int BATTERY_LOW = Color.rgb(255,92,82);
+    private static final int GAMES_COLOR = Color.rgb(190,112,255);
+    private static final int SETTINGS_COLOR = Color.rgb(102,163,255);
+    private static final int SESSION_COLOR = Color.rgb(238,102,190);
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private LinearLayout page;
+    private final Button[] tabButtons = new Button[3];
 
     private Switch hudSwitch;
     private Switch autoBoostSwitch;
@@ -47,9 +52,6 @@ public class MainActivity extends Activity {
     private MetricUi thermalMetric;
     private MetricUi batteryMetric;
     private TextView loggerPath;
-
-    private TextView gameProfileValue;
-    private TextView idleProfileValue;
 
     private LinearLayout gamesContainer;
     private final Set<String> selectedGames = new LinkedHashSet<>();
@@ -85,24 +87,43 @@ public class MainActivity extends Activity {
     private View buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(12),dp(12),dp(12),dp(10));
+        root.setPadding(dp(12),dp(10),dp(12),dp(10));
         root.setBackgroundResource(R.drawable.bg_app);
+
+        root.setOnApplyWindowInsetsListener((v,insets) -> {
+            int top=0,bottom=0;
+            if(Build.VERSION.SDK_INT>=30){
+                Insets bars=insets.getInsets(WindowInsets.Type.statusBars()|WindowInsets.Type.navigationBars());
+                top=bars.top;
+                bottom=bars.bottom;
+            }else{
+                top=insets.getSystemWindowInsetTop();
+                bottom=insets.getSystemWindowInsetBottom();
+            }
+            v.setPadding(dp(12),top+dp(10),dp(12),bottom+dp(8));
+            return insets;
+        });
+        root.requestApplyInsets();
 
         PerformanceHeaderView header = new PerformanceHeaderView(this);
         LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1,dp(126));
-        hp.setMargins(0,0,0,dp(8));
+        hp.setMargins(0,0,0,dp(10));
         root.addView(header,hp);
 
-        HorizontalScrollView tabScroll = new HorizontalScrollView(this);
-        tabScroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout tabs = row();
-        tabs.addView(tabButton("DASHBOARD",0),tabWeight());
-        tabs.addView(tabButton("GAMES",1),tabWeight());
-        tabs.addView(tabButton("SETTINGS",2),tabWeight());
-        tabScroll.addView(tabs);
-        root.addView(tabScroll,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout tabShell = new LinearLayout(this);
+        tabShell.setOrientation(LinearLayout.HORIZONTAL);
+        tabShell.setGravity(Gravity.CENTER);
+        tabShell.setPadding(dp(5),dp(5),dp(5),dp(5));
+        tabShell.setBackground(tabShellBackground());
+
+        tabShell.addView(tabButton("Dashboard",0),tabWeight());
+        tabShell.addView(tabButton("Games",1),tabWeight());
+        tabShell.addView(tabButton("Settings",2),tabWeight());
+
+        root.addView(tabShell,new LinearLayout.LayoutParams(-1,dp(54)));
 
         ScrollView scroller = new ScrollView(this);
+        scroller.setFillViewport(true);
         page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
         page.setPadding(0,dp(8),0,dp(28));
@@ -122,10 +143,10 @@ public class MainActivity extends Activity {
         loggingSwitch = null;
         ramMetric = cpuMetric = gpuMetric = thermalMetric = batteryMetric = null;
         loggerPath = null;
-        gameProfileValue = null;
-        idleProfileValue = null;
         gamesContainer = null;
         profileButtons.clear();
+
+        updateTabStyles();
 
         if (index == 0) dashboardPage();
         else if (index == 1) gamesPage();
@@ -175,33 +196,7 @@ public class MainActivity extends Activity {
     }
 
     private void showGpuMenu() {
-        io.execute(() -> {
-            RootBridge.Result r = RootBridge.get().ctl("status");
-            Map<String,String> state = r.ok() ? parseStatus(r.output) : new HashMap<>();
-            String current = state.get("Persistent profile");
-            String[] labels = {
-                    "Stock 696 MHz",
-                    "Dynamic 744 MHz",
-                    "Performance 744 MHz",
-                    "Experimental 792 MHz (session only)"
-            };
-            String[] values = {"stock","dynamic744","performance744","experimental792"};
-            int selected = 1;
-            for (int i=0;i<values.length;i++) {
-                if (values[i].equals(current)) selected=i;
-            }
-            final int checked = selected;
-            runOnUiThread(() ->
-                    new AlertDialog.Builder(this)
-                            .setTitle("Mali-G57 GPU")
-                            .setSingleChoiceItems(labels,checked,(d,which) -> {
-                                d.dismiss();
-                                if ("experimental792".equals(values[which])) experimental();
-                                else ctl("persist " + values[which]);
-                            })
-                            .setNegativeButton("Cancel",null)
-                            .show());
-        });
+        startActivity(new Intent(this,GpuActivity.class));
     }
 
     private void showCpuMenu() {
@@ -214,50 +209,6 @@ public class MainActivity extends Activity {
                         "\n\nCPU controls are intentionally read-only until we validate the A333 cluster limits and governors on this tablet.")
                 .setPositiveButton("OK",null)
                 .show();
-    }
-
-    private void addProfile(RadioGroup group,String title,String key,String subtitle) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-
-        RadioButton rb = new RadioButton(this);
-        rb.setText(title);
-        rb.setTextColor(Color.rgb(231,240,238));
-        rb.setTextSize(14);
-        rb.setTag(key);
-        rb.setPadding(0,dp(6),0,dp(6));
-        profileButtons.put(key,rb);
-
-        LinearLayout labels = new LinearLayout(this);
-        labels.setOrientation(LinearLayout.VERTICAL);
-        labels.addView(rb);
-        labels.addView(text(subtitle,10,MUTED,false));
-        row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
-
-        row.setOnClickListener(v -> rb.performClick());
-        rb.setOnClickListener(v -> {
-            if (suppressSwitchCallbacks) return;
-            if ("experimental792".equals(key)) {
-                experimental();
-            } else {
-                for (RadioButton b : profileButtons.values()) b.setChecked(false);
-                rb.setChecked(true);
-                ctl("persist " + key);
-            }
-        });
-        group.addView(row);
-    }
-
-    private TextView heroStat(String label,String value) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(4),dp(14),dp(4),0);
-        TextView l = text(label,9,Color.rgb(175,202,200),true);
-        TextView v = text(value,16,Color.WHITE,true);
-        box.addView(l);
-        box.addView(v);
-        return v;
     }
 
     private void gamesPage() {
@@ -332,7 +283,7 @@ public class MainActivity extends Activity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(12),dp(10),dp(12),dp(10));
-        row.setBackgroundResource(R.drawable.bg_card);
+        row.setBackground(metricBackground(GAMES_COLOR));
 
         ImageView image = new ImageView(this);
         if (icon != null) image.setImageDrawable(icon);
@@ -471,20 +422,6 @@ public class MainActivity extends Activity {
                 checked -> ctl("auto " + (checked ? "enable" : "disable")));
         page.addView((View)autoBoostSwitch.getParent());
 
-        LinearLayout gameProfileCard = settingRow(
-                "Game GPU profile",
-                "Profile used while a listed game is foreground.",
-                v -> chooseGameProfile());
-        gameProfileValue = (TextView)gameProfileCard.getTag();
-        page.addView(gameProfileCard,full());
-
-        LinearLayout idleProfileCard = settingRow(
-                "Outside-game GPU profile",
-                "Profile restored after leaving a listed game.",
-                v -> chooseIdleProfile());
-        idleProfileValue = (TextView)idleProfileCard.getTag();
-        page.addView(idleProfileCard,full());
-
         section("HUD","Manual overlay and game-detection responsiveness.");
 
         hudSwitch = toggleCard(
@@ -520,53 +457,12 @@ public class MainActivity extends Activity {
         page.addView(card(info),full());
     }
 
-    private LinearLayout settingRow(String title,String subtitle,View.OnClickListener listener) {
-        LinearLayout wrapper = new LinearLayout(this);
-        wrapper.setOrientation(LinearLayout.HORIZONTAL);
-        wrapper.setGravity(Gravity.CENTER_VERTICAL);
-        wrapper.setPadding(dp(13),dp(11),dp(13),dp(11));
-        wrapper.setBackgroundResource(R.drawable.bg_card);
-
-        LinearLayout labels = new LinearLayout(this);
-        labels.setOrientation(LinearLayout.VERTICAL);
-        labels.addView(text(title,14,Color.rgb(231,240,238),true));
-        labels.addView(text(subtitle,10,MUTED,false));
-        wrapper.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
-
-        TextView value = text("—",12,ACCENT,true);
-        value.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
-        wrapper.addView(value,new LinearLayout.LayoutParams(dp(138),-2));
-        wrapper.setTag(value);
-        wrapper.setOnClickListener(listener);
-        return wrapper;
-    }
-
-    private void chooseGameProfile() {
-        String[] labels = {"Dynamic 744 MHz","Performance 744 MHz"};
-        String[] values = {"dynamic744","performance744"};
-        new AlertDialog.Builder(this)
-                .setTitle("Game GPU profile")
-                .setItems(labels,(d,which) -> ctl("auto profile " + values[which]))
-                .setNegativeButton("Cancel",null)
-                .show();
-    }
-
-    private void chooseIdleProfile() {
-        String[] labels = {"Stock 696 MHz","Dynamic 744 MHz","Performance 744 MHz"};
-        String[] values = {"stock","dynamic744","performance744"};
-        new AlertDialog.Builder(this)
-                .setTitle("Outside-game GPU profile")
-                .setItems(labels,(d,which) -> ctl("auto idle " + values[which]))
-                .setNegativeButton("Cancel",null)
-                .show();
-    }
-
     private Switch toggleCard(String title,String subtitle,ToggleAction action) {
         LinearLayout wrapper = new LinearLayout(this);
         wrapper.setOrientation(LinearLayout.HORIZONTAL);
         wrapper.setGravity(Gravity.CENTER_VERTICAL);
         wrapper.setPadding(dp(13),dp(11),dp(13),dp(11));
-        wrapper.setBackgroundResource(R.drawable.bg_card);
+        wrapper.setBackground(metricBackground(SETTINGS_COLOR));
 
         LinearLayout labels = new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
@@ -623,8 +519,6 @@ public class MainActivity extends Activity {
                 if (autoHudSwitch != null) autoHudSwitch.setChecked("1".equals(status.get("Overlay auto")));
                 if (loggingSwitch != null) loggingSwitch.setChecked("1".equals(status.get("File logging")));
                 if (hudSwitch != null) hudSwitch.setChecked(OverlayService.isRunning());
-                if (gameProfileValue != null) gameProfileValue.setText(displayProfile(status.get("Game profile")));
-                if (idleProfileValue != null) idleProfileValue.setText(displayProfile(status.get("Idle profile")));
 
                 String persistent = status.get("Persistent profile");
                 if (persistent != null) {
@@ -946,12 +840,20 @@ public class MainActivity extends Activity {
     }
 
     private void section(String title,String subtitle) {
-        TextView t = text(title,15,Color.rgb(231,240,238),true);
-        t.setPadding(0,dp(16),0,dp(2));
+        int color=ACCENT;
+        String key=title.toUpperCase(Locale.US);
+        if(key.contains("SESSION")) color=SESSION_COLOR;
+        else if(key.contains("GAME")) color=GAMES_COLOR;
+        else if(key.contains("HUD")) color=GPU_COLOR;
+        else if(key.contains("SOFTWARE")) color=CPU_COLOR;
+        else if(key.contains("BACKEND")) color=SETTINGS_COLOR;
+
+        TextView t = text(title,15,color,true);
+        t.setPadding(dp(2),dp(17),0,dp(2));
         page.addView(t);
 
         TextView s = text(subtitle,11,MUTED,false);
-        s.setPadding(0,0,0,dp(7));
+        s.setPadding(dp(2),0,0,dp(7));
         page.addView(s);
     }
 
@@ -965,7 +867,56 @@ public class MainActivity extends Activity {
     }
 
     private Button tabButton(String label,int index) {
-        return button(label,false,v -> showTab(index));
+        Button b = new Button(this);
+        b.setText(label);
+        b.setAllCaps(false);
+        b.setTextSize(11);
+        b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        b.setTextColor(MUTED);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(dp(6),0,dp(6),0);
+        b.setOnClickListener(v -> showTab(index));
+        tabButtons[index]=b;
+        return b;
+    }
+
+    private void updateTabStyles() {
+        int[] colors={ACCENT,GAMES_COLOR,SETTINGS_COLOR};
+        for(int i=0;i<tabButtons.length;i++){
+            Button b=tabButtons[i];
+            if(b==null)continue;
+            boolean selected=i==tab;
+            b.setTextColor(selected?Color.rgb(6,15,16):MUTED);
+            b.setBackground(tabBackground(colors[i],selected));
+        }
+    }
+
+    private GradientDrawable tabShellBackground() {
+        GradientDrawable g=new GradientDrawable();
+        g.setColor(Color.rgb(10,18,18));
+        g.setCornerRadius(dp(18));
+        g.setStroke(dp(1),Color.rgb(31,51,50));
+        return g;
+    }
+
+    private GradientDrawable tabBackground(int color,boolean selected) {
+        GradientDrawable g=new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                selected
+                        ? new int[]{color,blend(color,Color.WHITE,.12f)}
+                        : new int[]{Color.rgb(17,28,27),Color.rgb(12,21,21)});
+        g.setCornerRadius(dp(14));
+        if(!selected) g.setStroke(dp(1),Color.argb(70,Color.red(color),Color.green(color),Color.blue(color)));
+        return g;
+    }
+
+    private int blend(int a,int b,float amount){
+        float x=Math.max(0f,Math.min(1f,amount));
+        int r=Math.round(Color.red(a)*(1f-x)+Color.red(b)*x);
+        int g=Math.round(Color.green(a)*(1f-x)+Color.green(b)*x);
+        int bl=Math.round(Color.blue(a)*(1f-x)+Color.blue(b)*x);
+        return Color.rgb(r,g,bl);
     }
 
     private Button button(String label,boolean primary,View.OnClickListener listener) {
@@ -1003,8 +954,8 @@ public class MainActivity extends Activity {
     }
 
     private LinearLayout.LayoutParams tabWeight() {
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(112),-2);
-        p.setMargins(dp(3),dp(3),dp(3),dp(3));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0,-1,1);
+        p.setMargins(dp(2),0,dp(2),0);
         return p;
     }
 
