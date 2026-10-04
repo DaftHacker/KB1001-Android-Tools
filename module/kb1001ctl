@@ -285,16 +285,29 @@ case "$cmd" in
      overlay-list)
        grep -Ev '^[[:space:]]*(#|$)' "$OVERLAY_DISABLED" 2>/dev/null || true
        ;;
+     overlay-state)
+       valid_package "$pkg" || exit 2
+       if grep -Fxq "$pkg" "$OVERLAY_DISABLED" 2>/dev/null; then
+        echo disabled
+       else
+        echo enabled
+       fi
+       ;;
      overlay-enable)
        valid_package "$pkg" || exit 2
-       grep -Fvx "$pkg" "$OVERLAY_DISABLED" 2>/dev/null > "$OVERLAY_DISABLED.tmp.$" || true
-       mv "$OVERLAY_DISABLED.tmp.$" "$OVERLAY_DISABLED"
+       tmp="$OVERLAY_DISABLED.tmp.enable"
+       grep -Fvx "$pkg" "$OVERLAY_DISABLED" 2>/dev/null > "$tmp" || true
+       mv "$tmp" "$OVERLAY_DISABLED"
        sync_current_game_overlays "$pkg"
        ;;
      overlay-disable)
        valid_package "$pkg" || exit 2
        grep -Fxq "$pkg" "$GAMES" 2>/dev/null || exit 3
-       grep -Fxq "$pkg" "$OVERLAY_DISABLED" 2>/dev/null || echo "$pkg" >> "$OVERLAY_DISABLED"
+       if ! grep -Fxq "$pkg" "$OVERLAY_DISABLED" 2>/dev/null; then
+        tmp="$OVERLAY_DISABLED.tmp.disable"
+        { cat "$OVERLAY_DISABLED" 2>/dev/null; echo "$pkg"; } > "$tmp"
+        mv "$tmp" "$OVERLAY_DISABLED"
+       fi
        sync_current_game_overlays "$pkg"
        ;;
      *) exit 2 ;;
