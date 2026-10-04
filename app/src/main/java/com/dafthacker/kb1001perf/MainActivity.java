@@ -9,10 +9,12 @@ import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.*;
 import android.provider.Settings;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.*;
 
+import java.io.File;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -24,6 +26,11 @@ public class MainActivity extends Activity {
     private TextView headerState;
     private TextView liveText;
     private TextView logText;
+    private TextView updateStatus;
+    private Button appUpdateButton;
+    private Button moduleUpdateButton;
+    private EditText tokenField;
+    private UpdateManager.ReleaseInfo releaseInfo;
     private int tab;
     private boolean active;
     private boolean showHudAfterPermission;
@@ -31,12 +38,13 @@ public class MainActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         TelemetryStore.ensureSnapshot(this);
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 41);
         }
         setContentView(buildUi());
         showTab(0);
-        io.execute(() -> RootBridge.get().ctl("status")); // one Magisk grant, one persistent root shell
+        io.execute(() -> RootBridge.get().ctl("status"));
     }
 
     private View buildUi() {
@@ -49,15 +57,20 @@ public class MainActivity extends Activity {
         brand.setLetterSpacing(.18f);
         root.addView(brand);
         root.addView(text("Performance Manager", 30, Color.WHITE, true));
+
         headerState = text("Root backend • connecting…", 13, Color.rgb(156,176,201), false);
         headerState.setPadding(0, dp(4), 0, dp(14));
         root.addView(headerState);
 
+        HorizontalScrollView tabScroll = new HorizontalScrollView(this);
+        tabScroll.setHorizontalScrollBarEnabled(false);
         LinearLayout tabs = row();
-        tabs.addView(tabButton("CONTROL",0), weight());
-        tabs.addView(tabButton("GAMES",1), weight());
-        tabs.addView(tabButton("LOGS",2), weight());
-        root.addView(tabs);
+        tabs.addView(tabButton("CONTROL",0), tabWeight());
+        tabs.addView(tabButton("GAMES",1), tabWeight());
+        tabs.addView(tabButton("LOGS",2), tabWeight());
+        tabs.addView(tabButton("UPDATES",3), tabWeight());
+        tabScroll.addView(tabs);
+        root.addView(tabScroll, new LinearLayout.LayoutParams(-1,-2));
 
         ScrollView scroll = new ScrollView(this);
         page = new LinearLayout(this);
@@ -71,9 +84,17 @@ public class MainActivity extends Activity {
     private void showTab(int index) {
         tab = index;
         page.removeAllViews();
+        liveText = null;
+        logText = null;
+        updateStatus = null;
+        appUpdateButton = null;
+        moduleUpdateButton = null;
+
         if (index == 0) controlPage();
         else if (index == 1) gamesPage();
-        else logsPage();
+        else if (index == 2) logsPage();
+        else updatesPage();
+
         refreshTelemetry();
     }
 
@@ -94,6 +115,7 @@ public class MainActivity extends Activity {
         p1.addView(button("DYNAMIC 744", true, v -> ctl("persist dynamic744")), weight());
         p1.addView(button("PERFORMANCE 744", false, v -> ctl("persist performance744")), weight());
         page.addView(card(p1), full());
+
         LinearLayout p2 = row();
         p2.addView(button("STOCK 696", false, v -> ctl("persist stock")), weight());
         p2.addView(button("EXPERIMENTAL 792", false, v -> experimental()), weight());
@@ -145,11 +167,192 @@ public class MainActivity extends Activity {
         refreshLogTail();
     }
 
+    private void updatesPage() {
+        section("SOFTWARE UPDATES", "One release feed updates both the Android front end and the Magisk backend.");
+
+        updateStatus = mono(
+                "Installed app: " + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")\n" +
+                "Checking module version…");
+        page.addView(card(updateStatus), full());
+
+        Button check = button("CHECK FOR UPDATES", true, v -> checkUpdates());
+        page.addView(card(check), full());
+
+        appUpdateButton = button("DOWNLOAD APP UPDATE", false, v -> downloadAppUpdate());
+        appUpdateButton.setEnabled(false);
+        page.addView(card(appUpdateButton), full());
+
+        moduleUpdateButton = button("DOWNLOAD + INSTALL MODULE", false, v -> downloadModuleUpdate());
+        moduleUpdateButton.setEnabled(false);
+        page.addView(card(moduleUpdateButton), full());
+
+        section("PRIVATE GITHUB REPO", "This repo is private. A fine-grained token with read-only access to this repository lets the app query/download releases. Leave blank if releases are moved to a public repo.");
+        tokenField = new EditText(this);
+        tokenField.setText(UpdateManager.getToken(this));
+        tokenField.setHint("github_pat_…");
+        tokenField.setTextColor(Color.WHITE);
+        tokenField.setHintTextColor(Color.rgb(110,125,145));
+        tokenField.setSingleLine(true);
+        tokenField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        page.addView(card(tokenField), full());
+
+        LinearLayout tokenRow = row();
+        tokenRow.addView(button("SAVE TOKEN", false, v -> {
+            UpdateManager.saveToken(this, tokenField.getText().toString());
+            Toast.makeText(this, "Update token saved", Toast.LENGTH_SHORT).show();
+        }), weight());
+        tokenRow.addView(button("CLEAR TOKEN", false, v -> {
+            tokenField.setText("");
+            UpdateManager.saveToken(this, "");
+            Toast.makeText(this, "Update token cleared", Toast.LENGTH_SHORT).show();
+        }), weight());
+        page.addView(card(tokenRow), full());
+
+        TextView note = mono(
+                "APK updates: SHA-256 verify → Android installer\n" +
+                "Module updates: SHA-256 verify → magisk --install-module\n" +
+                "A stable APK signing certificate is required for Android to accept in-place app updates.");
+        page.addView(card(note), full());
+
+        checkUpdates();
+    }
+
+    private void checkUpdates() {
+        if (updateStatus == null) return;
+        updateStatus.setText("Checking dev-latest…");
+        appUpdateButton.setEnabled(false);
+        moduleUpdateButton.setEnabled(false);
+
+        io.execute(() -> {
+            try {
+                UpdateManager.ReleaseInfo info = UpdateManager.check(this);
+                int appInstalled = UpdateManager.installedAppVersion(this);
+                int moduleInstalled = UpdateManager.installedModuleVersion();
+                releaseInfo = info;
+
+                boolean appNew = info.appVersionCode > appInstalled;
+                boolean moduleNew = info.moduleVersionCode > moduleInstalled;
+
+                String s =
+                        "APP\n" +
+                        "  installed  " + BuildConfig.VERSION_NAME + " (" + appInstalled + ")\n" +
+                        "  available  " + info.appVersionName + " (" + info.appVersionCode + ")\n" +
+                        "  status     " + (appNew ? "UPDATE AVAILABLE" : "current") + "\n\n" +
+                        "MODULE\n" +
+                        "  installed  code " + moduleInstalled + "\n" +
+                        "  available  " + info.moduleVersionName + " (" + info.moduleVersionCode + ")\n" +
+                        "  status     " + (moduleNew ? "UPDATE AVAILABLE" : "current") + "\n\n" +
+                        "commit " + info.commit;
+
+                runOnUiThread(() -> {
+                    if (updateStatus != null) updateStatus.setText(s);
+                    if (appUpdateButton != null) appUpdateButton.setEnabled(appNew);
+                    if (moduleUpdateButton != null) moduleUpdateButton.setEnabled(moduleNew);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (updateStatus != null) {
+                        updateStatus.setText("Update check failed:\n" + e.getMessage() +
+                                "\n\nIf the repository remains private, save a read-only GitHub token below.");
+                    }
+                });
+            }
+        });
+    }
+
+    private void downloadAppUpdate() {
+        UpdateManager.ReleaseInfo info = releaseInfo;
+        if (info == null) { checkUpdates(); return; }
+        setUpdateBusy("Downloading app update…");
+
+        io.execute(() -> {
+            try {
+                File apk = UpdateManager.download(this, info.app, (done,total) ->
+                        runOnUiThread(() -> setUpdateProgress("Downloading APK", done, total)));
+                runOnUiThread(() -> {
+                    if (updateStatus != null) updateStatus.setText("APK downloaded and SHA-256 verified. Opening Android installer…");
+                    try {
+                        UpdateManager.installApk(this, apk);
+                    } catch (Exception e) {
+                        if (updateStatus != null) updateStatus.setText(e.getMessage());
+                    }
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> updateError(e));
+            }
+        });
+    }
+
+    private void downloadModuleUpdate() {
+        UpdateManager.ReleaseInfo info = releaseInfo;
+        if (info == null) { checkUpdates(); return; }
+        setUpdateBusy("Downloading Magisk module…");
+
+        io.execute(() -> {
+            try {
+                File zip = UpdateManager.download(this, info.module, (done,total) ->
+                        runOnUiThread(() -> setUpdateProgress("Downloading module", done, total)));
+
+                runOnUiThread(() -> {
+                    if (updateStatus != null) updateStatus.setText("Module ZIP downloaded and verified. Installing through Magisk…");
+                });
+
+                RootBridge.Result r = UpdateManager.installModule(zip);
+                runOnUiThread(() -> {
+                    if (!r.ok()) {
+                        if (updateStatus != null) updateStatus.setText("Magisk module install failed:\n" + r.output);
+                        return;
+                    }
+                    new AlertDialog.Builder(this)
+                            .setTitle("Module update installed")
+                            .setMessage("Magisk accepted the new module. Reboot now to load the updated backend?")
+                            .setNegativeButton("Later", null)
+                            .setPositiveButton("Reboot", (d,w) -> io.execute(() -> RootBridge.get().exec("reboot")))
+                            .show();
+                    if (updateStatus != null) updateStatus.setText("Module update staged successfully. Reboot required.");
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> updateError(e));
+            }
+        });
+    }
+
+    private void setUpdateBusy(String text) {
+        if (updateStatus != null) updateStatus.setText(text);
+        if (appUpdateButton != null) appUpdateButton.setEnabled(false);
+        if (moduleUpdateButton != null) moduleUpdateButton.setEnabled(false);
+    }
+
+    private void setUpdateProgress(String label, long done, long total) {
+        if (updateStatus == null) return;
+        if (total > 0) {
+            long pct = Math.min(100, (done * 100) / total);
+            updateStatus.setText(label + "… " + pct + "%\n" + human(done) + " / " + human(total));
+        } else {
+            updateStatus.setText(label + "… " + human(done));
+        }
+    }
+
+    private void updateError(Exception e) {
+        if (updateStatus != null) updateStatus.setText("Update failed:\n" + e.getMessage());
+        if (appUpdateButton != null) appUpdateButton.setEnabled(releaseInfo != null);
+        if (moduleUpdateButton != null) moduleUpdateButton.setEnabled(releaseInfo != null);
+    }
+
+    private String human(long b) {
+        if (b < 1024) return b + " B";
+        if (b < 1024*1024) return String.format("%.1f KB", b/1024.0);
+        return String.format("%.1f MB", b/(1024.0*1024.0));
+    }
+
     private void refreshLogTail() {
         if (logText == null) return;
         io.execute(() -> {
             RootBridge.Result r = RootBridge.get().ctl("logger tail 60");
-            runOnUiThread(() -> { if (logText != null) logText.setText(r.ok() ? r.output : "Logger history unavailable:\n" + r.output); });
+            runOnUiThread(() -> {
+                if (logText != null)
+                    logText.setText(r.ok() ? r.output : "Logger history unavailable:\n" + r.output);
+            });
         });
     }
 
@@ -226,9 +429,11 @@ public class MainActivity extends Activity {
 
     private void section(String title, String subtitle) {
         TextView t = text(title, 16, Color.WHITE, true);
-        t.setPadding(0, dp(16), 0, dp(2)); page.addView(t);
+        t.setPadding(0, dp(16), 0, dp(2));
+        page.addView(t);
         TextView s = text(subtitle, 12, Color.rgb(156,176,201), false);
-        s.setPadding(0, 0, 0, dp(7)); page.addView(s);
+        s.setPadding(0, 0, 0, dp(7));
+        page.addView(s);
     }
 
     private LinearLayout card(View child) {
@@ -241,19 +446,61 @@ public class MainActivity extends Activity {
     }
 
     private Button tabButton(String s, int i) { return button(s, false, v -> showTab(i)); }
+
     private Button button(String s, boolean primary, View.OnClickListener l) {
-        Button b = new Button(this); b.setText(s); b.setAllCaps(false); b.setTextColor(Color.WHITE);
-        b.setTextSize(12); b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        Button b = new Button(this);
+        b.setText(s);
+        b.setAllCaps(false);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(12);
+        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         b.setBackgroundResource(primary ? R.drawable.bg_button_primary : R.drawable.bg_button_secondary);
-        b.setOnClickListener(l); return b;
+        b.setOnClickListener(l);
+        return b;
     }
+
     private TextView text(String s,int sp,int color,boolean bold) {
-        TextView v=new TextView(this); v.setText(s); v.setTextSize(sp); v.setTextColor(color);
-        if(bold) v.setTypeface(Typeface.DEFAULT,Typeface.BOLD); return v;
+        TextView v=new TextView(this);
+        v.setText(s);
+        v.setTextSize(sp);
+        v.setTextColor(color);
+        if(bold) v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        return v;
     }
-    private TextView mono(String s) { TextView v=text(s,12,Color.WHITE,false); v.setTypeface(Typeface.MONOSPACE); v.setTextIsSelectable(true); return v; }
-    private LinearLayout row(){LinearLayout r=new LinearLayout(this);r.setOrientation(LinearLayout.HORIZONTAL);r.setGravity(Gravity.CENTER);return r;}
-    private LinearLayout.LayoutParams weight(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(dp(3),dp(3),dp(3),dp(3));return p;}
-    private LinearLayout.LayoutParams full(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(4),0,dp(4));return p;}
-    private int dp(int x){return Math.round(x*getResources().getDisplayMetrics().density);}
+
+    private TextView mono(String s) {
+        TextView v=text(s,12,Color.WHITE,false);
+        v.setTypeface(Typeface.MONOSPACE);
+        v.setTextIsSelectable(true);
+        return v;
+    }
+
+    private LinearLayout row() {
+        LinearLayout r=new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER);
+        return r;
+    }
+
+    private LinearLayout.LayoutParams weight() {
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);
+        p.setMargins(dp(3),dp(3),dp(3),dp(3));
+        return p;
+    }
+
+    private LinearLayout.LayoutParams tabWeight() {
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(118),-2);
+        p.setMargins(dp(3),dp(3),dp(3),dp(3));
+        return p;
+    }
+
+    private LinearLayout.LayoutParams full() {
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+        p.setMargins(0,dp(4),0,dp(4));
+        return p;
+    }
+
+    private int dp(int x) {
+        return Math.round(x*getResources().getDisplayMetrics().density);
+    }
 }
