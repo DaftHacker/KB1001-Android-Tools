@@ -76,7 +76,7 @@ public final class GpuStressView extends GLSurfaceView {
                     " uv.x*=uResolution.x/max(uResolution.y,1.0);"+
                     " vec2 p=uv;"+
                     " float acc=0.0;"+
-                    " for(int i=0;i<28;i++){"+
+                    " for(int i=0;i<72;i++){"+
                     "  float d=max(dot(p,p),0.16);"+
                     "  p=abs(p)/d-vec2(0.72,0.63);"+
                     "  acc+=sin((p.x+p.y)*3.7+uTime*0.9)*0.018;"+
@@ -110,11 +110,14 @@ public final class GpuStressView extends GLSurfaceView {
             vertices.position(0);
             GLES20.glVertexAttribPointer(aPos,2,GLES20.GL_FLOAT,false,0,vertices);
 
-            // Multiple full-screen passes intentionally keep the Mali busy.
-            for(int i=0;i<4;i++){
+            // A deliberately sustained fragment workload. The old 4-pass workload
+            // was too light on this tablet and often finished before devfreq reacted.
+            for(int i=0;i<12;i++){
+                GLES20.glUniform1f(uTime,time+(i*.013f));
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLES,0,3);
             }
             GLES20.glDisableVertexAttribArray(aPos);
+            GLES20.glFinish();
 
             frames++;
             long span=now-fpsWindowNs;
