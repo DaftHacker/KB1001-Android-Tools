@@ -75,7 +75,7 @@ run_daemon() {
     last_pkg=""
     retry_target=""
     auto_overlay_visible=0
-    log "Game detection daemon started (pid=$)."
+    log "Game detection daemon started (pid=$$)."
 
     while true; do
         boost_enabled="$(conf_get enabled 0)"
