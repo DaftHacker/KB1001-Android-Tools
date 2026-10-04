@@ -22,19 +22,7 @@ import java.util.Locale;
 public final class UpdateManager {
     public static final String RELEASE_API =
             "https://api.github.com/repos/DaftHacker/KB1001-Android-Tools/releases/tags/dev-latest";
-    private static final String PREFS = "updates";
-    private static final String TOKEN = "github_token";
-
     private UpdateManager() {}
-
-    public static void saveToken(Context c, String token) {
-        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit().putString(TOKEN, token == null ? "" : token.trim()).apply();
-    }
-
-    public static String getToken(Context c) {
-        return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(TOKEN, "");
-    }
 
     public static final class ReleaseInfo {
         public int appVersionCode;
@@ -68,7 +56,7 @@ public final class UpdateManager {
         if (manifestAsset == null) throw new IOException("update.json is missing from dev-latest");
 
         byte[] manifestBytes = downloadBytes(
-                manifestAsset.getString("url"), token, true, null);
+                manifestAsset.getString("url"), true, null);
         JSONObject manifest = new JSONObject(new String(manifestBytes, java.nio.charset.StandardCharsets.UTF_8));
 
         ReleaseInfo out = new ReleaseInfo();
@@ -144,7 +132,7 @@ public final class UpdateManager {
         }
     }
 
-    private static byte[] downloadBytes(String url, String token, boolean apiAsset, FileSink sink) throws Exception {
+    private static byte[] downloadBytes(String url, boolean apiAsset, FileSink sink) throws Exception {
         HttpURLConnection c = (HttpURLConnection)new URL(url).openConnection();
         c.setConnectTimeout(15000);
         c.setReadTimeout(30000);
@@ -181,7 +169,7 @@ public final class UpdateManager {
         return new byte[0];
     }
 
-    private static JSONObject getJson(String url, String token) throws Exception {
+    private static JSONObject getJson(String url) throws Exception {
         HttpURLConnection c = (HttpURLConnection)new URL(url).openConnection();
         c.setConnectTimeout(15000);
         c.setReadTimeout(20000);
