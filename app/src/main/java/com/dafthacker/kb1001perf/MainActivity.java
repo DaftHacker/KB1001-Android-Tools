@@ -531,8 +531,8 @@ public class MainActivity extends Activity {
 
         Button check = button("Check for Update",true,v -> checkForUpdate(false));
         check.setTextSize(14);
-        check.setTextColor(Color.rgb(7,28,13));
-        check.setBackground(metricBackground(CPU_COLOR));
+        check.setTextColor(Color.rgb(6,28,12));
+        check.setBackground(tabBackground(CPU_COLOR,true));
         page.addView(card(check),full());
 
         TextView versions = text(
