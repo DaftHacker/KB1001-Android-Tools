@@ -169,8 +169,9 @@ public class CpuActivity extends Activity {
             runOnUiThread(()->{
                 String policiesText=TelemetryStore.get(telemetry,"cpu_policies","");
                 CpuPeak peak=parsePeak(policiesText);
-                if(clockValue!=null) clockValue.setText(peak.current>0?peak.current+" MHz":"— MHz");
-                if(graph!=null) graph.addValue(peak.max>0?Math.max(0,Math.min(100,peak.current*100f/peak.max)):0);
+                int util=Math.max(0,Math.min(100,parseInt(TelemetryStore.get(telemetry,"cpu_util_pct","0"))));
+                if(clockValue!=null) clockValue.setText(util+"% • "+(peak.current>0?peak.current+" MHz":"— MHz"));
+                if(graph!=null) graph.addValue(util);
 
                 String first=status.output.split("\\R",2)[0];
                 if(first.startsWith("CPU mode:")) first=first.substring("CPU mode:".length()).trim();
@@ -329,6 +330,7 @@ public class CpuActivity extends Activity {
         return p;
     }
 
+    private int parseInt(String s){try{return Integer.parseInt(s);}catch(Exception e){return 0;}}
     private int dp(float x){return Math.round(x*getResources().getDisplayMetrics().density);}
 
     private final Runnable ticker=new Runnable(){
