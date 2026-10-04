@@ -63,3 +63,6 @@ This project is device-specific. Do not flash the module on unrelated hardware.
 - Failed OPP changes attempt stock runtime recovery.
 - Thermal protection is not disabled.
 - Extreme 792 keeps a safe reboot fallback.
+
+
+<!-- UI redesign work in progress -->
