@@ -58,6 +58,7 @@ public class OverlayService extends Service {
         super.onCreate();
         uiScale=getSharedPreferences("hud",MODE_PRIVATE).getFloat("scale",1f);
         running=true;
+        TelemetryDemand.hud(true);
         TelemetryStore.ensureSnapshot(this);
         createChannel();
         startForeground(1001,notification());
@@ -520,6 +521,7 @@ public class OverlayService extends Service {
 
     @Override public void onDestroy(){
         running=false;
+        TelemetryDemand.hud(false);
         handler.removeCallbacks(updateLoop);
         if(overlay!=null&&wm!=null){
             try{wm.removeView(overlay);}catch(Exception ignored){}
