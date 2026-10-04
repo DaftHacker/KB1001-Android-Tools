@@ -208,10 +208,10 @@ case "$cmd" in
        ;;
      remove)
        valid_package "$pkg" || exit 2
-       grep -Fvx "$pkg" "$GAMES" 2>/dev/null > "$GAMES.tmp.$" || true
-       mv "$GAMES.tmp.$" "$GAMES"
-       grep -Fvx "$pkg" "$OVERLAY_DISABLED" 2>/dev/null > "$OVERLAY_DISABLED.tmp.$" || true
-       mv "$OVERLAY_DISABLED.tmp.$" "$OVERLAY_DISABLED"
+       grep -Fvx "$pkg" "$GAMES" 2>/dev/null > "$GAMES.tmp.$$" || true
+       mv "$GAMES.tmp.$$" "$GAMES"
+       grep -Fvx "$pkg" "$OVERLAY_DISABLED" 2>/dev/null > "$OVERLAY_DISABLED.tmp.$$" || true
+       mv "$OVERLAY_DISABLED.tmp.$$" "$OVERLAY_DISABLED"
        ;;
      clear)
        : > "$GAMES"
@@ -222,8 +222,8 @@ case "$cmd" in
        ;;
      overlay-enable)
        valid_package "$pkg" || exit 2
-       grep -Fvx "$pkg" "$OVERLAY_DISABLED" 2>/dev/null > "$OVERLAY_DISABLED.tmp.$" || true
-       mv "$OVERLAY_DISABLED.tmp.$" "$OVERLAY_DISABLED"
+       grep -Fvx "$pkg" "$OVERLAY_DISABLED" 2>/dev/null > "$OVERLAY_DISABLED.tmp.$$" || true
+       mv "$OVERLAY_DISABLED.tmp.$$" "$OVERLAY_DISABLED"
        ;;
      overlay-disable)
        valid_package "$pkg" || exit 2
