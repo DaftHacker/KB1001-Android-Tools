@@ -31,18 +31,17 @@ public final class BatteryActivity extends Activity {
     private TextView tempValue;
     private TextView voltageValue;
     private TextView currentValue;
-    private TextView currentAvgValue;
-    private TextView energyValue;
+    private TextView chargeCurrentValue;
 
     private TextView sourceValue;
-    private TextView usbTypeValue;
-    private TextView inputVoltageValue;
-    private TextView currentMaxValue;
     private TextView inputLimitValue;
-    private TextView voltageMaxValue;
+    private TextView inputMinVoltageValue;
+    private TextView inputTempValue;
 
     private TextView healthValue;
-    private TextView techValue;
+    private TextView capacityLevelValue;
+    private TextView manufacturerValue;
+    private TextView manufactureDateValue;
     private TextView cycleValue;
     private TextView chargeCounterValue;
     private TextView chargeFullValue;
@@ -108,31 +107,30 @@ public final class BatteryActivity extends Activity {
 
         liveCard();
 
-        section("POWER SOURCE","Live USB/charger state and the limits exposed by the kernel.",BLUE);
+        section("POWER SOURCE","Live connection and charger limits reported by the AXP2202.",BLUE);
         sourceValue=settingRow("Power source","—",BLUE);
-        usbTypeValue=settingRow("USB / charger type","—",BLUE);
-        inputVoltageValue=settingRow("Input voltage","—",BLUE);
-        currentMaxValue=settingRow("Current max","—",BLUE);
         inputLimitValue=settingRow("Input current limit","—",BLUE);
-        voltageMaxValue=settingRow("Voltage max","—",BLUE);
+        inputMinVoltageValue=settingRow("Configured minimum input voltage","—",BLUE);
+        inputTempValue=settingRow("USB / PMIC temperature","—",BLUE);
 
-        section("BATTERY HEALTH","Capacity and lifetime information exposed by the battery driver.",GREEN);
+        section("BATTERY HEALTH","Useful battery capacity, health and manufacturing information.",GREEN);
         healthValue=settingRow("Health","—",GREEN);
-        currentAvgValue=settingRow("Average battery current","—",GREEN);
-        energyValue=settingRow("Energy now","—",GREEN);
-        techValue=settingRow("Technology","—",GREEN);
-        cycleValue=settingRow("Cycle count","—",GREEN);
-        chargeCounterValue=settingRow("Charge counter","—",GREEN);
+        capacityLevelValue=settingRow("Capacity level","—",GREEN);
+        chargeCurrentValue=settingRow("Charging current","—",GREEN);
+        chargeCounterValue=settingRow("Charge available","—",GREEN);
         chargeFullValue=settingRow("Full-charge capacity","—",GREEN);
         designFullValue=settingRow("Design capacity","—",GREEN);
         healthEstimateValue=settingRow("Capacity health estimate","—",GREEN);
+        manufacturerValue=settingRow("Battery controller","—",GREEN);
+        manufactureDateValue=settingRow("Manufacture date","—",GREEN);
+        cycleValue=settingRow("Cycle count","—",GREEN);
 
         section("TIME ESTIMATES","Android estimate where available; discharge time is calculated only when the driver exposes usable charge/current data.",YELLOW);
         timeToFullValue=settingRow("Time until full","—",YELLOW);
         timeRemainingValue=settingRow("Estimated discharge remaining","—",YELLOW);
 
         TextView note=text(
-                "Power-limit values are read-only in this build. Some vendor sysfs nodes use device-specific units, so unknown values are shown as raw kernel values rather than guessed.",
+                "Battery and charger data are read-only. Unsupported driver properties are labeled as unavailable instead of being guessed.",
                 10,MUTED,false);
         content.addView(card(note,GREEN,38),full());
 
@@ -234,63 +232,89 @@ public final class BatteryActivity extends Activity {
 
         tempValue.setText(String.format(Locale.US,"%.1f°C",temp));
         voltageValue.setText(formatVoltage(voltage));
-        currentValue.setText(formatCurrent(current));
+        long chargeCurrentNow=parseLong(TelemetryStore.get(m,"battery_charge_current","0"));
+        currentValue.setText(current!=0
+                ? formatCurrent(current)
+                : (plugged && chargeCurrentNow>0 ? "~"+chargeCurrentNow+" mA" : "—"));
 
-        sourceValue.setText(plugged?"Plugged in / external power":"Battery");
-        usbTypeValue.setText(TelemetryStore.get(m,"power_usb_type","—"));
-        inputVoltageValue.setText(formatVoltage(parseLong(TelemetryStore.get(m,"power_voltage","0"))));
-        currentMaxValue.setText(formatLimit(TelemetryStore.get(m,"power_current_max","")));
-        inputLimitValue.setText(formatLimit(TelemetryStore.get(m,"power_input_limit","")));
-        voltageMaxValue.setText(formatLimitVoltage(TelemetryStore.get(m,"power_voltage_max","")));
+        String powerType=TelemetryStore.get(m,"power_type","");
+        sourceValue.setText(plugged
+                ? (powerType.isEmpty()?"External power":powerType)+" • Online"
+                : "Battery");
 
-        healthValue.setText(TelemetryStore.get(m,"battery_health","—"));
-        currentAvgValue.setText(formatCurrent(currentAvg));
-        energyValue.setText(formatEnergy(TelemetryStore.get(m,"battery_energy_now","")));
-        techValue.setText(TelemetryStore.get(m,"battery_technology","—"));
-        cycleValue.setText(orDash(TelemetryStore.get(m,"battery_cycle_count","")));
+        long inputLimit=parseLong(TelemetryStore.get(m,"power_input_limit","0"));
+        inputLimitValue.setText(inputLimit>0 ? inputLimit+" mA" : "Not reported");
+
+        long minInputMv=parseLong(TelemetryStore.get(m,"power_voltage_min_design","0"));
+        inputMinVoltageValue.setText(minInputMv>0
+                ? String.format(Locale.US,"%.3f V",minInputMv/1000.0)
+                : "Not reported");
+
+        long inputTempRaw=parseLong(TelemetryStore.get(m,"power_temp","0"));
+        inputTempValue.setText(inputTempRaw>0
+                ? String.format(Locale.US,"%.1f °C",inputTempRaw/10.0)
+                : "Not reported");
+
+        healthValue.setText(orUnknown(TelemetryStore.get(m,"battery_health","")));
+        capacityLevelValue.setText(orUnknown(TelemetryStore.get(m,"battery_capacity_level","")));
+
+        long chargeCurrent=parseLong(TelemetryStore.get(m,"battery_charge_current","0"));
+        chargeCurrentValue.setText(chargeCurrent>0 && plugged
+                ? "~"+chargeCurrent+" mA • driver-reported"
+                : (plugged?"Not reported":"Not charging"));
 
         long counter=parseLong(TelemetryStore.get(m,"battery_charge_counter","0"));
         long full=parseLong(TelemetryStore.get(m,"battery_charge_full","0"));
         long design=parseLong(TelemetryStore.get(m,"battery_charge_full_design","0"));
-        chargeCounterValue.setText(formatCapacityRaw(counter));
-        chargeFullValue.setText(formatCapacityRaw(full));
-        designFullValue.setText(formatCapacityRaw(design));
+        chargeCounterValue.setText(counter>0
+                ? String.format(Locale.US,"%.0f mAh • %d%%",counter/1000.0,capacity)
+                : "Not reported");
+        chargeFullValue.setText(full>0
+                ? String.format(Locale.US,"%.0f mAh",full/1000.0)
+                : "Not reported");
+        designFullValue.setText(design>0
+                ? String.format(Locale.US,"%.0f mAh",design/1000.0)
+                : "Not reported");
 
         if(full>0 && design>0){
             double health=full*100.0/design;
             healthEstimateValue.setText(String.format(Locale.US,"%.1f%% of design",health));
         }else{
-            healthEstimateValue.setText("—");
+            healthEstimateValue.setText("Not reported");
         }
 
-        long chargeMs=-1;
-        if(Build.VERSION.SDK_INT>=28 && bm!=null){
-            try{chargeMs=bm.computeChargeTimeRemaining();}catch(Exception ignored){}
-        }
-        long currentAbs=Math.abs(current);
-        if(chargeMs>0 && plugged){
-            timeToFullValue.setText(formatDuration(chargeMs)+" • Android");
-        }else if(plugged && full>counter && counter>0 && currentAbs>=1000){
-            double hours=(double)(full-counter)/(double)currentAbs;
-            timeToFullValue.setText(hours>0&&hours<48
-                    ? formatDuration((long)(hours*3600000.0))+" • rough"
-                    : "Not reported by Android");
+        String manufacturer=TelemetryStore.get(m,"battery_manufacturer","");
+        manufacturerValue.setText(orUnknown(manufacturer));
+
+        int year=parseInt(TelemetryStore.get(m,"battery_mfg_year","-1"));
+        int month=parseInt(TelemetryStore.get(m,"battery_mfg_month","-1"));
+        int day=parseInt(TelemetryStore.get(m,"battery_mfg_day","-1"));
+        manufactureDateValue.setText(year>0&&month>0&&day>0
+                ? String.format(Locale.US,"%04d-%02d-%02d",year,month,day)
+                : "Not reported");
+
+        int cycles=parseInt(TelemetryStore.get(m,"battery_cycle_count","-1"));
+        cycleValue.setText(cycles>=0 ? String.valueOf(cycles) : "Not supported by driver");
+
+        long timeToFullSec=parseLong(TelemetryStore.get(m,"battery_time_to_full_s","0"));
+        long timeToEmptySec=parseLong(TelemetryStore.get(m,"battery_time_to_empty_s","0"));
+
+        if(plugged && timeToFullSec>0){
+            timeToFullValue.setText(formatDuration(timeToFullSec*1000L)+" • driver estimate");
         }else{
-            timeToFullValue.setText(plugged?"Not reported by Android":"Not charging");
-        }
-
-
-        if(!plugged && counter>0 && currentAbs>=1000){
-            // Linux power_supply normally exposes charge_counter in uAh and
-            // current_now in uA, so their ratio is hours.
-            double hours=(double)counter/(double)currentAbs;
-            if(hours>0 && hours<240){
-                timeRemainingValue.setText(formatDuration((long)(hours*3600000.0))+" • rough");
-            }else{
-                timeRemainingValue.setText("—");
+            long chargeMs=-1;
+            if(Build.VERSION.SDK_INT>=28 && bm!=null){
+                try{chargeMs=bm.computeChargeTimeRemaining();}catch(Exception ignored){}
             }
+            timeToFullValue.setText(plugged && chargeMs>0
+                    ? formatDuration(chargeMs)+" • Android estimate"
+                    : (plugged?"Not reported":"Not charging"));
+        }
+
+        if(!plugged && timeToEmptySec>0){
+            timeRemainingValue.setText(formatDuration(timeToEmptySec*1000L)+" • driver estimate");
         }else{
-            timeRemainingValue.setText(plugged?"Charging":"Driver data unavailable");
+            timeRemainingValue.setText(plugged?"Charging":"Not reported");
         }
     }
 
@@ -357,6 +381,7 @@ public final class BatteryActivity extends Activity {
         return mins+"m";
     }
 
+    private String orUnknown(String s){return s==null||s.isEmpty()?"Not reported":s;}
     private String orDash(String s){return s==null||s.isEmpty()?"—":s;}
     private long parseLong(String s){try{return Long.parseLong(s.trim());}catch(Exception e){return 0;}}
     private int parseInt(String s){try{return Integer.parseInt(s.trim());}catch(Exception e){return -1;}}
