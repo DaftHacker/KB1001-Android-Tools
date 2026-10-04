@@ -117,7 +117,7 @@ jobs:
         run: |
           rm -rf out
           mkdir -p out
-          (cd module && zip -r -9 "../out/$MODULE_ASSET" . -x '*.DS_Store')
+          (cd module && zip -r -9 "../out/$MODULE_ASSET" . -x '*.DS_Store' 'action.sh')
           unzip -t "out/$MODULE_ASSET" >/dev/null
           unzip -p "out/$MODULE_ASSET" module.prop | grep -q '^id=kb1001_gpu_profiles$'
 
