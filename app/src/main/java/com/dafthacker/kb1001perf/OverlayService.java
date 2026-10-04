@@ -39,6 +39,8 @@ public class OverlayService extends Service {
     private TextView title;
     private TextView subtitle;
     private TextView footer;
+    private TextView fpsValue;
+    private float uiScale=1f;
 
     private OverlayMetric cpu;
     private OverlayMetric gpu;
@@ -53,6 +55,7 @@ public class OverlayService extends Service {
 
     @Override public void onCreate(){
         super.onCreate();
+        uiScale=getSharedPreferences("hud",MODE_PRIVATE).getFloat("scale",1f);
         running=true;
         TelemetryStore.ensureSnapshot(this);
         createChannel();
@@ -103,6 +106,10 @@ public class OverlayService extends Service {
         names.addView(subtitle);
         head.addView(names,new LinearLayout.LayoutParams(0,-2,1));
 
+        fpsValue=txt("— FPS",12,CPU_COLOR,true);
+        fpsValue.setGravity(Gravity.CENTER);
+        head.addView(fpsValue,new LinearLayout.LayoutParams(dp(66),-2));
+
         Button fold=mini("—");
         fold.setOnClickListener(v->{
             boolean hide=details.getVisibility()==View.VISIBLE;
@@ -141,10 +148,14 @@ public class OverlayService extends Service {
         Button profile=mini("GPU Profile ▾");
         profile.setOnClickListener(v->showProfileMenu(profile));
 
+        Button size=mini(Math.round(uiScale*100f)+"% ▾");
+        size.setOnClickListener(v->showScaleMenu(size));
+
         Button rec=mini("Record");
         rec.setOnClickListener(v->ctl("logger file toggle"));
 
         actions.addView(profile,new LinearLayout.LayoutParams(0,-2,2));
+        actions.addView(size,new LinearLayout.LayoutParams(0,-2,1));
         actions.addView(rec,new LinearLayout.LayoutParams(0,-2,1));
         details.addView(actions);
 
@@ -196,6 +207,7 @@ public class OverlayService extends Service {
             String mode=TelemetryStore.get(m,"mode","idle");
             String profile=TelemetryStore.get(m,"profile","—");
             String pkg=TelemetryStore.get(m,"package","");
+            int fps=parseInt(TelemetryStore.get(m,"fps","0"));
             int gpuMhz=parseInt(TelemetryStore.get(m,"gpu_clock_mhz","0"));
             float temp=parseFloat(TelemetryStore.get(m,"thermal_max_c","0"));
 
@@ -221,6 +233,11 @@ public class OverlayService extends Service {
 
             title.setText("Performance • "+displayProfile(profile));
             subtitle.setText("game".equalsIgnoreCase(mode)&&!pkg.isEmpty()?pkg:"Live system monitor");
+
+            if(fpsValue!=null){
+                fpsValue.setText(fps>0?fps+" FPS":"— FPS");
+                fpsValue.setTextColor(fps>=55?CPU_COLOR:(fps>=30?RAM_COLOR:THERMAL_HOT));
+            }
 
             cpu.set(clocks.current+" MHz",clocks.percent);
             gpu.set(gpuMhz>0?gpuMhz+" MHz":"—",gpuPct);
@@ -255,6 +272,7 @@ public class OverlayService extends Service {
 
         SparklineView graph=new SparklineView(this);
         graph.setAccentColor(accent);
+        graph.setRenderScale(uiScale);
         LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,dp(34));
         gp.setMargins(0,dp(1),0,0);
         root.addView(graph,gp);
@@ -319,6 +337,44 @@ public class OverlayService extends Service {
         return p;
     }
 
+    private void showScaleMenu(View anchor){
+        PopupMenu menu=new PopupMenu(this,anchor);
+        int[] values={50,65,80,100,125,150,175};
+        for(int value:values) menu.getMenu().add(value+"%");
+        menu.setOnMenuItemClickListener(item->{
+            String raw=item.getTitle().toString().replace("%","");
+            try{
+                int value=Integer.parseInt(raw);
+                setOverlayScale(value/100f);
+            }catch(Exception ignored){}
+            return true;
+        });
+        menu.show();
+    }
+
+    private void setOverlayScale(float scale){
+        final float clamped=Math.max(.5f,Math.min(1.75f,scale));
+        getSharedPreferences("hud",MODE_PRIVATE).edit().putFloat("scale",clamped).apply();
+
+        int oldX=params!=null?params.x:dp(14);
+        int oldY=params!=null?params.y:dp(86);
+
+        uiScale=clamped;
+        handler.postDelayed(()->{
+            if(wm==null)return;
+            if(overlay!=null){
+                try{wm.removeView(overlay);}catch(Exception ignored){}
+                overlay=null;
+            }
+            createOverlay();
+            if(params!=null&&overlay!=null){
+                params.x=oldX;
+                params.y=oldY;
+                try{wm.updateViewLayout(overlay,params);}catch(Exception ignored){}
+            }
+        },60);
+    }
+
     private void showProfileMenu(View anchor){
         PopupMenu menu=new PopupMenu(this,anchor);
         menu.getMenu().add("Stock 696");
@@ -342,7 +398,7 @@ public class OverlayService extends Service {
     private Button mini(String label){
         Button b=new Button(this);
         b.setText(label);
-        b.setTextSize(8);
+        b.setTextSize(8f*uiScale);
         b.setTextColor(Color.rgb(232,241,239));
         b.setAllCaps(false);
         b.setMinHeight(0);
@@ -357,7 +413,7 @@ public class OverlayService extends Service {
     private TextView txt(String s,int sp,int color,boolean bold){
         TextView v=new TextView(this);
         v.setText(s);
-        v.setTextSize(sp);
+        v.setTextSize(sp*uiScale);
         v.setTextColor(color);
         if(bold)v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
         return v;
@@ -372,7 +428,7 @@ public class OverlayService extends Service {
     }
 
     private int dp(int x){
-        return Math.round(x*getResources().getDisplayMetrics().density);
+        return Math.round(x*getResources().getDisplayMetrics().density*uiScale);
     }
 
     private void createChannel(){
