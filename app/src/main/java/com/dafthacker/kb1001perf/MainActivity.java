@@ -812,8 +812,12 @@ public class MainActivity extends Activity {
                 if (autoHudSwitch != null) autoHudSwitch.setChecked("1".equals(status.get("Metrics overlay auto")));
                 if (autoFpsHudSwitch != null) autoFpsHudSwitch.setChecked("1".equals(status.get("FPS overlay auto")));
                 if (loggingSwitch != null) loggingSwitch.setChecked("1".equals(status.get("File logging")));
-                if (hudSwitch != null) hudSwitch.setChecked(OverlayService.isRunning());
-                if (fpsHudSwitch != null) fpsHudSwitch.setChecked(FpsOverlayService.isRunning());
+                boolean metricsRunning=OverlayService.isRunning() ||
+                        getSharedPreferences("hud",MODE_PRIVATE).getBoolean("runtime_running",false);
+                boolean fpsRunning=FpsOverlayService.isRunning() ||
+                        getSharedPreferences("fps_hud",MODE_PRIVATE).getBoolean("runtime_running",false);
+                if (hudSwitch != null) hudSwitch.setChecked(metricsRunning);
+                if (fpsHudSwitch != null) fpsHudSwitch.setChecked(fpsRunning);
 
                 String persistent = status.get("Persistent profile");
                 if (persistent != null) {
