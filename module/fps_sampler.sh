@@ -232,6 +232,8 @@ stream(){
 
  while true; do
   read_state_package
+  game_state=0
+  [ -n "$pkg" ] && game_state=1
   next_pkg="$pkg"
 
   # When automatic game state is unavailable/stale (for example a manually
@@ -312,7 +314,16 @@ stream(){
     else
      timeline_fps="$(target_frametimeline_fps "$pkg_cached")"
      case "$timeline_fps" in ''|*[!0-9-]*) timeline_fps=-1;; esac
-     [ "$timeline_fps" -ge 0 ] 2>/dev/null && fps="$timeline_fps"
+
+     if [ "$timeline_fps" -ge 0 ] 2>/dev/null; then
+      fps="$timeline_fps"
+     elif [ "$game_state" != 1 ]; then
+      # For launcher/System UI, display-wide FrameTimeline FPS is still useful.
+      # Never substitute display refresh for an attributed game's FPS.
+      timeline_fps="$(frametimeline_fps "")"
+      case "$timeline_fps" in ''|*[!0-9-]*) timeline_fps=-1;; esac
+      [ "$timeline_fps" -ge 0 ] 2>/dev/null && fps="$timeline_fps"
+     fi
     fi
 
     [ "$fps" -gt 0 ] 2>/dev/null && last_good_fps="$fps"
