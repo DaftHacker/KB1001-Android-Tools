@@ -55,6 +55,18 @@ public class OverlayService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent,int flags,int startId){
+        if(intent != null && intent.getAction() != null){
+            String action=intent.getAction();
+            if("kb1001.stop_hud".equals(action)){
+                stopSelf();
+                return START_NOT_STICKY;
+            }
+            if("kb1001.dynamic744".equals(action)){
+                ctl("persist dynamic744");
+            } else if("kb1001.performance744".equals(action)){
+                ctl("persist performance744");
+            }
+        }
         return START_STICKY;
     }
 
@@ -272,14 +284,30 @@ public class OverlayService extends Service {
 
     private Notification notification(){
         Intent open=new Intent(this,MainActivity.class);
-        PendingIntent pi=PendingIntent.getActivity(this,1,open,
+        PendingIntent openPi=PendingIntent.getActivity(this,1,open,
                 PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+
+        Intent dyn=new Intent(this,OverlayService.class).setAction("kb1001.dynamic744");
+        PendingIntent dynPi=PendingIntent.getService(this,2,dyn,
+                PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+
+        Intent perf=new Intent(this,OverlayService.class).setAction("kb1001.performance744");
+        PendingIntent perfPi=PendingIntent.getService(this,3,perf,
+                PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+
+        Intent stop=new Intent(this,OverlayService.class).setAction("kb1001.stop_hud");
+        PendingIntent stopPi=PendingIntent.getService(this,4,stop,
+                PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+
         return new Notification.Builder(this,CHANNEL)
                 .setSmallIcon(R.drawable.ic_stat_speed)
-                .setContentTitle("KB1001 HUD active")
-                .setContentText("Live game performance overlay")
+                .setContentTitle("KB1001 performance monitor")
+                .setContentText("HUD and live telemetry are running")
                 .setOngoing(true)
-                .setContentIntent(pi)
+                .setContentIntent(openPi)
+                .addAction(new Notification.Action.Builder(null,"Dynamic 744",dynPi).build())
+                .addAction(new Notification.Action.Builder(null,"Performance 744",perfPi).build())
+                .addAction(new Notification.Action.Builder(null,"Stop HUD",stopPi).build())
                 .build();
     }
 
