@@ -47,13 +47,22 @@ write_state(){
     } > "$AUTO_STATE"
 }
 
-overlay_show() {
-    am start-foreground-service -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 ||
-      am startservice -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || true
+metrics_show() {
+    am start-foreground-service -a kb1001.auto_metrics -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 ||
+      am startservice -a kb1001.auto_metrics -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || true
 }
 
-overlay_hide() {
+metrics_hide() {
     am stopservice -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || true
+}
+
+fps_show() {
+    am start-foreground-service -a kb1001.auto_fps -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1 ||
+      am startservice -a kb1001.auto_fps -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1 || true
+}
+
+fps_hide() {
+    am stopservice -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1 || true
 }
 
 apply_auto_profile() {
@@ -74,17 +83,23 @@ run_daemon() {
     last_mode=""
     last_pkg=""
     retry_target=""
-    auto_overlay_visible=0
-    log "Game detection daemon started (pid=$$)."
+    auto_metrics_visible=0
+    auto_fps_visible=0
+    log "Game detection daemon started (pid=$)."
 
     while true; do
         boost_enabled="$(conf_get enabled 0)"
-        overlay_enabled="$(conf_get overlay_auto 0)"
+        metrics_enabled="$(conf_get metrics_overlay_auto "$(conf_get overlay_auto 0)")"
+        fps_enabled="$(conf_get fps_overlay_auto 0)"
 
-        if [ "$boost_enabled" != 1 ] && [ "$overlay_enabled" != 1 ]; then
-            if [ "$auto_overlay_visible" = 1 ]; then
-                overlay_hide
-                auto_overlay_visible=0
+        if [ "$boost_enabled" != 1 ] && [ "$metrics_enabled" != 1 ] && [ "$fps_enabled" != 1 ]; then
+            if [ "$auto_metrics_visible" = 1 ]; then
+                metrics_hide
+                auto_metrics_visible=0
+            fi
+            if [ "$auto_fps_visible" = 1 ]; then
+                fps_hide
+                auto_fps_visible=0
             fi
             current="$(cat "$CONFIG" 2>/dev/null)"
             write_state disabled "" "$(sanitize_profile "${current:-dynamic744}")"
@@ -116,15 +131,34 @@ run_daemon() {
                 [ -n "$active_profile" ] || active_profile=dynamic744
             fi
 
-            if [ "$overlay_enabled" = 1 ] && overlay_allowed "$pkg"; then
-                if [ "$auto_overlay_visible" != 1 ] || [ "$last_pkg" != "$pkg" ]; then
-                    overlay_show
-                    auto_overlay_visible=1
+            if overlay_allowed "$pkg"; then
+                if [ "$metrics_enabled" = 1 ]; then
+                    if [ "$auto_metrics_visible" != 1 ] || [ "$last_pkg" != "$pkg" ]; then
+                        metrics_show
+                        auto_metrics_visible=1
+                    fi
+                elif [ "$auto_metrics_visible" = 1 ]; then
+                    metrics_hide
+                    auto_metrics_visible=0
+                fi
+
+                if [ "$fps_enabled" = 1 ]; then
+                    if [ "$auto_fps_visible" != 1 ] || [ "$last_pkg" != "$pkg" ]; then
+                        fps_show
+                        auto_fps_visible=1
+                    fi
+                elif [ "$auto_fps_visible" = 1 ]; then
+                    fps_hide
+                    auto_fps_visible=0
                 fi
             else
-                if [ "$auto_overlay_visible" = 1 ]; then
-                    overlay_hide
-                    auto_overlay_visible=0
+                if [ "$auto_metrics_visible" = 1 ]; then
+                    metrics_hide
+                    auto_metrics_visible=0
+                fi
+                if [ "$auto_fps_visible" = 1 ]; then
+                    fps_hide
+                    auto_fps_visible=0
                 fi
             fi
 
@@ -132,9 +166,13 @@ run_daemon() {
             last_mode=game
             last_pkg="$pkg"
         else
-            if [ "$auto_overlay_visible" = 1 ]; then
-                overlay_hide
-                auto_overlay_visible=0
+            if [ "$auto_metrics_visible" = 1 ]; then
+                metrics_hide
+                auto_metrics_visible=0
+            fi
+            if [ "$auto_fps_visible" = 1 ]; then
+                fps_hide
+                auto_fps_visible=0
             fi
 
             if [ "$boost_enabled" = 1 ]; then
