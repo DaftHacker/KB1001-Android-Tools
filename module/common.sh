@@ -41,10 +41,13 @@ wait_for_suspend() {
     [ -e "$SCENE" ] && echo 0 > "$SCENE" 2>/dev/null
     [ -e "$DVFS" ] && echo 1 > "$DVFS" 2>/dev/null
 
+    status="$(cat "$GPU/power/runtime_status" 2>/dev/null)"
+    [ "$status" = "suspended" ] && return 0
+
     while [ $i -lt "$timeout" ]; do
+        sleep 1
         status="$(cat "$GPU/power/runtime_status" 2>/dev/null)"
         [ "$status" = "suspended" ] && return 0
-        sleep 1
         i=$((i + 1))
     done
     return 1
