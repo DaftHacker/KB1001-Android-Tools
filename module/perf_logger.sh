@@ -14,6 +14,31 @@ LOG_ROOT="/storage/emulated/0/Documents/KB1001Performance/logs"
 conf_get(){ v="$(grep -m1 "^$1=" "$LOGGER_CONF" 2>/dev/null|cut -d= -f2-)"; [ -n "$v" ]&&printf '%s' "$v"||printf '%s' "$2"; }
 to_c(){ v="$1"; case "$v" in ''|*[!0-9-]*) echo "0.0";; *) if [ "$v" -gt 1000 ] 2>/dev/null; then awk "BEGIN{printf \"%.1f\",$v/1000}"; else awk "BEGIN{printf \"%.1f\",$v}"; fi;; esac; }
 
+sample_fps(){
+ pkg="$1"
+ [ -n "$pkg" ] || { echo 0; return; }
+
+ layer="$(dumpsys SurfaceFlinger --list 2>/dev/null | grep -F "$pkg" | grep -E 'SurfaceView|BLAST|Activity' | head -1)"
+ [ -n "$layer" ] || layer="$(dumpsys SurfaceFlinger --list 2>/dev/null | grep -F "$pkg" | head -1)"
+ [ -n "$layer" ] || { echo 0; return; }
+
+ up="$(cut -d. -f1 /proc/uptime 2>/dev/null)"
+ case "$up" in ''|*[!0-9]*) echo 0; return;; esac
+ now_ns=$((up * 1000000000))
+ cutoff=$((now_ns - 2000000000))
+
+ dumpsys SurfaceFlinger --latency "$layer" 2>/dev/null | awk -v cutoff="$cutoff" '
+  NR==1 { next }
+  NF>=3 && $2 ~ /^[0-9]+$/ && $2 > 0 && $2 >= cutoff { count++ }
+  END {
+   if (count > 0) {
+    fps = int((count / 2.0) + 0.5)
+    if (fps > 240) fps = 240
+    print fps
+   } else print 0
+  }'
+}
+
 sample(){
  MODE="$(grep -m1 '^mode=' "$AUTO_STATE" 2>/dev/null|cut -d= -f2-)"; [ -n "$MODE" ]||MODE=idle
  PACKAGE="$(grep -m1 '^package=' "$AUTO_STATE" 2>/dev/null|cut -d= -f2-)"
@@ -55,12 +80,16 @@ sample(){
  [ "$max" = -999999 ]&&max=0
  THERMAL_MAX="$(to_c "$max")"
 
- cpu=""; cpu_detail=""
+ cpu=""; cpu_detail=""; cpu_available=""
  for p in /sys/devices/system/cpu/cpufreq/policy*; do
   [ -d "$p" ]||continue
   n="${p##*/}"; cur="$(cat "$p/scaling_cur_freq" 2>/dev/null)"; min="$(cat "$p/scaling_min_freq" 2>/dev/null)"; maxf="$(cat "$p/scaling_max_freq" 2>/dev/null)"; gov="$(cat "$p/scaling_governor" 2>/dev/null)"; cpus="$(cat "$p/related_cpus" 2>/dev/null|tr ' ' '-')"
+  avail="$(cat "$p/scaling_available_frequencies" 2>/dev/null | tr ' ' ',' | sed 's/,$//')"
+  govs="$(cat "$p/scaling_available_governors" 2>/dev/null | tr ' ' ',')"
   cm=$((${cur:-0}/1000)); mim=$((${min:-0}/1000)); mam=$((${maxf:-0}/1000))
-  cpu="${cpu}${n}:${cm}MHz "; cpu_detail="${cpu_detail}${n}[${cpus}]=${cm}/${mim}-${mam}@${gov};"
+  cpu="${cpu}${n}:${cm}MHz "
+  cpu_detail="${cpu_detail}${n}[${cpus}]=${cm}/${mim}-${mam}@${gov};"
+  cpu_available="${cpu_available}${n}[${cpus}]=${avail}@${govs};"
  done
  CPU_SUMMARY="$(echo "$cpu"|sed 's/[[:space:]]*$//')"
 
@@ -73,6 +102,12 @@ sample(){
  mem="$(awk '/MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null)"; MEM_MB=$((${mem:-0}/1024))
  LOADAVG="$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
  batt="$(cat /sys/class/power_supply/battery/temp 2>/dev/null)"; case "$batt" in ''|*[!0-9-]*) BATTERY_C=0.0;; *) BATTERY_C="$(awk "BEGIN{printf \"%.1f\",$batt/10}")";; esac
+ FPS=0
+ if [ "$MODE" = game ] && [ -n "$PACKAGE" ]; then
+  FPS="$(sample_fps "$PACKAGE")"
+  case "$FPS" in ''|*[!0-9]*) FPS=0;; esac
+ fi
+
  FILE_LOGGING="$(conf_get file_logging 0)"; FILE_PATH="$(conf_get file_path "")"
 
  tmp="$SNAPSHOT.tmp.$$"
@@ -80,14 +115,14 @@ sample(){
   echo "timestamp=$(date '+%Y-%m-%d %H:%M:%S')"; echo "mode=$MODE"; echo "package=$PACKAGE"; echo "profile=$PROFILE"
   echo "gpu_clock_mhz=$GPU_MHZ"; echo "gpu_voltage=$GPU_VOLTAGE"; echo "gpu_runtime=$GPU_RUNTIME"; echo "gpu_governor=$GPU_GOV"; echo "gpu_dvfs=$GPU_DVFS"
   echo "thermal_max_c=$THERMAL_MAX"; echo "thermal_zones=$zones"; echo "battery_temp_c=$BATTERY_C"
-  echo "cpu_summary=$CPU_SUMMARY"; echo "cpu_policies=$cpu_detail"; echo "devfreq=$devs"
-  echo "mem_available_mb=$MEM_MB"; echo "loadavg=$LOADAVG"; echo "file_logging=$FILE_LOGGING"; echo "file_path=$FILE_PATH"
+  echo "cpu_summary=$CPU_SUMMARY"; echo "cpu_policies=$cpu_detail"; echo "cpu_available=$cpu_available"; echo "devfreq=$devs"
+  echo "fps=$FPS"; echo "mem_available_mb=$MEM_MB"; echo "loadavg=$LOADAVG"; echo "file_logging=$FILE_LOGGING"; echo "file_path=$FILE_PATH"
  } > "$tmp" && mv "$tmp" "$SNAPSHOT"
  chmod 0644 "$SNAPSHOT" 2>/dev/null
 
  if [ -d "$PUBLIC_DIR" ]; then cp "$SNAPSHOT" "$PUBLIC_SNAPSHOT.tmp" 2>/dev/null&&mv "$PUBLIC_SNAPSHOT.tmp" "$PUBLIC_SNAPSHOT"; chmod 0644 "$PUBLIC_SNAPSHOT" 2>/dev/null; fi
 
- echo "$(date '+%H:%M:%S') | $MODE | $PROFILE | GPU ${GPU_MHZ}MHz | TEMP ${THERMAL_MAX}C | CPU $CPU_SUMMARY | RAM ${MEM_MB}MB | $PACKAGE" >> "$HISTORY"
+ echo "$(date '+%H:%M:%S') | $MODE | $PROFILE | FPS $FPS | GPU ${GPU_MHZ}MHz | TEMP ${THERMAL_MAX}C | CPU $CPU_SUMMARY | RAM ${MEM_MB}MB | $PACKAGE" >> "$HISTORY"
  lines="$(wc -l < "$HISTORY" 2>/dev/null)"; [ "${lines:-0}" -gt 600 ]&&tail -n 300 "$HISTORY" > "$HISTORY.tmp"&&mv "$HISTORY.tmp" "$HISTORY"
 
  if [ "$FILE_LOGGING" = 1 ]; then
@@ -96,10 +131,10 @@ sample(){
    mkdir -p "$LOG_ROOT" 2>/dev/null
    path="$LOG_ROOT/kb1001-$(date '+%Y%m%d-%H%M%S').csv"
    { grep -v '^file_path=' "$LOGGER_CONF" 2>/dev/null; echo "file_path=$path"; } > "$LOGGER_CONF.tmp.$$"&&mv "$LOGGER_CONF.tmp.$$" "$LOGGER_CONF"
-   echo "timestamp,mode,package,profile,gpu_mhz,gpu_voltage,thermal_max_c,battery_c,cpu,mem_available_mb,loadavg" > "$path"
+   echo "timestamp,mode,package,profile,fps,gpu_mhz,gpu_voltage,thermal_max_c,battery_c,cpu,mem_available_mb,loadavg" > "$path"
   fi
   safe_cpu="$(printf '%s' "$CPU_SUMMARY"|tr ',' ';')"
-  echo "$(date '+%Y-%m-%d %H:%M:%S'),$MODE,$PACKAGE,$PROFILE,$GPU_MHZ,$GPU_VOLTAGE,$THERMAL_MAX,$BATTERY_C,$safe_cpu,$MEM_MB,$LOADAVG" >> "$path" 2>/dev/null
+  echo "$(date '+%Y-%m-%d %H:%M:%S'),$MODE,$PACKAGE,$PROFILE,$FPS,$GPU_MHZ,$GPU_VOLTAGE,$THERMAL_MAX,$BATTERY_C,$safe_cpu,$MEM_MB,$LOADAVG" >> "$path" 2>/dev/null
  fi
 }
 
