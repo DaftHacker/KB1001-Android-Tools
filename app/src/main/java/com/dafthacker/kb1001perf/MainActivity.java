@@ -465,23 +465,16 @@ public class MainActivity extends Activity {
         }
 
         io.execute(() -> {
-            RootBridge.Result beforeResult=RootBridge.get().ctl("game list");
-            Set<String> before=new LinkedHashSet<>();
-            if(beforeResult.ok()){
-                for(String line:beforeResult.output.split("\\R")){
-                    String pkg=line.trim();
-                    if(!pkg.isEmpty()) before.add(pkg);
-                }
-            }
-
+            Set<String> before=new LinkedHashSet<>(selectedGames);
+            launcherApps.clear();
+            scanLauncherApps();
             autoDetectGames();
 
-            RootBridge.Result afterResult=RootBridge.get().ctl("game list");
+            RootBridge.Result snapshot=RootBridge.get().ctl("game snapshot");
             Set<String> after=new LinkedHashSet<>();
-            if(afterResult.ok()){
-                for(String line:afterResult.output.split("\\R")){
-                    String pkg=line.trim();
-                    if(!pkg.isEmpty()) after.add(pkg);
+            if(snapshot.ok()){
+                for(String line:snapshot.output.split("\\R")){
+                    if(line.startsWith("game=")) after.add(line.substring(5));
                 }
             }
             after.removeAll(before);
@@ -722,17 +715,15 @@ public class MainActivity extends Activity {
         io.execute(()->{
             String command="overlay "+type+"-manual-"+(enabled?"on":"off");
             RootBridge.Result r=RootBridge.get().ctl(command);
-            RootBridge.Result status=RootBridge.get().ctl("status");
-            Map<String,String> parsed=status.ok()?parseStatus(status.output):Collections.emptyMap();
-            String key="metrics".equals(type)?"Manual Metrics overlay":"Manual FPS overlay";
-            boolean saved="1".equals(parsed.get(key));
+            boolean saved=r.ok() && (enabled?"enabled":"disabled").equals(r.output.trim());
             runOnUiThread(()->{
                 suppressSwitchCallbacks=true;
-                control.setChecked(saved);
+                control.setChecked(saved?enabled:!enabled);
                 suppressSwitchCallbacks=false;
                 control.setEnabled(true);
-                if(!r.ok() || saved!=enabled){
+                if(!saved){
                     Toast.makeText(this,"Could not verify manual "+type.toUpperCase(Locale.US)+" overlay state.",Toast.LENGTH_SHORT).show();
+                    refreshBackendState();
                 }
             });
         });
