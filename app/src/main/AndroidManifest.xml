@@ -44,6 +44,7 @@
 
         <activity android:name=".GamePickerActivity" android:exported="false" />
         <activity android:name=".GpuActivity" android:exported="false" />
+        <activity android:name=".CpuActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
