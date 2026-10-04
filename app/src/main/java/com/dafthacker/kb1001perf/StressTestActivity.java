@@ -51,7 +51,6 @@ public final class StressTestActivity extends Activity {
     private boolean running;
     private long startedAt;
     private long endsAt;
-    private long lastTelemetryKick;
     private float renderFps;
 
     private int samples;
@@ -205,7 +204,6 @@ public final class StressTestActivity extends Activity {
         running=true;
         startedAt=SystemClock.elapsedRealtime();
         endsAt=startedAt+durationSeconds*1000L;
-        lastTelemetryKick=0;
         samples=0;
         scoreSamples=0;
         sumCpu=sumGpu=sumTemp=sumRenderFps=0;
@@ -231,7 +229,7 @@ public final class StressTestActivity extends Activity {
         testButton.setTextColor(TEXT);
         testButton.setBackground(cardBg(Color.rgb(210,74,74),155));
         workersValue.setText(hasCpu()
-                ? Runtime.getRuntime().availableProcessors()+" CPU workers"
+                ? Runtime.getRuntime().availableProcessors()+" background-priority CPU workers"
                 : "GPU renderer active");
 
         handler.removeCallbacks(tick);
@@ -245,15 +243,18 @@ public final class StressTestActivity extends Activity {
         for(int i=0;i<workers;i++){
             final int seed=i+1;
             cpuPool.submit(()->{
+                // Still fills otherwise-idle CPU time, but yields scheduling priority
+                // to System UI/input/audio so the benchmark cannot make Android unusable.
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
                 double x=seed*.713;
                 long n=1;
-                while(cpuBurn.get()){
-                    for(int k=0;k<10000;k++){
+                while(cpuBurn.get()&&!Thread.currentThread().isInterrupted()){
+                    for(int k=0;k<1000;k++){
                         x=Math.sin(x+n*.000001)*Math.cos(x*.73)+Math.sqrt(Math.abs(x)+1.0);
                         n++;
                     }
                     cpuSink=x;
-                    cpuWork.addAndGet(10000);
+                    cpuWork.addAndGet(1000);
                 }
             });
         }
@@ -274,11 +275,6 @@ public final class StressTestActivity extends Activity {
             long now=SystemClock.elapsedRealtime();
             long remaining=Math.max(0,endsAt-now);
             timerValue.setText(formatTime(remaining));
-
-            if(now-lastTelemetryKick>=900){
-                lastTelemetryKick=now;
-                io.execute(()->RootBridge.get().ctl("logger refresh"));
-            }
 
             Map<String,String> m=TelemetryStore.read(StressTestActivity.this);
             CpuPeak cpu=parseCpu(TelemetryStore.get(m,"cpu_policies",""));
