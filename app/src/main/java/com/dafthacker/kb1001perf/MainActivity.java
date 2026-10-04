@@ -26,7 +26,6 @@ public class MainActivity extends Activity {
 
     private LinearLayout page;
     private TextView headerState;
-    private Button updateBanner;
 
     private Switch hudSwitch;
     private Switch autoBoostSwitch;
@@ -92,12 +91,6 @@ public class MainActivity extends Activity {
         headerState.setPadding(0,dp(3),0,dp(9));
         root.addView(headerState);
 
-        updateBanner = button("Update available",true,v -> {
-            if (releaseInfo != null) showUpdateConfirmation(releaseInfo);
-            else checkForUpdate(false);
-        });
-        updateBanner.setVisibility(View.GONE);
-        root.addView(updateBanner,new LinearLayout.LayoutParams(-1,-2));
 
         HorizontalScrollView tabScroll = new HorizontalScrollView(this);
         tabScroll.setHorizontalScrollBarEnabled(false);
@@ -723,11 +716,7 @@ public class MainActivity extends Activity {
                     return;
                 }
 
-                runOnUiThread(() -> {
-                    updateBanner.setText("UPDATE AVAILABLE");
-                    updateBanner.setVisibility(View.VISIBLE);
-                    if (!quiet) showUpdateConfirmation(info);
-                });
+                runOnUiThread(() -> showUpdateConfirmation(info));
             } catch (Exception e) {
                 if (!quiet) runOnUiThread(() ->
                         new AlertDialog.Builder(this)
@@ -784,6 +773,7 @@ public class MainActivity extends Activity {
                     getSharedPreferences("updates",MODE_PRIVATE)
                             .edit()
                             .putBoolean("pending_reboot",moduleNew)
+                            .putInt("pending_reboot_app_version",info.appVersionCode)
                             .apply();
 
                     runOnUiThread(() -> {
@@ -821,8 +811,13 @@ public class MainActivity extends Activity {
     private void checkPendingReboot() {
         SharedPreferences p = getSharedPreferences("updates",MODE_PRIVATE);
         if (!p.getBoolean("pending_reboot",false)) return;
+        int targetVersion = p.getInt("pending_reboot_app_version",0);
+        if (targetVersion > 0 && UpdateManager.installedAppVersion(this) < targetVersion) return;
 
-        p.edit().putBoolean("pending_reboot",false).apply();
+        p.edit()
+                .putBoolean("pending_reboot",false)
+                .remove("pending_reboot_app_version")
+                .apply();
         new AlertDialog.Builder(this)
                 .setTitle("Update installed")
                 .setMessage("The app and backend update are installed. Reboot now to finish loading the backend?")
