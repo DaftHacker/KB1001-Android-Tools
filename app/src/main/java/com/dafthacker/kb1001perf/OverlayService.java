@@ -2,6 +2,7 @@ package com.dafthacker.kb1001perf;
 
 import android.app.*;
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
@@ -147,14 +148,10 @@ public class OverlayService extends Service {
         Button profile=mini("GPU Profile ▾");
         profile.setOnClickListener(v->showProfileMenu(profile));
 
-        Button size=mini(Math.round(uiScale*100f)+"% ▾");
-        size.setOnClickListener(v->showScaleMenu(size));
-
         Button rec=mini("Record");
         rec.setOnClickListener(v->ctl("logger file toggle"));
 
         actions.addView(profile,new LinearLayout.LayoutParams(0,-2,2));
-        actions.addView(size,new LinearLayout.LayoutParams(0,-2,1));
         actions.addView(rec,new LinearLayout.LayoutParams(0,-2,1));
         details.addView(actions);
 
@@ -246,8 +243,28 @@ public class OverlayService extends Service {
             }
             if(profileForUi==null) profileForUi=profile;
 
+            String limit;
+            int limitColor;
+            if(thermalThrottling){
+                limit="THERMAL LIMIT";
+                limitColor=THERMAL_HOT;
+            }else if(cpuUtil>=88 && gpuUtil<85){
+                limit="CPU LIMIT";
+                limitColor=CPU_COLOR;
+            }else if(gpuUtil>=90 && cpuUtil<90){
+                limit="GPU LIMIT";
+                limitColor=GPU_COLOR;
+            }else if(cpuUtil>=88 && gpuUtil>=88){
+                limit="SYSTEM SATURATED";
+                limitColor=RAM_COLOR;
+            }else{
+                limit="HEADROOM";
+                limitColor=THERMAL_COOL;
+            }
+
             title.setText("Metrics • "+displayProfile(profileForUi));
-            subtitle.setText("game".equalsIgnoreCase(mode)&&!pkg.isEmpty()?pkg:"Live system monitor");
+            subtitle.setText(limit);
+            subtitle.setTextColor(limitColor);
 
             cpu.set(cpuUtil+"% • "+clocks.current,cpuUtil);
             gpu.set(gpuUtil+"% • "+(gpuMhz>0?gpuMhz:"—"),gpuUtil);
@@ -259,13 +276,9 @@ public class OverlayService extends Service {
             String switchState="";
             if("waiting".equals(requestState)) switchState="GPU switch waiting for idle • ";
             else if("applying".equals(requestState)) switchState="GPU switching • ";
-            String limit;
-            if(thermalThrottling) limit="THERMAL LIMIT";
-            else if(cpuUtil>=88 && gpuUtil<85) limit="CPU LIMIT";
-            else if(gpuUtil>=90 && cpuUtil<90) limit="GPU LIMIT";
-            else if(cpuUtil>=88 && gpuUtil>=88) limit="SYSTEM SATURATED";
-            else limit="HEADROOM";
-            footer.setText((recording?"● REC  •  ":"")+switchState+limit+" • drag • — collapse");
+
+            String context="game".equalsIgnoreCase(mode)&&!pkg.isEmpty()?pkg+" • ":"";
+            footer.setText((recording?"● REC  •  ":"")+switchState+context+"drag • — collapse");
 
             handler.postDelayed(this,2000);
         }
@@ -273,23 +286,38 @@ public class OverlayService extends Service {
 
     private OverlayMetric metric(String name,int accent){
         LinearLayout root=new LinearLayout(this);
-        root.setOrientation(LinearLayout.HORIZONTAL);
-        root.setGravity(Gravity.CENTER_VERTICAL);
+        root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(8),dp(5),dp(8),dp(5));
         root.setBackground(metricBackground(accent));
+
+        LinearLayout line=new LinearLayout(this);
+        line.setOrientation(LinearLayout.HORIZONTAL);
+        line.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView label=txt(name,9,accent,true);
         TextView value=txt("—",11,Color.rgb(236,244,242),true);
         value.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
 
-        root.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-        root.addView(value,new LinearLayout.LayoutParams(dp(118),-2));
+        line.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        line.addView(value,new LinearLayout.LayoutParams(dp(118),-2));
+        root.addView(line,new LinearLayout.LayoutParams(-1,-2));
+
+        ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        bar.setIndeterminate(false);
+        bar.setMax(100);
+        bar.setProgress(0);
+        bar.setProgressTintList(ColorStateList.valueOf(accent));
+        bar.setProgressBackgroundTintList(ColorStateList.valueOf(Color.rgb(31,43,43)));
+
+        LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(3));
+        bp.setMargins(0,dp(4),0,0);
+        root.addView(bar,bp);
 
         LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);
         rp.setMargins(0,dp(2),0,dp(2));
         root.setLayoutParams(rp);
 
-        return new OverlayMetric(root,label,value);
+        return new OverlayMetric(root,label,value,bar);
     }
 
     private GradientDrawable metricBackground(int accent){
@@ -514,19 +542,25 @@ public class OverlayService extends Service {
         final LinearLayout root;
         final TextView label;
         final TextView value;
+        final ProgressBar progress;
 
-        OverlayMetric(LinearLayout root,TextView label,TextView value){
+        OverlayMetric(LinearLayout root,TextView label,TextView value,ProgressBar progress){
             this.root=root;
             this.label=label;
             this.value=value;
+            this.progress=progress;
         }
 
         void set(String text,int percent){
             value.setText(text);
+            int clamped=Math.max(0,Math.min(100,percent));
+            if(progress.getProgress()!=clamped) progress.setProgress(clamped);
         }
 
         void setAccent(int color){
             label.setTextColor(color);
+            progress.setProgressTintList(ColorStateList.valueOf(color));
+
             GradientDrawable bg=new GradientDrawable();
             bg.setColor(Color.rgb(13,22,22));
             bg.setCornerRadius(10f*root.getResources().getDisplayMetrics().density);
