@@ -66,6 +66,52 @@ performance(){
  return $rc
 }
 
+balanced(){
+ save_stock || return 1
+ rc=0
+ while IFS='|' read -r p stock_gov stock_min stock_max; do
+  case "$p" in /sys/devices/system/cpu/cpufreq/policy*) ;; *) continue;; esac
+  [ -d "$p" ] || continue
+  echo "$stock_max" > "$p/scaling_max_freq" 2>/dev/null || rc=1
+  echo "$stock_min" > "$p/scaling_min_freq" 2>/dev/null || rc=1
+  if grep -qw schedutil "$p/scaling_available_governors" 2>/dev/null; then
+   echo schedutil > "$p/scaling_governor" 2>/dev/null || rc=1
+  else
+   rc=1
+  fi
+ done < "$CPU_STATE"
+ [ $rc -eq 0 ] && echo balanced > "$CPU_MODE"
+ return $rc
+}
+
+policy_has_freq(){
+ policy="$1"
+ wanted="$2"
+ grep -qw "$wanted" "$policy/scaling_available_frequencies" 2>/dev/null
+}
+
+vf_profile(){
+ p0="$(cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq 2>/dev/null)"
+ p2="$(cat /sys/devices/system/cpu/cpufreq/policy2/cpuinfo_max_freq 2>/dev/null)"
+ p4="$(cat /sys/devices/system/cpu/cpufreq/policy4/cpuinfo_max_freq 2>/dev/null)"
+ if [ "$p0" = 1200000 ] && [ "$p2" = 1752000 ] && [ "$p4" = 1512000 ]; then
+  echo vf0403
+ else
+  echo unknown
+ fi
+}
+
+oc_status(){
+ echo "vf_profile=$(vf_profile)"
+ echo "a53_efficiency_stock_max_khz=$(cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq 2>/dev/null)"
+ echo "a53_performance_stock_max_khz=$(cat /sys/devices/system/cpu/cpufreq/policy2/cpuinfo_max_freq 2>/dev/null)"
+ echo "a73_prime_stock_max_khz=$(cat /sys/devices/system/cpu/cpufreq/policy4/cpuinfo_max_freq 2>/dev/null)"
+ if policy_has_freq /sys/devices/system/cpu/cpufreq/policy4 1560000; then echo "a73_stage1_1560=available"; else echo "a73_stage1_1560=boot_opp_required"; fi
+ if policy_has_freq /sys/devices/system/cpu/cpufreq/policy4 1608000; then echo "a73_stage2_1608=available"; else echo "a73_stage2_1608=boot_opp_required"; fi
+ if policy_has_freq /sys/devices/system/cpu/cpufreq/policy2 1776000; then echo "a53_stage1_1776=available"; else echo "a53_stage1_1776=boot_opp_required"; fi
+ echo "oc_apply_supported=0"
+}
+
 status(){
  save_stock >/dev/null 2>&1 || true
  echo "CPU mode: $(cat "$CPU_MODE" 2>/dev/null)"
@@ -91,7 +137,9 @@ save_stock >/dev/null 2>&1 || true
 case "$1" in
  init) save_stock ;;
  status) status ;;
+ balanced) balanced ;;
  performance) performance ;;
+ oc-status) oc_status ;;
  stock|restore) restore_stock ;;
- *) echo "cpu_control.sh init|status|performance|restore"; exit 2 ;;
+ *) echo "cpu_control.sh init|status|balanced|performance|oc-status|restore"; exit 2 ;;
 esac
