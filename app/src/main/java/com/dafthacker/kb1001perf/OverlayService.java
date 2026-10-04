@@ -79,9 +79,9 @@ public class OverlayService extends Service {
                 return START_NOT_STICKY;
             }
             if("kb1001.dynamic744".equals(action)){
-                ctl("persist dynamic744");
+                requestProfile("persist","dynamic744");
             }else if("kb1001.performance744".equals(action)){
-                ctl("persist performance744");
+                requestProfile("persist","performance744");
             }
         }
         return START_STICKY;
@@ -206,6 +206,8 @@ public class OverlayService extends Service {
 
             String mode=TelemetryStore.get(m,"mode","idle");
             String profile=TelemetryStore.get(m,"profile","—");
+            String requestState=TelemetryStore.get(m,"profile_request_state","");
+            String requestedProfile=TelemetryStore.get(m,"profile_request_profile","");
             String pkg=TelemetryStore.get(m,"package","");
             int fps=parseInt(TelemetryStore.get(m,"fps","0"));
             int gpuMhz=parseInt(TelemetryStore.get(m,"gpu_clock_mhz","0"));
@@ -231,7 +233,12 @@ public class OverlayService extends Service {
             thermal.setAccent(thermalColor);
             battery.setAccent(batteryColor);
 
-            title.setText("Performance • "+displayProfile(profile));
+            if(("waiting".equals(requestState)||"applying".equals(requestState)) &&
+                    requestedProfile!=null&&!requestedProfile.isEmpty()){
+                title.setText("Performance • "+displayProfile(requestedProfile));
+            }else{
+                title.setText("Performance • "+displayProfile(profile));
+            }
             subtitle.setText("game".equalsIgnoreCase(mode)&&!pkg.isEmpty()?pkg:"Live system monitor");
 
             if(fpsValue!=null){
@@ -246,7 +253,10 @@ public class OverlayService extends Service {
             battery.set(batt<0?"—":batt+"%",Math.max(0,batt));
 
             boolean recording="1".equals(TelemetryStore.get(m,"file_logging","0"));
-            footer.setText((recording?"● RECORDING  •  ":"")+"drag header • collapse with —");
+            String switchState="";
+            if("waiting".equals(requestState)) switchState="GPU switch waiting for idle • ";
+            else if("applying".equals(requestState)) switchState="GPU switching • ";
+            footer.setText((recording?"● RECORDING  •  ":"")+switchState+"drag header • collapse with —");
 
             handler.postDelayed(this,1000);
         }
@@ -303,6 +313,16 @@ public class OverlayService extends Service {
 
     private void ctl(String command){
         io.execute(()->RootBridge.get().ctl(command));
+    }
+
+    private void requestProfile(String mode,String profile){
+        if(title!=null) title.setText("Performance • "+displayProfile(profile));
+        if(footer!=null) footer.setText("GPU switching • latest request wins");
+
+        io.execute(()->{
+            RootBridge.Result r=RootBridge.get().ctl("profile request "+mode+" "+profile);
+            if(r.ok()) RootBridge.get().ctl("logger refresh");
+        });
     }
 
     private CpuClock parseCpu(String policies){
@@ -385,11 +405,11 @@ public class OverlayService extends Service {
 
         menu.setOnMenuItemClickListener(item->{
             String title=item.getTitle().toString();
-            if(title.startsWith("Stock")) ctl("persist stock");
-            else if(title.startsWith("Dynamic")) ctl("persist dynamic744");
-            else if(title.startsWith("Performance")) ctl("persist performance744");
-            else if(title.contains("Dynamic")) ctl("apply extreme792_dynamic");
-            else if(title.contains("Full")) ctl("apply extreme792_full");
+            if(title.startsWith("Stock")) requestProfile("persist","stock");
+            else if(title.startsWith("Dynamic")) requestProfile("persist","dynamic744");
+            else if(title.startsWith("Performance")) requestProfile("persist","performance744");
+            else if(title.contains("Dynamic")) requestProfile("apply","extreme792_dynamic");
+            else if(title.contains("Full")) requestProfile("apply","extreme792_full");
             return true;
         });
         menu.show();
