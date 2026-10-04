@@ -156,7 +156,11 @@ run_daemon() {
             last_pkg="$pkg"
         fi
 
-        sleep "$poll"
+        if [ "$last_mode" = game ] && [ "$poll" -lt 5 ] 2>/dev/null; then
+            sleep 5
+        else
+            sleep "$poll"
+        fi
     done
 }
 
