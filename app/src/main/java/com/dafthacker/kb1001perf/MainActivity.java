@@ -618,12 +618,10 @@ public class MainActivity extends Activity {
                 getSharedPreferences("hud",MODE_PRIVATE).edit().putFloat("scale",scale).apply();
 
                 if(OverlayService.isRunning()) {
-                    stopService(new Intent(MainActivity.this,OverlayService.class));
-                    handler.postDelayed(() -> {
-                        Intent restart=new Intent(MainActivity.this,OverlayService.class);
-                        if(Build.VERSION.SDK_INT>=26) startForegroundService(restart);
-                        else startService(restart);
-                    },120);
+                    Intent refresh=new Intent(MainActivity.this,OverlayService.class);
+                    refresh.setAction("kb1001.refresh_metrics_appearance");
+                    if(Build.VERSION.SDK_INT>=26) startForegroundService(refresh);
+                    else startService(refresh);
                 }
             }
         });
@@ -712,12 +710,32 @@ public class MainActivity extends Activity {
 
     private void restartFpsOverlayIfRunning(){
         if(!FpsOverlayService.isRunning())return;
-        stopService(new Intent(this,FpsOverlayService.class));
-        handler.postDelayed(()->{
-            Intent restart=new Intent(this,FpsOverlayService.class);
-            if(Build.VERSION.SDK_INT>=26)startForegroundService(restart);
-            else startService(restart);
-        },120);
+        Intent refresh=new Intent(this,FpsOverlayService.class);
+        refresh.setAction("kb1001.refresh_fps_appearance");
+        if(Build.VERSION.SDK_INT>=26)startForegroundService(refresh);
+        else startService(refresh);
+    }
+
+    private void setManualOverlay(String type,boolean enabled,Switch control){
+        if(control==null)return;
+        control.setEnabled(false);
+        io.execute(()->{
+            String command="overlay "+type+"-manual-"+(enabled?"on":"off");
+            RootBridge.Result r=RootBridge.get().ctl(command);
+            RootBridge.Result status=RootBridge.get().ctl("status");
+            Map<String,String> parsed=status.ok()?parseStatus(status.output):Collections.emptyMap();
+            String key="metrics".equals(type)?"Manual Metrics overlay":"Manual FPS overlay";
+            boolean saved="1".equals(parsed.get(key));
+            runOnUiThread(()->{
+                suppressSwitchCallbacks=true;
+                control.setChecked(saved);
+                suppressSwitchCallbacks=false;
+                control.setEnabled(true);
+                if(!r.ok() || saved!=enabled){
+                    Toast.makeText(this,"Could not verify manual "+type.toUpperCase(Locale.US)+" overlay state.",Toast.LENGTH_SHORT).show();
+                }
+            });
+        });
     }
 
     private Button stressButton(String label,int color) {
@@ -821,8 +839,8 @@ public class MainActivity extends Activity {
                 getSharedPreferences("fps_hud",MODE_PRIVATE).edit()
                         .putBoolean("runtime_running",fpsRunning).apply();
 
-                if (hudSwitch != null) hudSwitch.setChecked(metricsRunning);
-                if (fpsHudSwitch != null) fpsHudSwitch.setChecked(fpsRunning);
+                if (hudSwitch != null) hudSwitch.setChecked("1".equals(status.get("Manual Metrics overlay")));
+                if (fpsHudSwitch != null) fpsHudSwitch.setChecked("1".equals(status.get("Manual FPS overlay")));
 
                 String persistent = status.get("Persistent profile");
                 if (persistent != null) {
