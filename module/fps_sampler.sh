@@ -117,34 +117,76 @@ query_layer(){
  printf '%s|%s|%s\n' "-1" "0" "$current_layer"
 }
 
-global_surface_fps(){
- dumpsys SurfaceFlinger --latency 2>/dev/null | awk '
-  NF>=3 && $2 ~ /^[0-9]+$/ && $2>0 && $2<9000000000000000000 {
-   seen[$2]=1
-   if($2>latest)latest=$2
-  }
-  END {
-   if(latest<=0){print -1;exit}
-
-   count=0
-   first=latest
-   for(t in seen){
-    n=t+0
-    if(n>=latest-1000000000 && n<=latest){
-     count++
-     if(n<first)first=n
-    }
+frametimeline_fps(){
+ target="$1"
+ dumpsys SurfaceFlinger --frametimeline -all 2>/dev/null | awk -v target="$target" '
+  function trim(s){gsub(/^[ 	]+|[ 	]+$/,"",s);return s}
+  function finish_frame(){
+   if(!in_frame || present=="")return
+   if(target=="" || matched){
+    t[++n]=present+0
    }
+  }
 
-   if(count<2){print 0;exit}
-   span=latest-first
+  /^Display Frame [0-9]+/ {
+   finish_frame()
+   in_frame=1
+   present=""
+   matched=0
+   candidate=0
+   next
+  }
+
+  in_frame && present=="" && /^[ 	]*Actual[ 	]*\|/ {
+   parts=split($0,a,"|")
+   if(parts>=4){
+    v=trim(a[parts])
+    if(v ~ /^[0-9]+([.][0-9]+)?$/)present=v
+   }
+   next
+  }
+
+  in_frame && /Layer - / {
+   candidate=(target=="" || index(tolower($0),tolower(target))>0)
+   next
+  }
+
+  in_frame && candidate && /Present State : Presented/ {
+   matched=1
+   candidate=0
+   next
+  }
+
+  END {
+   finish_frame()
+   if(n<2){print -1;exit}
+
+   span=t[n]-t[1]
    if(span<=0){print 0;exit}
 
-   fps=int(((count-1)*1000000000.0/span)+0.5)
+   fps=int((((n-1)*1000.0)/span)+0.5)
    if(fps<0)fps=0
    if(fps>240)fps=240
    print fps
   }'
+}
+
+target_frametimeline_fps(){
+ target="$1"
+ [ -n "$target" ] || { frametimeline_fps ""; return; }
+
+ fps="$(frametimeline_fps "$target")"
+ case "$fps" in ''|*[!0-9-]*) fps=-1;; esac
+
+ if [ "$fps" -lt 0 ] 2>/dev/null; then
+  short="${target##*.}"
+  if [ "${#short}" -ge 4 ]; then
+   fps="$(frametimeline_fps "$short")"
+   case "$fps" in ''|*[!0-9-]*) fps=-1;; esac
+  fi
+ fi
+
+ echo "$fps"
 }
 
 gfxinfo_fps(){
@@ -268,9 +310,9 @@ stream(){
     if [ "$gfx_fps" -ge 0 ] 2>/dev/null; then
      fps="$gfx_fps"
     else
-     global_fps="$(global_surface_fps)"
-     case "$global_fps" in ''|*[!0-9-]*) global_fps=-1;; esac
-     [ "$global_fps" -ge 0 ] 2>/dev/null && fps="$global_fps"
+     timeline_fps="$(target_frametimeline_fps "$pkg_cached")"
+     case "$timeline_fps" in ''|*[!0-9-]*) timeline_fps=-1;; esac
+     [ "$timeline_fps" -ge 0 ] 2>/dev/null && fps="$timeline_fps"
     fi
 
     [ "$fps" -gt 0 ] 2>/dev/null && last_good_fps="$fps"
