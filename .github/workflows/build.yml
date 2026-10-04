@@ -20,7 +20,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -35,8 +35,22 @@ jobs:
           "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
           echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
 
+      - name: Set development versions
+        shell: bash
+        run: |
+          APP_CODE=$((100000 + GITHUB_RUN_NUMBER))
+          MODULE_CODE=$((100000 + GITHUB_RUN_NUMBER))
+          APP_NAME="0.3-dev.${GITHUB_RUN_NUMBER}"
+          MODULE_NAME="v1.3-dev.${GITHUB_RUN_NUMBER}"
+          echo "APP_VERSION_CODE=$APP_CODE" >> "$GITHUB_ENV"
+          echo "APP_VERSION_NAME=$APP_NAME" >> "$GITHUB_ENV"
+          echo "MODULE_VERSION_CODE=$MODULE_CODE" >> "$GITHUB_ENV"
+          echo "MODULE_VERSION_NAME=$MODULE_NAME" >> "$GITHUB_ENV"
+          echo "APP_ASSET=KB1001-Performance-Manager-${APP_NAME}.apk" >> "$GITHUB_ENV"
+          echo "MODULE_ASSET=KB1001-Performance-Manager-${MODULE_NAME}.zip" >> "$GITHUB_ENV"
+
       - name: Set up Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.9'
 
@@ -44,36 +58,122 @@ jobs:
         run: |
           for f in module/*.sh module/kb1001ctl; do sh -n "$f"; done
 
-      - name: Build APK
-        run: gradle :app:assembleDebug --stacktrace
+      - name: Stamp module version
+        shell: bash
+        run: |
+          sed -i "s/^version=.*/version=${MODULE_VERSION_NAME}/" module/module.prop
+          sed -i "s/^versionCode=.*/versionCode=${MODULE_VERSION_CODE}/" module/module.prop
+
+      - name: Restore release keystore
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        shell: bash
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/kb1001-release.keystore"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/kb1001-release.keystore" >> "$GITHUB_ENV"
+          echo "ANDROID_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "STABLE_SIGNING=1" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Build development debug APK
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 == '' }}
+        run: |
+          echo "STABLE_SIGNING=0" >> "$GITHUB_ENV"
+          gradle :app:assembleDebug --stacktrace
 
       - name: Name APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk KB1001-Performance-Manager-v0.2-alpha.apk
+        shell: bash
+        run: |
+          if [ "${STABLE_SIGNING:-0}" = "1" ]; then
+            cp app/build/outputs/apk/release/app-release.apk "$APP_ASSET"
+          else
+            cp app/build/outputs/apk/debug/app-debug.apk "$APP_ASSET"
+          fi
 
       - name: Package Magisk module
-        run: bash scripts/package-module.sh
-
-      - name: Verify direct flashable module
+        shell: bash
         run: |
-          unzip -p out/KB1001-Performance-Manager-v1.3-HUD-Logger.zip module.prop | grep -q '^id=kb1001_gpu_profiles$'
-          unzip -t out/KB1001-Performance-Manager-v1.3-HUD-Logger.zip >/dev/null
+          rm -rf out
+          mkdir -p out
+          (cd module && zip -r -9 "../out/$MODULE_ASSET" . -x '*.DS_Store')
+          unzip -t "out/$MODULE_ASSET" >/dev/null
+          unzip -p "out/$MODULE_ASSET" module.prop | grep -q '^id=kb1001_gpu_profiles$'
+
+      - name: Generate update manifest
+        shell: bash
+        run: |
+          APP_SHA="$(sha256sum "$APP_ASSET" | awk '{print $1}')"
+          MODULE_SHA="$(sha256sum "out/$MODULE_ASSET" | awk '{print $1}')"
+          cat > update.json <<EOF
+          {
+            "version": "${MODULE_VERSION_NAME}",
+            "versionCode": ${MODULE_VERSION_CODE},
+            "zipUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/${MODULE_ASSET}",
+            "changelog": "https://github.com/${GITHUB_REPOSITORY}/releases/tag/dev-latest",
+            "app_version_code": ${APP_VERSION_CODE},
+            "app_version_name": "${APP_VERSION_NAME}",
+            "module_version_code": ${MODULE_VERSION_CODE},
+            "module_version_name": "${MODULE_VERSION_NAME}",
+            "commit": "${GITHUB_SHA}",
+            "app_asset": "${APP_ASSET}",
+            "app_sha256": "${APP_SHA}",
+            "module_asset": "${MODULE_ASSET}",
+            "module_sha256": "${MODULE_SHA}",
+            "stable_app_signing": ${STABLE_SIGNING:-0}
+          }
+          EOF
 
       - name: Publish direct development downloads
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           if gh release view dev-latest >/dev/null 2>&1; then
-            gh release edit dev-latest --title "KB1001 Performance Manager - Development" --notes "Rolling main build. APK installs directly; Magisk ZIP flashes directly."
+            gh release edit dev-latest               --title "KB1001 Performance Manager - Development"               --notes "Rolling main build. Download the APK directly to install the app, or the Magisk ZIP directly to flash/update the backend."
           else
-            gh release create dev-latest --title "KB1001 Performance Manager - Development" --notes "Rolling main build. APK installs directly; Magisk ZIP flashes directly." --prerelease
+            gh release create dev-latest               --title "KB1001 Performance Manager - Development"               --notes "Rolling main build. Download the APK directly to install the app, or the Magisk ZIP directly to flash/update the backend."               --prerelease
           fi
-          gh release upload dev-latest KB1001-Performance-Manager-v0.2-alpha.apk out/KB1001-Performance-Manager-v1.3-HUD-Logger.zip --clobber
 
-      - name: Upload verification bundle
-        uses: actions/upload-artifact@v4
+          gh release view dev-latest --json assets --jq '.assets[].name' | while read -r asset; do
+            gh release delete-asset dev-latest "$asset" -y || true
+          done
+
+          gh release upload dev-latest "$APP_ASSET" "out/$MODULE_ASSET" update.json --clobber
+
+      - name: Write direct download links to Actions summary
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          {
+            echo "# KB1001 Development Build"
+            echo
+            echo "### Direct downloads"
+            echo
+            echo "- [📱 Download APK](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/${APP_ASSET})"
+            echo "- [🧩 Download Magisk module](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/${MODULE_ASSET})"
+            echo "- [📄 Update manifest](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/update.json)"
+            echo
+            echo "App: **${APP_VERSION_NAME}** (code ${APP_VERSION_CODE})"
+            echo
+            echo "Module: **${MODULE_VERSION_NAME}** (code ${MODULE_VERSION_CODE})"
+            echo
+            if [ "${STABLE_SIGNING:-0}" = "1" ]; then
+              echo "APK signing: **stable release key** ✅"
+            else
+              echo "APK signing: **ephemeral debug key** ⚠️ — configure the signing secrets before relying on in-place self-updates."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload CI verification artifact
+        uses: actions/upload-artifact@v7
         with:
           name: build-verification
           path: |
-            KB1001-Performance-Manager-v0.2-alpha.apk
-            out/KB1001-Performance-Manager-v1.3-HUD-Logger.zip
+            ${{ env.APP_ASSET }}
+            out/${{ env.MODULE_ASSET }}
+            update.json
