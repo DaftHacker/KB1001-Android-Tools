@@ -39,7 +39,6 @@ public class OverlayService extends Service {
     private TextView title;
     private TextView subtitle;
     private TextView footer;
-    private TextView fpsValue;
     private float uiScale=1f;
     private volatile String pendingProfile;
 
@@ -106,10 +105,6 @@ public class OverlayService extends Service {
         names.addView(title);
         names.addView(subtitle);
         head.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-
-        fpsValue=txt("— FPS",12,CPU_COLOR,true);
-        fpsValue.setGravity(Gravity.CENTER);
-        head.addView(fpsValue,new LinearLayout.LayoutParams(dp(66),-2));
 
         Button fold=mini("—");
         fold.setOnClickListener(v->{
@@ -210,7 +205,6 @@ public class OverlayService extends Service {
             String requestState=TelemetryStore.get(m,"profile_request_state","");
             String requestedProfile=TelemetryStore.get(m,"profile_request_profile","");
             String pkg=TelemetryStore.get(m,"package","");
-            int fps=parseInt(TelemetryStore.get(m,"fps","0"));
             int gpuMhz=parseInt(TelemetryStore.get(m,"gpu_clock_mhz","0"));
             int cpuUtil=Math.max(0,Math.min(100,parseInt(TelemetryStore.get(m,"cpu_util_pct","0"))));
             int gpuUtil=Math.max(0,Math.min(100,parseInt(TelemetryStore.get(m,"gpu_util_pct","0"))));
@@ -249,13 +243,8 @@ public class OverlayService extends Service {
             }
             if(profileForUi==null) profileForUi=profile;
 
-            title.setText("Performance • "+displayProfile(profileForUi));
+            title.setText("Metrics • "+displayProfile(profileForUi));
             subtitle.setText("game".equalsIgnoreCase(mode)&&!pkg.isEmpty()?pkg:"Live system monitor");
-
-            if(fpsValue!=null){
-                fpsValue.setText(fps>0?fps+" FPS":"— FPS");
-                fpsValue.setTextColor(fps>=55?CPU_COLOR:(fps>=30?RAM_COLOR:THERMAL_HOT));
-            }
 
             cpu.set(cpuUtil+"% • "+clocks.current,cpuUtil);
             gpu.set(gpuUtil+"% • "+(gpuMhz>0?gpuMhz:"—"),gpuUtil);
