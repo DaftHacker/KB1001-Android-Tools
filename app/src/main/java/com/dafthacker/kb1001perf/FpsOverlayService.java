@@ -1,0 +1,223 @@
+package com.dafthacker.kb1001perf;
+
+import android.app.*;
+import android.content.Context;
+import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.PixelFormat;
+import android.os.*;
+import android.provider.Settings;
+import android.view.*;
+import android.widget.TextView;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.*;
+
+public final class FpsOverlayService extends Service {
+    private static final String CHANNEL="kb1001_fps_hud";
+    private static volatile boolean running;
+
+    private final Handler handler=new Handler(Looper.getMainLooper());
+    private final ExecutorService reader=Executors.newSingleThreadExecutor();
+
+    private WindowManager wm;
+    private WindowManager.LayoutParams params;
+    private TextView fpsText;
+    private Process sampler;
+
+    private float downX,downY;
+    private int startX,startY;
+
+    public static boolean isRunning(){return running;}
+
+    @Override public void onCreate(){
+        super.onCreate();
+        running=true;
+        createChannel();
+        startForeground(1002,notification());
+
+        if(!Settings.canDrawOverlays(this)){
+            stopSelf();
+            return;
+        }
+
+        wm=(WindowManager)getSystemService(WINDOW_SERVICE);
+        createOverlay();
+        startSampler();
+    }
+
+    @Override public int onStartCommand(Intent intent,int flags,int startId){
+        return START_STICKY;
+    }
+
+    private void createOverlay(){
+        float scale=getSharedPreferences("fps_hud",MODE_PRIVATE).getFloat("scale",1f);
+
+        fpsText=new TextView(this);
+        fpsText.setText("— FPS");
+        fpsText.setTextColor(Color.WHITE);
+        fpsText.setTextSize(18f*scale);
+        fpsText.setShadowLayer(2.5f,0f,0f,Color.BLACK);
+        fpsText.setPadding(dp(3),dp(1),dp(3),dp(1));
+        fpsText.setSingleLine(true);
+
+        params=new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT);
+        params.gravity=Gravity.TOP|Gravity.START;
+
+        applySavedPosition();
+
+        fpsText.setOnTouchListener((v,e)->{
+            switch(e.getActionMasked()){
+                case MotionEvent.ACTION_DOWN:
+                    downX=e.getRawX();
+                    downY=e.getRawY();
+                    startX=params.x;
+                    startY=params.y;
+                    return true;
+
+                case MotionEvent.ACTION_MOVE:
+                    params.x=Math.max(0,startX+Math.round(e.getRawX()-downX));
+                    params.y=Math.max(0,startY+Math.round(e.getRawY()-downY));
+                    try{wm.updateViewLayout(fpsText,params);}catch(Exception ignored){}
+                    return true;
+
+                case MotionEvent.ACTION_UP:
+                    getSharedPreferences("fps_hud",MODE_PRIVATE).edit()
+                            .putString("position","custom")
+                            .putInt("x",params.x)
+                            .putInt("y",params.y)
+                            .apply();
+                    return true;
+            }
+            return false;
+        });
+
+        wm.addView(fpsText,params);
+    }
+
+    private void applySavedPosition(){
+        android.content.SharedPreferences p=getSharedPreferences("fps_hud",MODE_PRIVATE);
+        String position=p.getString("position","top_right");
+
+        int width=getResources().getDisplayMetrics().widthPixels;
+        int height=getResources().getDisplayMetrics().heightPixels;
+
+        int margin=dp(14);
+        int estimatedWidth=dp(82);
+        int estimatedHeight=dp(34);
+
+        if("custom".equals(position)){
+            params.x=Math.max(0,p.getInt("x",margin));
+            params.y=Math.max(0,p.getInt("y",dp(48)));
+            return;
+        }
+
+        int x;
+        if(position.endsWith("_left"))x=margin;
+        else if(position.endsWith("_center"))x=Math.max(margin,(width-estimatedWidth)/2);
+        else x=Math.max(margin,width-estimatedWidth-margin);
+
+        int y=position.startsWith("bottom_")
+                ? Math.max(margin,height-estimatedHeight-dp(76))
+                : dp(48);
+
+        params.x=x;
+        params.y=y;
+    }
+
+    private void startSampler(){
+        reader.execute(()->{
+            try{
+                sampler=new ProcessBuilder(
+                        "su","-c",
+                        RootBridge.CONTROLLER+" fps stream")
+                        .redirectErrorStream(true)
+                        .start();
+
+                BufferedReader in=new BufferedReader(
+                        new InputStreamReader(sampler.getInputStream(), StandardCharsets.UTF_8));
+
+                String line;
+                while((line=in.readLine())!=null && running){
+                    final int fps=parseFps(line);
+                    handler.post(()->{
+                        if(fpsText==null)return;
+                        fpsText.setText(fps>0?fps+" FPS":"— FPS");
+                    });
+                }
+            }catch(Exception ignored){
+                handler.post(()->{
+                    if(fpsText!=null)fpsText.setText("— FPS");
+                });
+            }
+        });
+    }
+
+    private int parseFps(String line){
+        try{
+            int v=Integer.parseInt(line.trim());
+            return Math.max(0,Math.min(240,v));
+        }catch(Exception e){
+            return 0;
+        }
+    }
+
+    private int dp(int value){
+        return Math.round(value*getResources().getDisplayMetrics().density);
+    }
+
+    private void createChannel(){
+        if(Build.VERSION.SDK_INT>=26){
+            NotificationChannel c=new NotificationChannel(
+                    CHANNEL,
+                    "FPS Counter",
+                    NotificationManager.IMPORTANCE_LOW);
+            c.setDescription("Minimal in-game FPS counter.");
+            ((NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(c);
+        }
+    }
+
+    private Notification notification(){
+        Intent open=new Intent(this,MainActivity.class);
+        PendingIntent openPi=PendingIntent.getActivity(
+                this,11,open,
+                PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+
+        return new Notification.Builder(this,CHANNEL)
+                .setSmallIcon(R.drawable.ic_stat_speed)
+                .setContentTitle("FPS counter")
+                .setContentText("Minimal FPS overlay is running")
+                .setOngoing(true)
+                .setContentIntent(openPi)
+                .build();
+    }
+
+    @Override public void onDestroy(){
+        running=false;
+
+        try{
+            if(sampler!=null){
+                sampler.destroy();
+                if(Build.VERSION.SDK_INT>=26) sampler.destroyForcibly();
+            }
+        }catch(Exception ignored){}
+
+        if(fpsText!=null&&wm!=null){
+            try{wm.removeView(fpsText);}catch(Exception ignored){}
+            fpsText=null;
+        }
+
+        reader.shutdownNow();
+        super.onDestroy();
+    }
+
+    @Override public IBinder onBind(Intent intent){return null;}
+}
