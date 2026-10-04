@@ -5,6 +5,8 @@ MODDIR=${0%/*}
 AUTO_CONF="$STATE_DIR/auto_boost.conf"
 GAMES="$STATE_DIR/games.list"
 OVERLAY_DISABLED="$STATE_DIR/overlay_disabled.list"
+METRICS_GAMES="$STATE_DIR/metrics_enabled.list"
+FPS_GAMES="$STATE_DIR/fps_enabled.list"
 AUTO_PID="/data/local/tmp/kb1001_game_boost.pid"
 AUTO_STATE="/data/local/tmp/kb1001_game_boost.state"
 
@@ -32,7 +34,12 @@ get_foreground_package() {
 }
 
 is_registered_game(){ [ -n "$1" ] && grep -Ev '^[[:space:]]*(#|$)' "$GAMES" 2>/dev/null | sed 's/[[:space:]]*$//' | grep -Fxq "$1"; }
-overlay_allowed(){ [ -n "$1" ] && ! grep -Fxq "$1" "$OVERLAY_DISABLED" 2>/dev/null; }
+metrics_allowed(){ [ -n "$1" ] && grep -Fxq "$1" "$METRICS_GAMES" 2>/dev/null; }
+fps_allowed(){ [ -n "$1" ] && grep -Fxq "$1" "$FPS_GAMES" 2>/dev/null; }
+any_overlay_configured(){
+ grep -q '[^[:space:]#]' "$METRICS_GAMES" 2>/dev/null ||
+ grep -q '[^[:space:]#]' "$FPS_GAMES" 2>/dev/null
+}
 write_state(){
     new_mode="$1"; new_pkg="$2"; new_profile="$3"
     old_mode="$(grep -m1 '^mode=' "$AUTO_STATE" 2>/dev/null | cut -d= -f2-)"
@@ -89,10 +96,8 @@ run_daemon() {
 
     while true; do
         boost_enabled="$(conf_get enabled 0)"
-        metrics_enabled="$(conf_get metrics_overlay_auto "$(conf_get overlay_auto 0)")"
-        fps_enabled="$(conf_get fps_overlay_auto 0)"
 
-        if [ "$boost_enabled" != 1 ] && [ "$metrics_enabled" != 1 ] && [ "$fps_enabled" != 1 ]; then
+        if [ "$boost_enabled" != 1 ] && ! any_overlay_configured; then
             if [ "$auto_metrics_visible" = 1 ]; then
                 metrics_hide
                 auto_metrics_visible=0
@@ -135,35 +140,24 @@ run_daemon() {
             # sampler can resolve the correct SurfaceFlinger layer immediately.
             write_state game "$pkg" "$active_profile"
 
-            if overlay_allowed "$pkg"; then
-                if [ "$metrics_enabled" = 1 ]; then
-                    if [ "$auto_metrics_visible" != 1 ] || [ "$last_pkg" != "$pkg" ]; then
-                        metrics_show
-                        auto_metrics_visible=1
-                    fi
-                elif [ "$auto_metrics_visible" = 1 ]; then
-                    metrics_hide
-                    auto_metrics_visible=0
+            if metrics_allowed "$pkg"; then
+                if [ "$auto_metrics_visible" != 1 ] || [ "$last_pkg" != "$pkg" ]; then
+                    metrics_show
+                    auto_metrics_visible=1
                 fi
+            elif [ "$auto_metrics_visible" = 1 ]; then
+                metrics_hide
+                auto_metrics_visible=0
+            fi
 
-                if [ "$fps_enabled" = 1 ]; then
-                    if [ "$auto_fps_visible" != 1 ] || [ "$last_pkg" != "$pkg" ]; then
-                        fps_show
-                        auto_fps_visible=1
-                    fi
-                elif [ "$auto_fps_visible" = 1 ]; then
-                    fps_hide
-                    auto_fps_visible=0
+            if fps_allowed "$pkg"; then
+                if [ "$auto_fps_visible" != 1 ] || [ "$last_pkg" != "$pkg" ]; then
+                    fps_show
+                    auto_fps_visible=1
                 fi
-            else
-                if [ "$auto_metrics_visible" = 1 ]; then
-                    metrics_hide
-                    auto_metrics_visible=0
-                fi
-                if [ "$auto_fps_visible" = 1 ]; then
-                    fps_hide
-                    auto_fps_visible=0
-                fi
+            elif [ "$auto_fps_visible" = 1 ]; then
+                fps_hide
+                auto_fps_visible=0
             fi
 
             last_mode=game
