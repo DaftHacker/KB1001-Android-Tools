@@ -579,6 +579,7 @@ public class GpuActivity extends Activity {
 
     @Override protected void onResume(){
         super.onResume();
+        TelemetryDemand.activityResumed();
         active=true;
         handler.removeCallbacks(ticker);
         handler.post(ticker);
@@ -587,6 +588,7 @@ public class GpuActivity extends Activity {
     @Override protected void onPause(){
         active=false;
         handler.removeCallbacks(ticker);
+        TelemetryDemand.activityPaused();
         super.onPause();
     }
 
