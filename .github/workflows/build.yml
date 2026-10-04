@@ -6,7 +6,6 @@ on:
     branches: [ main ]
     paths:
       - 'app/**'
-      - 'module/**'
       - 'scripts/**'
       - '*.gradle'
       - 'gradle.properties'
@@ -14,7 +13,7 @@ on:
   pull_request:
 
 concurrency:
-  group: kb1001-dev-main-v3
+  group: kb1001-dev-main-v4
   cancel-in-progress: true
 
 jobs:
@@ -46,37 +45,36 @@ jobs:
           "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
           echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
 
-      - name: Set development versions
+      - name: Set development version
         shell: bash
         run: |
           APP_CODE=$((100000 + GITHUB_RUN_NUMBER))
-          MODULE_CODE=$((100000 + GITHUB_RUN_NUMBER))
-          APP_NAME="0.4-dev.${GITHUB_RUN_NUMBER}"
-          MODULE_NAME="v1.4-dev.${GITHUB_RUN_NUMBER}"
+          APP_NAME="0.5-dev.${GITHUB_RUN_NUMBER}"
+          LEGACY_ASSET="KB1001-Legacy-Module-Retired-Do-Not-Flash.zip"
+
           echo "APP_VERSION_CODE=$APP_CODE" >> "$GITHUB_ENV"
           echo "APP_VERSION_NAME=$APP_NAME" >> "$GITHUB_ENV"
-          echo "MODULE_VERSION_CODE=$MODULE_CODE" >> "$GITHUB_ENV"
-          echo "MODULE_VERSION_NAME=$MODULE_NAME" >> "$GITHUB_ENV"
           echo "APP_ASSET=KB1001-Performance-Manager-${APP_NAME}.apk" >> "$GITHUB_ENV"
-          echo "MODULE_ASSET=KB1001-Performance-Manager-${MODULE_NAME}.zip" >> "$GITHUB_ENV"
+          echo "LEGACY_ASSET=$LEGACY_ASSET" >> "$GITHUB_ENV"
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.9'
 
-      - name: Validate module scripts
+      - name: Validate bundled root backend
         shell: bash
         run: |
-          for f in module/*.sh module/kb1001ctl; do
+          for f in app/src/main/assets/backend/*.sh app/src/main/assets/backend/kb1001ctl; do
             sh -n "$f"
           done
 
-      - name: Stamp module version
-        shell: bash
-        run: |
-          sed -i "s/^version=.*/version=${MODULE_VERSION_NAME}/" module/module.prop
-          sed -i "s/^versionCode=.*/versionCode=${MODULE_VERSION_CODE}/" module/module.prop
+          grep -q 'STATE_DIR="/data/local/kb1001perf/state"' app/src/main/assets/backend/common.sh
+
+          if grep -R '/data/adb/modules/kb1001_gpu_profiles' app/src/main/assets/backend app/src/main/java; then
+            echo "Runtime code still references the legacy Magisk module path."
+            exit 1
+          fi
 
       - name: Build APK
         shell: bash
@@ -88,11 +86,13 @@ jobs:
             export ANDROID_KEY_ALIAS="$ANDROID_KEY_ALIAS_SECRET"
             export ANDROID_KEY_PASSWORD="$ANDROID_KEY_PASSWORD_SECRET"
             export STABLE_SIGNING=1
+
             echo "ANDROID_KEYSTORE_PATH=$ANDROID_KEYSTORE_PATH" >> "$GITHUB_ENV"
             echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
             echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
             echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
             echo "STABLE_SIGNING=1" >> "$GITHUB_ENV"
+
             gradle :app:assembleRelease --stacktrace
           else
             export STABLE_SIGNING=0
@@ -118,63 +118,81 @@ jobs:
           test -n "$CERT_SHA256"
           echo "APK_CERT_SHA256=$CERT_SHA256" >> "$GITHUB_ENV"
 
-      - name: Package Magisk module
+      - name: Create legacy-updater compatibility asset
         shell: bash
         run: |
           rm -rf out
-          mkdir -p out
+          mkdir -p out/legacy
+
+          cat > out/legacy/README.txt <<'EOF'
+          RETIRED — DO NOT FLASH
+
+          KB1001 Performance Manager no longer uses a Magisk module.
+          The privileged root backend is bundled inside the APK and is installed/updated by the app.
+
+          This ZIP exists only so older app versions can parse the rolling update manifest
+          and update themselves to the first app-owned-backend release.
+          EOF
+
           (
-            cd module
-            zip -r -9 "../out/$MODULE_ASSET" . -x '*.DS_Store' 'action.sh'
+            cd out/legacy
+            zip -9 "../$LEGACY_ASSET" README.txt
           )
-          unzip -t "out/$MODULE_ASSET" >/dev/null
-          unzip -p "out/$MODULE_ASSET" module.prop | grep -q '^id=kb1001_gpu_profiles$'
-          if unzip -Z1 "out/$MODULE_ASSET" | grep -qx 'action.sh'; then
-            echo "Legacy action.sh must not be shipped."
-            exit 1
-          fi
 
       - name: Generate update manifest
         shell: bash
         run: |
           APP_SHA="$(sha256sum "$APP_ASSET" | awk '{print $1}')"
-          MODULE_SHA="$(sha256sum "out/$MODULE_ASSET" | awk '{print $1}')"
+          LEGACY_SHA="$(sha256sum "out/$LEGACY_ASSET" | awk '{print $1}')"
+
           cat > update.json <<EOF
           {
-            "version": "${MODULE_VERSION_NAME}",
-            "versionCode": ${MODULE_VERSION_CODE},
-            "zipUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/${MODULE_ASSET}",
+            "version": "retired",
+            "versionCode": 0,
+            "zipUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/${LEGACY_ASSET}",
             "changelog": "https://github.com/${GITHUB_REPOSITORY}/releases/tag/dev-latest",
             "app_version_code": ${APP_VERSION_CODE},
             "app_version_name": "${APP_VERSION_NAME}",
-            "module_version_code": ${MODULE_VERSION_CODE},
-            "module_version_name": "${MODULE_VERSION_NAME}",
+            "module_version_code": 0,
+            "module_version_name": "retired-bundled-in-apk",
             "commit": "${GITHUB_SHA}",
             "app_asset": "${APP_ASSET}",
             "app_sha256": "${APP_SHA}",
-            "module_asset": "${MODULE_ASSET}",
-            "module_sha256": "${MODULE_SHA}",
+            "module_asset": "${LEGACY_ASSET}",
+            "module_sha256": "${LEGACY_SHA}",
+            "backend_bundled": true,
             "stable_app_signing": ${STABLE_SIGNING:-0}
           }
           EOF
 
-      - name: Publish direct development downloads
+      - name: Publish direct development download
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          RELEASE_NOTES="Rolling main build. The privileged backend is now bundled inside the APK; no Magisk module needs to be flashed. The legacy ZIP asset is compatibility metadata for older app updaters only and must not be flashed."
+
           if gh release view dev-latest >/dev/null 2>&1; then
-            gh release edit dev-latest               --title "KB1001 Performance Manager - Development"               --notes "Rolling main build. APK installs directly; Magisk ZIP flashes directly."
+            gh release edit dev-latest \
+              --title "KB1001 Performance Manager - Development" \
+              --notes "$RELEASE_NOTES"
           else
-            gh release create dev-latest               --title "KB1001 Performance Manager - Development"               --notes "Rolling main build. APK installs directly; Magisk ZIP flashes directly."               --prerelease
+            gh release create dev-latest \
+              --title "KB1001 Performance Manager - Development" \
+              --notes "$RELEASE_NOTES" \
+              --prerelease
           fi
 
           gh release view dev-latest --json assets --jq '.assets[].name' | while read -r asset; do
             gh release delete-asset dev-latest "$asset" -y || true
           done
 
-          gh release upload dev-latest "$APP_ASSET" "out/$MODULE_ASSET" update.json --clobber
+          gh release upload dev-latest \
+            "$APP_ASSET" \
+            "out/$LEGACY_ASSET" \
+            update.json \
+            --clobber
 
       - name: Write direct download links to Actions summary
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -183,17 +201,16 @@ jobs:
           {
             echo "# KB1001 Development Build"
             echo
-            echo "### Direct downloads"
+            echo "### Direct download"
             echo
             echo "- [📱 Download APK](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/${APP_ASSET})"
-            echo "- [🧩 Download Magisk module](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/${MODULE_ASSET})"
             echo "- [📄 Update manifest](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/update.json)"
             echo
-            echo "App: **${APP_VERSION_NAME}** (code ${APP_VERSION_CODE})"
+            echo "App + bundled root backend: **${APP_VERSION_NAME}** (code ${APP_VERSION_CODE})"
             echo
-            echo "Module: **${MODULE_VERSION_NAME}** (code ${MODULE_VERSION_CODE})"
+            echo "No Magisk module installation is required."
             echo
-            echo "APK certificate SHA-256: \`${APK_CERT_SHA256}\`"
+            echo "APK certificate SHA-256: `${APK_CERT_SHA256}`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload CI verification artifact
@@ -202,5 +219,4 @@ jobs:
           name: build-verification
           path: |
             ${{ env.APP_ASSET }}
-            out/${{ env.MODULE_ASSET }}
             update.json
