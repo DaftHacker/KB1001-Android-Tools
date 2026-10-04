@@ -4,6 +4,7 @@ MODDIR=${0%/*}
 
 AUTO_CONF="$STATE_DIR/auto_boost.conf"
 GAMES="$STATE_DIR/games.list"
+OVERLAY_DISABLED="$STATE_DIR/overlay_disabled.list"
 AUTO_PID="/data/local/tmp/kb1001_game_boost.pid"
 LOGGER_CONF="$STATE_DIR/logger.conf"
 LOGGER_PID="/data/local/tmp/kb1001_perf_logger.pid"
@@ -29,6 +30,7 @@ file_logging=0
 file_path=
 EOC
  [ -f "$GAMES" ] || : > "$GAMES"
+ [ -f "$OVERLAY_DISABLED" ] || : > "$OVERLAY_DISABLED"
 }
 
 set_conf(){ file="$1"; key="$2"; value="$3"; tmp="$file.tmp.$$"; grep -v "^${key}=" "$file" 2>/dev/null > "$tmp"; echo "${key}=${value}" >> "$tmp"; mv "$tmp" "$file"; }
@@ -197,10 +199,37 @@ case "$cmd" in
  game)
    sub="$1"; pkg="$2"
    case "$sub" in
-     list) grep -Ev '^[[:space:]]*(#|$)' "$GAMES" 2>/dev/null || true ;;
-     add) valid_package "$pkg" || exit 2; grep -Fxq "$pkg" "$GAMES" 2>/dev/null || echo "$pkg" >> "$GAMES" ;;
-     remove) valid_package "$pkg" || exit 2; grep -Fvx "$pkg" "$GAMES" 2>/dev/null > "$GAMES.tmp.$$" || true; mv "$GAMES.tmp.$$" "$GAMES" ;;
-     clear) : > "$GAMES" ;;
+     list)
+       grep -Ev '^[[:space:]]*(#|$)' "$GAMES" 2>/dev/null || true
+       ;;
+     add)
+       valid_package "$pkg" || exit 2
+       grep -Fxq "$pkg" "$GAMES" 2>/dev/null || echo "$pkg" >> "$GAMES"
+       ;;
+     remove)
+       valid_package "$pkg" || exit 2
+       grep -Fvx "$pkg" "$GAMES" 2>/dev/null > "$GAMES.tmp.$" || true
+       mv "$GAMES.tmp.$" "$GAMES"
+       grep -Fvx "$pkg" "$OVERLAY_DISABLED" 2>/dev/null > "$OVERLAY_DISABLED.tmp.$" || true
+       mv "$OVERLAY_DISABLED.tmp.$" "$OVERLAY_DISABLED"
+       ;;
+     clear)
+       : > "$GAMES"
+       : > "$OVERLAY_DISABLED"
+       ;;
+     overlay-list)
+       grep -Ev '^[[:space:]]*(#|$)' "$OVERLAY_DISABLED" 2>/dev/null || true
+       ;;
+     overlay-enable)
+       valid_package "$pkg" || exit 2
+       grep -Fvx "$pkg" "$OVERLAY_DISABLED" 2>/dev/null > "$OVERLAY_DISABLED.tmp.$" || true
+       mv "$OVERLAY_DISABLED.tmp.$" "$OVERLAY_DISABLED"
+       ;;
+     overlay-disable)
+       valid_package "$pkg" || exit 2
+       grep -Fxq "$pkg" "$GAMES" 2>/dev/null || exit 3
+       grep -Fxq "$pkg" "$OVERLAY_DISABLED" 2>/dev/null || echo "$pkg" >> "$OVERLAY_DISABLED"
+       ;;
      *) exit 2 ;;
    esac ;;
  foreground) "$MODDIR/game_boost.sh" foreground ;;
