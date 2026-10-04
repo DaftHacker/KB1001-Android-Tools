@@ -1,4 +1,6 @@
 #!/system/bin/sh
+am stopservice -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || true
+am stopservice -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1 || true
 ps -A -o PID,ARGS 2>/dev/null | awk '/perf_logger[.]sh --daemon/ {print $1}' | while read -r p; do
     case "$p" in ''|*[!0-9]*) continue;; esac
     kill "$p" 2>/dev/null || true
