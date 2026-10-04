@@ -16,6 +16,7 @@ HUD_DEMAND="/data/local/tmp/kb1001_telemetry_hud"
 BAT_PATH=""
 INPUT_PATH=""
 CPU_AVAILABLE_CACHE=""
+CPU_CAPACITY_CACHE=""
 
 demand_active(){
  [ -e "$UI_DEMAND" ] || [ -e "$HUD_DEMAND" ]
@@ -244,6 +245,21 @@ sample(){
  fi
  cpu_available="$CPU_AVAILABLE_CACHE"
 
+ if [ -z "$CPU_CAPACITY_CACHE" ]; then
+  cap_build=""
+  for core in /sys/devices/system/cpu/cpu[0-9]*; do
+   [ -d "$core" ] || continue
+   cn="${core##*cpu}"
+   cap="$(cat "$core/cpu_capacity_orig" 2>/dev/null)"
+   [ -n "$cap" ] || cap="$(cat "$core/cpu_capacity" 2>/dev/null)"
+   [ -n "$cap" ] || cap=0
+   cap_build="${cap_build}cpu${cn}:${cap};"
+  done
+  CPU_CAPACITY_CACHE="$cap_build"
+ fi
+ cpu_capacity="$CPU_CAPACITY_CACHE"
+ cpu_online="$(cat /sys/devices/system/cpu/online 2>/dev/null)"
+
  for p in /sys/devices/system/cpu/cpufreq/policy*; do
   [ -d "$p" ]||continue
   n="${p##*/}"; cur="$(cat "$p/scaling_cur_freq" 2>/dev/null)"; min="$(cat "$p/scaling_min_freq" 2>/dev/null)"; maxf="$(cat "$p/scaling_max_freq" 2>/dev/null)"; gov="$(cat "$p/scaling_governor" 2>/dev/null)"; cpus="$(cat "$p/related_cpus" 2>/dev/null|tr ' ' '-')"
@@ -327,7 +343,7 @@ sample(){
   echo "timestamp=$(date '+%Y-%m-%d %H:%M:%S')"; echo "mode=$MODE"; echo "package=$PACKAGE"; echo "profile=$PROFILE"
   echo "gpu_clock_mhz=$GPU_MHZ"; echo "gpu_util_pct=$GPU_UTIL"; echo "gpu_voltage=$GPU_VOLTAGE"; echo "gpu_runtime=$GPU_RUNTIME"; echo "gpu_governor=$GPU_GOV"; echo "gpu_dvfs=$GPU_DVFS"
   echo "thermal_max_c=$THERMAL_MAX"; echo "thermal_zones=$zones"; echo "thermal_throttling=$THERMAL_THROTTLING"; echo "cooling_devices=$cooling"; echo "battery_temp_c=$BATTERY_C"
-  echo "cpu_util_pct=$CPU_UTIL"; echo "cpu_core_util=$CPU_CORE_UTIL"; echo "cpu_summary=$CPU_SUMMARY"; echo "cpu_policies=$cpu_detail"; echo "cpu_available=$cpu_available"; echo "devfreq=$devs"
+  echo "cpu_util_pct=$CPU_UTIL"; echo "cpu_core_util=$CPU_CORE_UTIL"; echo "cpu_core_capacity=$cpu_capacity"; echo "cpu_online=$cpu_online"; echo "cpu_summary=$CPU_SUMMARY"; echo "cpu_policies=$cpu_detail"; echo "cpu_available=$cpu_available"; echo "devfreq=$devs"
   echo "battery_status=$BATTERY_STATUS"; echo "battery_capacity=$BATTERY_CAPACITY"; echo "battery_capacity_level=$BATTERY_CAPACITY_LEVEL"; echo "battery_health=$BATTERY_HEALTH"; echo "battery_technology=$BATTERY_TECH"; echo "battery_manufacturer=$BATTERY_MANUFACTURER"
   echo "battery_current=$BATTERY_CURRENT"; echo "battery_current_avg=$BATTERY_CURRENT_AVG"; echo "battery_charge_current=$BATTERY_CHARGE_CURRENT"; echo "battery_voltage=$BATTERY_VOLTAGE"
   echo "battery_charge_counter=$BATTERY_CHARGE_COUNTER"; echo "battery_charge_full=$BATTERY_CHARGE_FULL"; echo "battery_charge_full_design=$BATTERY_CHARGE_FULL_DESIGN"; echo "battery_cycle_count=$BATTERY_CYCLE_COUNT"; echo "battery_energy_now=$BATTERY_ENERGY_NOW"; echo "battery_energy_full_design=$BATTERY_ENERGY_FULL_DESIGN"
