@@ -92,10 +92,6 @@ public final class BatteryActivity extends Activity {
         titles.addView(text("Battery health, charger state and kernel power limits",11,GREEN,true));
         top.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
 
-        TextView badge=text("POWER",10,Color.rgb(7,24,14),true);
-        badge.setGravity(Gravity.CENTER);
-        badge.setBackground(pill(GREEN));
-        top.addView(badge,new LinearLayout.LayoutParams(dp(64),dp(30)));
         root.addView(top);
 
         ScrollView scroll=new ScrollView(this);
