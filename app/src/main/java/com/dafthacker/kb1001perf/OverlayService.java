@@ -169,7 +169,7 @@ public class OverlayService extends Service {
         overlay.addView(details);
 
         params=new WindowManager.LayoutParams(
-                dp(316),
+                dp(288),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|
