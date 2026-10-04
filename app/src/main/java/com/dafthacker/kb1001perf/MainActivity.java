@@ -567,15 +567,20 @@ public class MainActivity extends Activity {
         page.addView(card(check),full());
 
         TextView versions=text(
-                "App "+BuildConfig.VERSION_NAME+"\nBackend version is checked automatically.",
+                "App "+BuildConfig.VERSION_NAME+"\nRoot backend bundled with this APK.",
                 11,MUTED,false);
         page.addView(card(versions),full());
 
-        section("BACKEND","The Android app owns the experience; the module currently provides boot-persistent privileged execution.");
+        section("BACKEND","Privileged hardware support is now owned and updated by the Android app.");
         TextView info=text(
-                "Metrics telemetry, FPS sampling and game detection are separated so each feature only runs when needed.",
+                "Root scripts are deployed from the APK to /data/local/kb1001perf. " +
+                        "The old Magisk module is automatically disabled after its saved state is migrated.",
                 11,Color.rgb(190,205,202),false);
         page.addView(card(info),full());
+
+        Button removeLegacy=button("Remove Legacy Magisk Module",true,v -> confirmLegacyModuleRemoval());
+        removeLegacy.setTextSize(12);
+        page.addView(card(removeLegacy),full());
     }
 
     private View overlayScaleCard() {
@@ -1052,28 +1057,27 @@ public class MainActivity extends Activity {
     private void checkForUpdate(boolean quiet) {
         io.execute(() -> {
             try {
-                UpdateManager.ReleaseInfo info = UpdateManager.check(this);
-                releaseInfo = info;
+                UpdateManager.ReleaseInfo info=UpdateManager.check(this);
+                releaseInfo=info;
 
-                int appInstalled = UpdateManager.installedAppVersion(this);
-                int moduleInstalled = UpdateManager.installedModuleVersion();
+                int installed=UpdateManager.installedAppVersion(this);
+                boolean appNew=info.appVersionCode>installed;
 
-                boolean appNew = info.appVersionCode > appInstalled;
-                boolean moduleNew = info.moduleVersionCode > moduleInstalled;
-
-                if (!appNew && !moduleNew) {
-                    if (!quiet) runOnUiThread(() ->
+                if(!appNew){
+                    if(!quiet)runOnUiThread(() ->
                             new AlertDialog.Builder(this)
                                     .setTitle("You're up to date")
-                                    .setMessage("App " + BuildConfig.VERSION_NAME + " and the installed backend are current.")
+                                    .setMessage(
+                                            "App "+BuildConfig.VERSION_NAME+
+                                                    " is current. The privileged backend is bundled with the APK.")
                                     .setPositiveButton("OK",null)
                                     .show());
                     return;
                 }
 
                 runOnUiThread(() -> showUpdateConfirmation(info));
-            } catch (Exception e) {
-                if (!quiet) runOnUiThread(() ->
+            } catch(Exception e) {
+                if(!quiet)runOnUiThread(() ->
                         new AlertDialog.Builder(this)
                                 .setTitle("Update check failed")
                                 .setMessage(e.getMessage())
@@ -1084,68 +1088,38 @@ public class MainActivity extends Activity {
     }
 
     private void showUpdateConfirmation(UpdateManager.ReleaseInfo info) {
-        int appInstalled = UpdateManager.installedAppVersion(this);
-        int moduleInstalled = UpdateManager.installedModuleVersion();
-        boolean appNew = info.appVersionCode > appInstalled;
-        boolean moduleNew = info.moduleVersionCode > moduleInstalled;
-
-        StringBuilder message = new StringBuilder("The following updates are ready:\n\n");
-        if (appNew) message.append("• App → ").append(info.appVersionName).append("\n");
-        if (moduleNew) message.append("• Backend → ").append(info.moduleVersionName).append("\n");
-        message.append("\nBoth downloads are SHA-256 verified before installation.");
-
         new AlertDialog.Builder(this)
                 .setTitle("Install update?")
-                .setMessage(message.toString())
+                .setMessage(
+                        "App → "+info.appVersionName+
+                                "\n\nThe root backend is included in the APK and will update automatically with the app. " +
+                                "The download is SHA-256 verified before installation.")
                 .setNegativeButton("Later",null)
-                .setPositiveButton("Install",(d,w) -> performCombinedUpdate(info,appNew,moduleNew))
+                .setPositiveButton("Install",(d,w) -> performAppUpdate(info))
                 .show();
     }
 
-    private void performCombinedUpdate(UpdateManager.ReleaseInfo info,boolean appNew,boolean moduleNew) {
-        ProgressDialog progress = new ProgressDialog(this);
+    private void performAppUpdate(UpdateManager.ReleaseInfo info) {
+        ProgressDialog progress=new ProgressDialog(this);
         progress.setTitle("Updating KB1001 Performance Manager");
-        progress.setMessage("Preparing downloads…");
+        progress.setMessage("Downloading app…");
         progress.setIndeterminate(true);
         progress.setCancelable(false);
         progress.show();
 
         io.execute(() -> {
             try {
-                if (moduleNew) {
-                    runOnUiThread(() -> progress.setMessage("Downloading backend…"));
-                    File module = UpdateManager.download(this,info.module,null);
+                File apk=UpdateManager.download(this,info.app,null);
 
-                    runOnUiThread(() -> progress.setMessage("Installing backend…"));
-                    RootBridge.Result result = UpdateManager.installModule(module);
-                    if (!result.ok()) throw new IllegalStateException("Backend install failed:\n" + result.output);
-                }
-
-                if (appNew) {
-                    runOnUiThread(() -> progress.setMessage("Downloading app…"));
-                    File apk = UpdateManager.download(this,info.app,null);
-
-                    getSharedPreferences("updates",MODE_PRIVATE)
-                            .edit()
-                            .putBoolean("pending_reboot",moduleNew)
-                            .putInt("pending_reboot_app_version",info.appVersionCode)
-                            .apply();
-
-                    runOnUiThread(() -> {
-                        progress.dismiss();
-                        try {
-                            UpdateManager.installApk(this,apk);
-                        } catch (Exception e) {
-                            showError("App install",e.getMessage());
-                        }
-                    });
-                } else {
-                    runOnUiThread(() -> {
-                        progress.dismiss();
-                        askReboot();
-                    });
-                }
-            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    progress.dismiss();
+                    try {
+                        UpdateManager.installApk(this,apk);
+                    } catch(Exception e) {
+                        showError("App install",e.getMessage());
+                    }
+                });
+            } catch(Exception e) {
                 runOnUiThread(() -> {
                     progress.dismiss();
                     showError("Update failed",e.getMessage());
@@ -1154,30 +1128,42 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void askReboot() {
+    private void confirmLegacyModuleRemoval() {
         new AlertDialog.Builder(this)
-                .setTitle("Restart required")
-                .setMessage("The backend update is installed. Reboot now to load it?")
-                .setNegativeButton("Later",null)
-                .setPositiveButton("Reboot",(d,w) -> io.execute(() -> RootBridge.get().exec("reboot")))
-                .show();
-    }
+                .setTitle("Remove legacy Magisk module?")
+                .setMessage(
+                        "The app-owned root backend is installed before this removal is scheduled. " +
+                                "Your profiles, game library, overlay rules and CPU state are migrated to the new backend. " +
+                                "Magisk will finish removing the old module on the next reboot.")
+                .setNegativeButton("Cancel",null)
+                .setPositiveButton("Remove",(d,w) -> io.execute(() -> {
+                    RootBridge.Result ready=BackendManager.ensureInstalled(this);
+                    RootBridge.Result result=ready.ok()
+                            ? BackendManager.scheduleLegacyModuleRemoval(this)
+                            : ready;
 
-    private void checkPendingReboot() {
-        SharedPreferences p = getSharedPreferences("updates",MODE_PRIVATE);
-        if (!p.getBoolean("pending_reboot",false)) return;
-        int targetVersion = p.getInt("pending_reboot_app_version",0);
-        if (targetVersion > 0 && UpdateManager.installedAppVersion(this) < targetVersion) return;
+                    runOnUiThread(() -> {
+                        if(!result.ok()){
+                            showError("Legacy module",result.output);
+                            return;
+                        }
 
-        p.edit()
-                .putBoolean("pending_reboot",false)
-                .remove("pending_reboot_app_version")
-                .apply();
-        new AlertDialog.Builder(this)
-                .setTitle("Update installed")
-                .setMessage("The app and backend update are installed. Reboot now to finish loading the backend?")
-                .setNegativeButton("Later",null)
-                .setPositiveButton("Reboot",(d,w) -> io.execute(() -> RootBridge.get().exec("reboot")))
+                        if("absent".equals(result.output.trim())){
+                            Toast.makeText(this,"Legacy Magisk module is already absent.",Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+
+                        new AlertDialog.Builder(this)
+                                .setTitle("Removal scheduled")
+                                .setMessage(
+                                        "The old module is disabled and marked for removal. " +
+                                                "The app-owned backend is already active. Reboot when convenient to let Magisk remove the legacy module.")
+                                .setNegativeButton("Later",null)
+                                .setPositiveButton("Reboot",(x,y) ->
+                                        io.execute(() -> RootBridge.get().exec("reboot")))
+                                .show();
+                    });
+                }))
                 .show();
     }
 
@@ -1402,7 +1388,6 @@ public class MainActivity extends Activity {
         handler.removeCallbacks(ticker);
         handler.post(ticker);
         refreshBackendState();
-        checkPendingReboot();
         if (tab == 1) loadGamesInline();
     }
 
