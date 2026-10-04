@@ -110,9 +110,10 @@ public final class FpsOverlayService extends Service {
         int width=getResources().getDisplayMetrics().widthPixels;
         int height=getResources().getDisplayMetrics().heightPixels;
 
+        float scale=p.getFloat("scale",1f);
         int margin=dp(14);
-        int estimatedWidth=dp(82);
-        int estimatedHeight=dp(34);
+        int estimatedWidth=Math.round(dp(82)*scale);
+        int estimatedHeight=Math.round(dp(34)*scale);
 
         if("custom".equals(position)){
             params.x=Math.max(0,p.getInt("x",margin));
@@ -135,28 +136,39 @@ public final class FpsOverlayService extends Service {
 
     private void startSampler(){
         reader.execute(()->{
-            try{
-                sampler=new ProcessBuilder(
-                        "su","-c",
-                        RootBridge.CONTROLLER+" fps stream")
-                        .redirectErrorStream(true)
-                        .start();
+            while(running && !Thread.currentThread().isInterrupted()){
+                try{
+                    sampler=new ProcessBuilder(
+                            "su","-c",
+                            RootBridge.CONTROLLER+" fps stream")
+                            .redirectErrorStream(true)
+                            .start();
 
-                BufferedReader in=new BufferedReader(
-                        new InputStreamReader(sampler.getInputStream(), StandardCharsets.UTF_8));
+                    BufferedReader in=new BufferedReader(
+                            new InputStreamReader(sampler.getInputStream(), StandardCharsets.UTF_8));
 
-                String line;
-                while((line=in.readLine())!=null && running){
-                    final int fps=parseFps(line);
+                    String line;
+                    while((line=in.readLine())!=null && running){
+                        final int fps=parseFps(line);
+                        handler.post(()->{
+                            if(fpsText==null)return;
+                            fpsText.setText(fps>0?fps+" FPS":"— FPS");
+                        });
+                    }
+                }catch(Exception ignored){
                     handler.post(()->{
-                        if(fpsText==null)return;
-                        fpsText.setText(fps>0?fps+" FPS":"— FPS");
+                        if(fpsText!=null)fpsText.setText("— FPS");
                     });
+                }finally{
+                    try{if(sampler!=null)sampler.destroy();}catch(Exception ignored){}
+                    sampler=null;
                 }
-            }catch(Exception ignored){
-                handler.post(()->{
-                    if(fpsText!=null)fpsText.setText("— FPS");
-                });
+
+                if(!running)break;
+                try{Thread.sleep(1000);}catch(InterruptedException e){
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             }
         });
     }
