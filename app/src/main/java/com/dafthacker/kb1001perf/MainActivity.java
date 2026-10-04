@@ -57,6 +57,7 @@ public class MainActivity extends Activity {
 
     private LinearLayout gamesContainer;
     private final Set<String> selectedGames = new LinkedHashSet<>();
+    private final Set<String> overlayDisabledGames = new LinkedHashSet<>();
     private final List<LauncherApp> launcherApps = new ArrayList<>();
 
     private final Map<String,RadioButton> profileButtons = new LinkedHashMap<>();
@@ -214,19 +215,33 @@ public class MainActivity extends Activity {
         LinearLayout labels = new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
         labels.addView(text("Game Library",22,Color.rgb(231,240,238),true));
-        labels.addView(text("Apps that trigger your game HUD and optional performance profile.",11,MUTED,false));
+        labels.addView(text("Detected games and apps that can trigger AutoBoost and the HUD.",11,MUTED,false));
         heading.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
 
-        Button add = button("+",true,v -> showAddGameDialog());
+        Button refresh = button("↻",true,v -> refreshDetectedGames());
+        refresh.setTextSize(19);
+        refresh.setContentDescription("Refresh detected games");
+        LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(52),dp(48));
+        rp.setMargins(0,0,dp(6),0);
+        heading.addView(refresh,rp);
+
+        Button add = button("+",true,v -> showAddGamePicker());
         add.setTextSize(20);
+        add.setContentDescription("Add app");
         heading.addView(add,new LinearLayout.LayoutParams(dp(52),dp(48)));
         page.addView(heading);
+
+        TextView hint=text(
+                "Use ↻ to re-detect installed Android games. Disable HUD per app without removing it from AutoBoost.",
+                10,MUTED,false);
+        hint.setPadding(dp(2),dp(5),0,dp(8));
+        page.addView(hint);
 
         gamesContainer = new LinearLayout(this);
         gamesContainer.setOrientation(LinearLayout.VERTICAL);
         page.addView(gamesContainer,new LinearLayout.LayoutParams(-1,-2));
 
-        TextView tip = text("Long-press a game to remove it from the game list.",11,MUTED,false);
+        TextView tip = text("Long-press a game to remove it from the library.",11,MUTED,false);
         tip.setPadding(dp(2),dp(6),0,dp(8));
         page.addView(tip);
 
@@ -242,13 +257,25 @@ public class MainActivity extends Activity {
 
         io.execute(() -> {
             RootBridge.Result r = RootBridge.get().ctl("game list");
+            RootBridge.Result disabled = RootBridge.get().ctl("game overlay-list");
+
             selectedGames.clear();
+            overlayDisabledGames.clear();
+
             if (r.ok()) {
                 for (String line : r.output.split("\\R")) {
                     String pkg = line.trim();
                     if (!pkg.isEmpty()) selectedGames.add(pkg);
                 }
             }
+
+            if (disabled.ok()) {
+                for (String line : disabled.output.split("\\R")) {
+                    String pkg = line.trim();
+                    if (!pkg.isEmpty()) overlayDisabledGames.add(pkg);
+                }
+            }
+
             scanLauncherApps();
             runOnUiThread(this::renderGamesInline);
         });
@@ -284,29 +311,62 @@ public class MainActivity extends Activity {
         row.setBackground(metricBackground(GAMES_COLOR));
 
         ImageView image = new ImageView(this);
+        image.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         if (icon != null) image.setImageDrawable(icon);
-        row.addView(image,new LinearLayout.LayoutParams(dp(42),dp(42)));
+        row.addView(image,new LinearLayout.LayoutParams(dp(46),dp(46)));
 
         LinearLayout labels = new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
-        labels.setPadding(dp(12),0,0,0);
+        labels.setPadding(dp(12),0,dp(8),0);
         labels.addView(text(name,15,Color.rgb(231,240,238),true));
         labels.addView(text((detected ? "Auto-detected • " : "Manual • ") + pkg,10,MUTED,false));
         row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
 
-        TextView active = text("●",14,ACCENT,true);
-        row.addView(active);
+        LinearLayout control=new LinearLayout(this);
+        control.setOrientation(LinearLayout.VERTICAL);
+        control.setGravity(Gravity.CENTER_HORIZONTAL);
+
+        TextView hudLabel=text("HUD",8,MUTED,true);
+        hudLabel.setGravity(Gravity.CENTER);
+        control.addView(hudLabel);
+
+        Switch enabled=new Switch(this);
+        enabled.setShowText(true);
+        enabled.setTextOn("ON");
+        enabled.setTextOff("OFF");
+        enabled.setChecked(!overlayDisabledGames.contains(pkg));
+        enabled.setContentDescription("Auto HUD for "+name);
+        enabled.setOnCheckedChangeListener((button,checked)->setGameOverlayEnabled(pkg,checked));
+        control.addView(enabled,new LinearLayout.LayoutParams(dp(72),dp(42)));
+
+        row.addView(control);
 
         row.setOnLongClickListener(v -> {
             new AlertDialog.Builder(this)
                     .setTitle(name)
-                    .setMessage("Remove this app from the game list?")
+                    .setMessage("Remove this app from the game library?")
                     .setNegativeButton("Cancel",null)
                     .setPositiveButton("Remove",(d,w) -> removeGame(pkg,detected))
                     .show();
             return true;
         });
         return row;
+    }
+
+    private void setGameOverlayEnabled(String pkg,boolean enabled) {
+        io.execute(() -> {
+            RootBridge.Result result=RootBridge.get().ctl(
+                    "game "+(enabled ? "overlay-enable " : "overlay-disable ")+pkg);
+            if(result.ok()){
+                if(enabled) overlayDisabledGames.remove(pkg);
+                else overlayDisabledGames.add(pkg);
+            }else{
+                runOnUiThread(() -> {
+                    Toast.makeText(this,"Could not save HUD setting.",Toast.LENGTH_SHORT).show();
+                    loadGamesInline();
+                });
+            }
+        });
     }
 
     private void removeGame(String pkg,boolean autoDetected) {
@@ -322,39 +382,47 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void showAddGameDialog() {
-        io.execute(() -> {
-            scanLauncherApps();
-            List<LauncherApp> available = new ArrayList<>();
-            for (LauncherApp a : launcherApps) if (!selectedGames.contains(a.pkg)) available.add(a);
-
-            String[] labels = new String[available.size()];
-            for (int i=0;i<available.size();i++) labels[i] = available.get(i).name + "\n" + available.get(i).pkg;
-
-            runOnUiThread(() -> {
-                if (available.isEmpty()) {
-                    Toast.makeText(this,"All launcher apps are already selected.",Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                new AlertDialog.Builder(this)
-                        .setTitle("Add app to AutoBoost")
-                        .setItems(labels,(d,which) -> addGame(available.get(which)))
-                        .setNegativeButton("Cancel",null)
-                        .show();
-            });
-        });
+    private void showAddGamePicker() {
+        startActivity(new Intent(this,GamePickerActivity.class));
     }
 
-    private void addGame(LauncherApp app) {
+    private void refreshDetectedGames() {
+        if(gamesContainer!=null){
+            gamesContainer.removeAllViews();
+            TextView scanning=text("Scanning installed apps for games…",12,MUTED,false);
+            scanning.setPadding(dp(4),dp(18),0,dp(18));
+            gamesContainer.addView(scanning);
+        }
+
         io.execute(() -> {
-            RootBridge.Result r = RootBridge.get().ctl("game add " + app.pkg);
-            if (r.ok()) {
-                SharedPreferences prefs = getSharedPreferences("game_library",MODE_PRIVATE);
-                Set<String> ignored = new LinkedHashSet<>(prefs.getStringSet("ignored_games",Collections.emptySet()));
-                ignored.remove(app.pkg);
-                prefs.edit().putStringSet("ignored_games",ignored).apply();
-                runOnUiThread(this::loadGamesInline);
+            RootBridge.Result beforeResult=RootBridge.get().ctl("game list");
+            Set<String> before=new LinkedHashSet<>();
+            if(beforeResult.ok()){
+                for(String line:beforeResult.output.split("\\R")){
+                    String pkg=line.trim();
+                    if(!pkg.isEmpty()) before.add(pkg);
+                }
             }
+
+            autoDetectGames();
+
+            RootBridge.Result afterResult=RootBridge.get().ctl("game list");
+            Set<String> after=new LinkedHashSet<>();
+            if(afterResult.ok()){
+                for(String line:afterResult.output.split("\\R")){
+                    String pkg=line.trim();
+                    if(!pkg.isEmpty()) after.add(pkg);
+                }
+            }
+            after.removeAll(before);
+            int added=after.size();
+
+            runOnUiThread(() -> {
+                Toast.makeText(this,
+                        added>0 ? "Detected "+added+" new game"+(added==1?"":"s") : "Game scan complete",
+                        Toast.LENGTH_SHORT).show();
+                loadGamesInline();
+            });
         });
     }
 
