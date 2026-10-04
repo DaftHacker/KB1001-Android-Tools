@@ -44,7 +44,7 @@ sample(){
  PACKAGE="$(grep -m1 '^package=' "$AUTO_STATE" 2>/dev/null|cut -d= -f2-)"
  PROFILE="$(grep -m1 '^profile=' "$AUTO_STATE" 2>/dev/null|cut -d= -f2-)"
  runtime_profile="$(cat "$RUNTIME_PROFILE" 2>/dev/null)"
- if [ -f "$SESSION_EXTREME" ] && [ -n "$runtime_profile" ]; then
+ if [ -n "$runtime_profile" ]; then
   PROFILE="$runtime_profile"
  fi
  [ -n "$PROFILE" ]||PROFILE="$(cat "$CONFIG" 2>/dev/null)"
