@@ -14,7 +14,7 @@ on:
   pull_request:
 
 concurrency:
-  group: kb1001-dev-main
+  group: kb1001-dev-main-v2
   cancel-in-progress: true
 
 jobs:
