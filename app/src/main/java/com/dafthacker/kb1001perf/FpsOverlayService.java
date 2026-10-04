@@ -199,7 +199,6 @@ public final class FpsOverlayService extends Service {
                     }
                 }catch(Exception ignored){
                     // Preserve the last valid reading while the sampler is restarted.
-                }
                 }finally{
                     try{if(sampler!=null)sampler.destroy();}catch(Exception ignored){}
                     sampler=null;
