@@ -10,7 +10,7 @@ public final class ModuleManager {
 
     public BackendResult execute(String args) {
         RootBridge.Result r = root.exec("test -x " + CONTROLLER + " && " + CONTROLLER + " " + args);
-        return new BackendResult("module", r.exitCode, r.output);
+        return new BackendResult(r.exitCode, r.output, "module");
     }
 
     public boolean available() {
