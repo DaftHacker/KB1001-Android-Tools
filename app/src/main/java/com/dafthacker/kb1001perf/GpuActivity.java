@@ -459,8 +459,9 @@ public class GpuActivity extends Activity {
                 if(outsideValue!=null) outsideValue.setText(displayProfile(status.get("Idle profile")));
 
                 int mhz=parseInt(TelemetryStore.get(telemetry,"gpu_clock_mhz","0"));
-                if(clockValue!=null) clockValue.setText(mhz>0?mhz+" MHz":"— MHz");
-                if(graph!=null) graph.addValue(Math.max(0,Math.min(100,Math.round(mhz*100f/792f))));
+                int util=Math.max(0,Math.min(100,parseInt(TelemetryStore.get(telemetry,"gpu_util_pct","0"))));
+                if(clockValue!=null) clockValue.setText(util+"% • "+(mhz>0?mhz+" MHz":"— MHz"));
+                if(graph!=null) graph.addValue(util);
                 if(governorValue!=null) governorValue.setText(TelemetryStore.get(telemetry,"gpu_governor","—"));
                 if(dvfsValue!=null) dvfsValue.setText("0".equals(TelemetryStore.get(telemetry,"gpu_dvfs",""))?"Pinned":"Dynamic");
                 if(runtimeValue!=null){
