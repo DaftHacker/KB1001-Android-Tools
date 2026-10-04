@@ -382,17 +382,33 @@ public class MainActivity extends Activity {
 
     private void setGameOverlayEnabled(String pkg,boolean enabled,boolean previous,Button button) {
         io.execute(() -> {
-            RootBridge.Result result=RootBridge.get().ctl(
+            RootBridge.Result write=RootBridge.get().ctl(
                     "game "+(enabled ? "overlay-enable " : "overlay-disable ")+pkg);
+            RootBridge.Result readback=RootBridge.get().ctl("game overlay-list");
+
+            boolean disabled=false;
+            if(readback.ok()){
+                for(String line:readback.output.split("\\R")){
+                    if(pkg.equals(line.trim())){
+                        disabled=true;
+                        break;
+                    }
+                }
+            }
+
+            boolean verified=write.ok() && readback.ok() && (enabled ? !disabled : disabled);
+
+            if(verified){
+                if(enabled)overlayDisabledGames.remove(pkg);
+                else overlayDisabledGames.add(pkg);
+            }
 
             runOnUiThread(() -> {
-                if(result.ok()){
-                    if(enabled)overlayDisabledGames.remove(pkg);
-                    else overlayDisabledGames.add(pkg);
+                if(verified){
                     styleGameHudButton(button,enabled);
                 }else{
                     styleGameHudButton(button,previous);
-                    Toast.makeText(this,"Could not save game HUD setting.",Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this,"Could not verify saved game HUD setting.",Toast.LENGTH_SHORT).show();
                 }
                 button.setEnabled(true);
             });
@@ -632,7 +648,7 @@ public class MainActivity extends Activity {
         LinearLayout labels=new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
         labels.addView(text("FPS counter appearance",15,Color.rgb(231,240,238),true));
-        labels.addView(text("Only the FPS text is drawn. Drag it in-game for a custom position.",10,MUTED,false));
+        labels.addView(text("Drag the FPS text anywhere in-game. A subtle black backing keeps it readable.",10,MUTED,false));
         head.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
 
         SharedPreferences prefs=getSharedPreferences("fps_hud",MODE_PRIVATE);
@@ -659,40 +675,42 @@ public class MainActivity extends Activity {
         });
         card.addView(seek,new LinearLayout.LayoutParams(-1,-2));
 
-        TextView positionTitle=text("Position preset",10,MUTED,true);
-        positionTitle.setPadding(0,dp(5),0,dp(4));
-        card.addView(positionTitle);
+        TextView colorTitle=text("Text color",10,MUTED,true);
+        colorTitle.setPadding(0,dp(7),0,dp(5));
+        card.addView(colorTitle);
 
-        LinearLayout top=row();
-        top.addView(fpsPositionButton("Top left","top_left"),new LinearLayout.LayoutParams(0,dp(38),1));
-        top.addView(fpsPositionButton("Top center","top_center"),new LinearLayout.LayoutParams(0,dp(38),1));
-        top.addView(fpsPositionButton("Top right","top_right"),new LinearLayout.LayoutParams(0,dp(38),1));
-        card.addView(top);
-
-        LinearLayout bottom=row();
-        bottom.setPadding(0,dp(5),0,0);
-        bottom.addView(fpsPositionButton("Bottom left","bottom_left"),new LinearLayout.LayoutParams(0,dp(38),1));
-        bottom.addView(fpsPositionButton("Bottom center","bottom_center"),new LinearLayout.LayoutParams(0,dp(38),1));
-        bottom.addView(fpsPositionButton("Bottom right","bottom_right"),new LinearLayout.LayoutParams(0,dp(38),1));
-        card.addView(bottom);
+        LinearLayout colors=row();
+        colors.addView(fpsColorButton("White",Color.WHITE),new LinearLayout.LayoutParams(0,dp(38),1));
+        colors.addView(fpsColorButton("Green",Color.rgb(96,235,132)),new LinearLayout.LayoutParams(0,dp(38),1));
+        colors.addView(fpsColorButton("Yellow",Color.rgb(255,220,72)),new LinearLayout.LayoutParams(0,dp(38),1));
+        colors.addView(fpsColorButton("Cyan",Color.rgb(92,225,238)),new LinearLayout.LayoutParams(0,dp(38),1));
+        colors.addView(fpsColorButton("Orange",Color.rgb(255,166,68)),new LinearLayout.LayoutParams(0,dp(38),1));
+        card.addView(colors);
 
         return card;
     }
 
-    private Button fpsPositionButton(String label,String position){
+    private Button fpsColorButton(String label,int color){
         Button b=new Button(this);
         b.setText(label);
         b.setAllCaps(false);
-        b.setTextSize(9);
-        b.setTextColor(Color.rgb(231,240,238));
+        b.setTextSize(8);
+        b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         b.setMinHeight(0);
         b.setMinimumHeight(0);
-        b.setPadding(dp(3),0,dp(3),0);
-        b.setBackground(metricBackground(CPU_COLOR));
+        b.setPadding(dp(2),0,dp(2),0);
+        b.setTextColor(Color.rgb(8,16,16));
+
+        GradientDrawable bg=new GradientDrawable();
+        bg.setColor(color);
+        bg.setCornerRadius(dp(999));
+        bg.setStroke(dp(1),Color.argb(180,0,0,0));
+        b.setBackground(bg);
+
         b.setOnClickListener(v->{
             getSharedPreferences("fps_hud",MODE_PRIVATE)
                     .edit()
-                    .putString("position",position)
+                    .putInt("color",color)
                     .apply();
             restartFpsOverlayIfRunning();
         });
@@ -849,7 +867,7 @@ public class MainActivity extends Activity {
         int primeUtil = coreUtilValue(coreUtil,4);
         int primeClock = cpuPolicyCurrent(cpuPoliciesRaw,"policy4");
         cpuMetric.set(
-                cpuUtil + "% total • " + cpu.peakCurrent + " MHz",
+                cpuUtil + "% • " + cpu.peakCurrent + " MHz",
                 "A73 CPU4 " + primeUtil + "% @ " + primeClock + " MHz" +
                         (cpu.summary.isEmpty() ? "" : " • " + cpu.summary),
                 cpuUtil);
