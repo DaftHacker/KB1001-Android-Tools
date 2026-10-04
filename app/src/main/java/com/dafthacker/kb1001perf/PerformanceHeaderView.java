@@ -39,12 +39,12 @@ public final class PerformanceHeaderView extends View {
         canvas.drawCircle(w*.82f, h*.16f, h*.48f, paint);
         paint.setColor(Color.argb(32, 255, 145, 54));
         canvas.drawCircle(w*.95f, h*.75f, h*.52f, paint);
-        paint.setColor(Color.argb(22, 255, 215, 64));
+        paint.setColor(Color.argb(22, 72, 151, 255));
         canvas.drawCircle(w*.62f, h*.92f, h*.38f, paint);
 
         drawWave(canvas, w, h*.60f, Color.rgb(75,214,128), 0f);
         drawWave(canvas, w, h*.68f, Color.rgb(255,143,52), 1.3f);
-        drawWave(canvas, w, h*.76f, Color.rgb(255,210,62), 2.5f);
+        drawWave(canvas, w, h*.76f, Color.rgb(72,151,255), 2.5f);
         drawWave(canvas, w, h*.84f, Color.rgb(91,205,223), 3.7f);
 
         paint.setColor(Color.argb(135,255,255,255));
