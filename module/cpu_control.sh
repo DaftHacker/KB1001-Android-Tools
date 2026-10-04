@@ -4,9 +4,18 @@ MODDIR=${0%/*}
 
 CPU_STATE="$STATE_DIR/cpu_stock.conf"
 CPU_MODE="$STATE_DIR/cpu_mode.conf"
+CPU_BOOT="$STATE_DIR/cpu_stock.boot_id"
+
+boot_id(){ cat /proc/sys/kernel/random/boot_id 2>/dev/null; }
 
 save_stock(){
- [ -s "$CPU_STATE" ] && return 0
+ current_boot="$(boot_id)"
+ saved_boot="$(cat "$CPU_BOOT" 2>/dev/null)"
+ if [ -s "$CPU_STATE" ] && [ -n "$current_boot" ] && [ "$saved_boot" = "$current_boot" ]; then
+  return 0
+ fi
+ rm -f "$CPU_STATE"
+ tmp="$CPU_STATE.tmp.$"
  tmp="$CPU_STATE.tmp.$$"
  : > "$tmp"
  for p in /sys/devices/system/cpu/cpufreq/policy*; do
@@ -19,7 +28,8 @@ save_stock(){
  done
  [ -s "$tmp" ] || { rm -f "$tmp"; return 1; }
  mv "$tmp" "$CPU_STATE"
- [ -f "$CPU_MODE" ] || echo stock > "$CPU_MODE"
+ [ -n "$current_boot" ] && printf '%s\n' "$current_boot" > "$CPU_BOOT"
+ echo stock > "$CPU_MODE"
 }
 
 restore_stock(){
@@ -58,7 +68,9 @@ performance(){
 }
 
 status(){
+ save_stock >/dev/null 2>&1 || true
  echo "CPU mode: $(cat "$CPU_MODE" 2>/dev/null)"
+ echo "CPU stock boot: $(cat "$CPU_BOOT" 2>/dev/null)"
  for p in /sys/devices/system/cpu/cpufreq/policy*; do
   [ -d "$p" ] || continue
   n="${p##*/}"
@@ -78,8 +90,9 @@ status(){
 save_stock >/dev/null 2>&1 || true
 
 case "$1" in
+ init) save_stock ;;
  status) status ;;
  performance) performance ;;
  stock|restore) restore_stock ;;
- *) echo "cpu_control.sh status|performance|restore"; exit 2 ;;
+ *) echo "cpu_control.sh init|status|performance|restore"; exit 2 ;;
 esac
