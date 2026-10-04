@@ -16,28 +16,77 @@ to_c(){ v="$1"; case "$v" in ''|*[!0-9-]*) echo "0.0";; *) if [ "$v" -gt 1000 ] 
 
 sample_fps(){
  pkg="$1"
- [ -n "$pkg" ] || { echo 0; return; }
+ [ -n "$pkg" ] || { echo "0|none|"; return; }
 
- layer="$(dumpsys SurfaceFlinger --list 2>/dev/null | grep -F "$pkg" | grep -E 'SurfaceView|BLAST|Activity' | head -1)"
- [ -n "$layer" ] || layer="$(dumpsys SurfaceFlinger --list 2>/dev/null | grep -F "$pkg" | head -1)"
- [ -n "$layer" ] || { echo 0; return; }
-
- up="$(cut -d. -f1 /proc/uptime 2>/dev/null)"
- case "$up" in ''|*[!0-9]*) echo 0; return;; esac
- now_ns=$((up * 1000000000))
+ up_raw="$(cat /proc/uptime 2>/dev/null | cut -d' ' -f1)"
+ up_sec="$(printf '%s' "$up_raw" | cut -d. -f1)"
+ case "$up_sec" in ''|*[!0-9]*) up_sec=0;; esac
+ now_ns=$((up_sec * 1000000000))
  cutoff=$((now_ns - 2000000000))
 
- dumpsys SurfaceFlinger --latency "$layer" 2>/dev/null | awk -v cutoff="$cutoff" '
-  NR==1 { next }
-  NF>=3 && $2 ~ /^[0-9]+$/ && $2 > 0 && $2 >= cutoff { count++ }
+ layers="$(dumpsys SurfaceFlinger --list 2>/dev/null | grep -F "$pkg")"
+
+ preferred="$(printf '%s\n' "$layers" | grep -E 'SurfaceView|BLAST|Activity|TextureView' | head -1)"
+ [ -n "$preferred" ] || preferred="$(printf '%s\n' "$layers" | head -1)"
+
+ if [ -n "$preferred" ]; then
+  sf_fps="$(dumpsys SurfaceFlinger --latency "$preferred" 2>/dev/null | awk -v cutoff="$cutoff" '
+   NR==1 { next }
+   NF>=3 && $2 ~ /^[0-9]+$/ && $2 > 0 && $2 >= cutoff { count++ }
+   END {
+    if (count > 0) {
+     fps=int((count/2.0)+0.5)
+     if (fps>240) fps=240
+     print fps
+    } else print 0
+   }')"
+
+  case "$sf_fps" in ''|*[!0-9]*) sf_fps=0;; esac
+  if [ "$sf_fps" -gt 0 ] 2>/dev/null; then
+   safe_layer="$(printf '%s' "$preferred" | tr '|\n\r' '   ')"
+   echo "$sf_fps|surfaceflinger|$safe_layer"
+   return
+  fi
+ fi
+
+ gfx_fps="$(dumpsys gfxinfo "$pkg" framestats 2>/dev/null | awk -F, -v cutoff="$cutoff" '
+  BEGIN { indata=0; count=0 }
+  /^---PROFILEDATA---/ { indata=!indata; next }
+  indata && NF>=14 {
+   ts=$2
+   gsub(/[^0-9]/,"",ts)
+   if (ts ~ /^[0-9]+$/ && ts > 0 && ts >= cutoff) count++
+  }
   END {
    if (count > 0) {
-    fps = int((count / 2.0) + 0.5)
-    if (fps > 240) fps = 240
+    fps=int((count/2.0)+0.5)
+    if (fps>240) fps=240
     print fps
    } else print 0
-  }'
+  }')"
+
+ case "$gfx_fps" in ''|*[!0-9]*) gfx_fps=0;; esac
+ if [ "$gfx_fps" -gt 0 ] 2>/dev/null; then
+  echo "$gfx_fps|gfxinfo|$pkg"
+  return
+ fi
+
+ echo "0|none|$pkg"
 }
+
+fps_debug(){
+ pkg="$1"
+ [ -n "$pkg" ] || pkg="$(grep -m1 '^package=' "$AUTO_STATE" 2>/dev/null | cut -d= -f2-)"
+ echo "package=$pkg"
+ echo "mode=$(grep -m1 '^mode=' "$AUTO_STATE" 2>/dev/null | cut -d= -f2-)"
+ echo "--- SurfaceFlinger candidates ---"
+ dumpsys SurfaceFlinger --list 2>/dev/null | grep -F "$pkg" | head -20
+ echo "--- Sample ---"
+ sample_fps "$pkg"
+ echo "--- gfxinfo framestats markers ---"
+ dumpsys gfxinfo "$pkg" framestats 2>/dev/null | grep -E -m8 'PROFILEDATA|^[0-9-]+,[0-9]+,[0-9]+' || true
+}
+
 
 sample(){
  MODE="$(grep -m1 '^mode=' "$AUTO_STATE" 2>/dev/null|cut -d= -f2-)"; [ -n "$MODE" ]||MODE=idle
@@ -103,8 +152,13 @@ sample(){
  LOADAVG="$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
  batt="$(cat /sys/class/power_supply/battery/temp 2>/dev/null)"; case "$batt" in ''|*[!0-9-]*) BATTERY_C=0.0;; *) BATTERY_C="$(awk "BEGIN{printf \"%.1f\",$batt/10}")";; esac
  FPS=0
+ FPS_SOURCE=none
+ FPS_LAYER=""
  if [ "$MODE" = game ] && [ -n "$PACKAGE" ]; then
-  FPS="$(sample_fps "$PACKAGE")"
+  fps_sample="$(sample_fps "$PACKAGE")"
+  FPS="$(printf '%s' "$fps_sample" | cut -d'|' -f1)"
+  FPS_SOURCE="$(printf '%s' "$fps_sample" | cut -d'|' -f2)"
+  FPS_LAYER="$(printf '%s' "$fps_sample" | cut -d'|' -f3-)"
   case "$FPS" in ''|*[!0-9]*) FPS=0;; esac
  fi
 
@@ -118,7 +172,8 @@ sample(){
   echo "gpu_clock_mhz=$GPU_MHZ"; echo "gpu_voltage=$GPU_VOLTAGE"; echo "gpu_runtime=$GPU_RUNTIME"; echo "gpu_governor=$GPU_GOV"; echo "gpu_dvfs=$GPU_DVFS"
   echo "thermal_max_c=$THERMAL_MAX"; echo "thermal_zones=$zones"; echo "battery_temp_c=$BATTERY_C"
   echo "cpu_summary=$CPU_SUMMARY"; echo "cpu_policies=$cpu_detail"; echo "cpu_available=$cpu_available"; echo "devfreq=$devs"
-  echo "fps=$FPS"; echo "profile_request_state=$PROFILE_REQUEST_STATE"; echo "profile_request_profile=$PROFILE_REQUEST_PROFILE"
+  echo "fps=$FPS"; echo "fps_source=$FPS_SOURCE"; echo "fps_layer=$FPS_LAYER"
+  echo "profile_request_state=$PROFILE_REQUEST_STATE"; echo "profile_request_profile=$PROFILE_REQUEST_PROFILE"
   echo "mem_available_mb=$MEM_MB"; echo "loadavg=$LOADAVG"; echo "file_logging=$FILE_LOGGING"; echo "file_path=$FILE_PATH"
  } > "$tmp" && mv "$tmp" "$SNAPSHOT"
  chmod 0644 "$SNAPSHOT" 2>/dev/null
