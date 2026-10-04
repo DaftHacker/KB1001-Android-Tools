@@ -5,6 +5,8 @@ MODDIR=${0%/*}
 AUTO_CONF="$STATE_DIR/auto_boost.conf"
 GAMES="$STATE_DIR/games.list"
 OVERLAY_DISABLED="$STATE_DIR/overlay_disabled.list"
+METRICS_GAMES="$STATE_DIR/metrics_enabled.list"
+FPS_GAMES="$STATE_DIR/fps_enabled.list"
 AUTO_PID="/data/local/tmp/kb1001_game_boost.pid"
 LOGGER_CONF="$STATE_DIR/logger.conf"
 LOGGER_PID="/data/local/tmp/kb1001_perf_logger.pid"
@@ -33,13 +35,12 @@ file_path=
 EOC
  [ -f "$GAMES" ] || : > "$GAMES"
  [ -f "$OVERLAY_DISABLED" ] || : > "$OVERLAY_DISABLED"
+ [ -f "$METRICS_GAMES" ] || : > "$METRICS_GAMES"
+ [ -f "$FPS_GAMES" ] || : > "$FPS_GAMES"
 
- if ! grep -q '^metrics_overlay_auto=' "$AUTO_CONF" 2>/dev/null; then
-  legacy="$(grep -m1 '^overlay_auto=' "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
-  case "$legacy" in 1) ;; *) legacy=0;; esac
-  echo "metrics_overlay_auto=$legacy" >> "$AUTO_CONF"
- fi
- grep -q '^fps_overlay_auto=' "$AUTO_CONF" 2>/dev/null || echo "fps_overlay_auto=0" >> "$AUTO_CONF"
+ set_conf "$AUTO_CONF" overlay_auto 0
+ set_conf "$AUTO_CONF" metrics_overlay_auto 0
+ set_conf "$AUTO_CONF" fps_overlay_auto 0
 }
 
 set_conf(){ file="$1"; key="$2"; value="$3"; tmp="$file.tmp.$$"; grep -v "^${key}=" "$file" 2>/dev/null > "$tmp"; echo "${key}=${value}" >> "$tmp"; mv "$tmp" "$file"; }
@@ -85,9 +86,13 @@ telemetry_active(){
 }
 
 overlay_feature_enabled(){
- [ "$(get_conf "$AUTO_CONF" enabled 0)" = 1 ] ||
- [ "$(get_conf "$AUTO_CONF" metrics_overlay_auto 0)" = 1 ] ||
- [ "$(get_conf "$AUTO_CONF" fps_overlay_auto 0)" = 1 ]
+ grep -q '[^[:space:]#]' "$METRICS_GAMES" 2>/dev/null ||
+ grep -q '[^[:space:]#]' "$FPS_GAMES" 2>/dev/null
+}
+
+game_overlay_enabled(){
+ list="$1"; target="$2"
+ [ -n "$target" ] && grep -Fxq "$target" "$list" 2>/dev/null
 }
 
 start_metrics_overlay(){
@@ -114,14 +119,8 @@ sync_current_game_overlays(){
  current="$(grep -m1 '^package=' /data/local/tmp/kb1001_game_boost.state 2>/dev/null | cut -d= -f2-)"
  [ "$mode" = game ] && [ "$current" = "$target" ] || return 0
 
- if grep -Fxq "$target" "$OVERLAY_DISABLED" 2>/dev/null; then
-  stop_metrics_overlay
-  stop_fps_overlay
-  return 0
- fi
-
- [ "$(get_conf "$AUTO_CONF" metrics_overlay_auto 0)" = 1 ] && start_metrics_overlay
- [ "$(get_conf "$AUTO_CONF" fps_overlay_auto 0)" = 1 ] && start_fps_overlay
+ if game_overlay_enabled "$METRICS_GAMES" "$target"; then start_metrics_overlay; else stop_metrics_overlay; fi
+ if game_overlay_enabled "$FPS_GAMES" "$target"; then start_fps_overlay; else stop_fps_overlay; fi
 }
 
 status(){
@@ -133,9 +132,8 @@ status(){
  echo "Auto boost: $(get_conf "$AUTO_CONF" enabled 0)"
  echo "Game profile: $(get_conf "$AUTO_CONF" game_profile performance744)"
  echo "Idle profile: $(get_conf "$AUTO_CONF" idle_profile dynamic744)"
- echo "Overlay auto: $(get_conf "$AUTO_CONF" metrics_overlay_auto 0)"
- echo "Metrics overlay auto: $(get_conf "$AUTO_CONF" metrics_overlay_auto 0)"
- echo "FPS overlay auto: $(get_conf "$AUTO_CONF" fps_overlay_auto 0)"
+ echo "Per-game Metrics overlays: $(grep -c '[^[:space:]#]' "$METRICS_GAMES" 2>/dev/null)"
+ echo "Per-game FPS overlays: $(grep -c '[^[:space:]#]' "$FPS_GAMES" 2>/dev/null)"
  echo "Logger interval: $(get_conf "$LOGGER_CONF" interval_seconds 1)s"
  echo "Logger PID: $(cat "$LOGGER_PID" 2>/dev/null)"
  echo "UI telemetry demand: $([ -e "$UI_DEMAND" ] && echo 1 || echo 0)"
@@ -183,8 +181,7 @@ case "$cmd" in
      enable) set_conf "$AUTO_CONF" enabled 1; start_auto ;;
      disable)
        set_conf "$AUTO_CONF" enabled 0
-       [ "$(get_conf "$AUTO_CONF" metrics_overlay_auto 0)" = 1 ] ||
-       [ "$(get_conf "$AUTO_CONF" fps_overlay_auto 0)" = 1 ] || stop_auto
+       overlay_feature_enabled || stop_auto
        ;;
      profile)
        case "$value" in
@@ -202,27 +199,6 @@ case "$cmd" in
    esac ;;
  overlay)
    case "$1" in
-     auto|metrics-auto)
-       case "$2" in
-         enable) set_conf "$AUTO_CONF" metrics_overlay_auto 1; set_conf "$AUTO_CONF" overlay_auto 1; start_auto ;;
-         disable)
-           set_conf "$AUTO_CONF" metrics_overlay_auto 0
-           set_conf "$AUTO_CONF" overlay_auto 0
-           overlay_feature_enabled || stop_auto
-           ;;
-         *) exit 2 ;;
-       esac
-       ;;
-     fps-auto)
-       case "$2" in
-         enable) set_conf "$AUTO_CONF" fps_overlay_auto 1; start_auto ;;
-         disable)
-           set_conf "$AUTO_CONF" fps_overlay_auto 0
-           overlay_feature_enabled || stop_auto
-           ;;
-         *) exit 2 ;;
-       esac
-       ;;
      show|metrics-show) start_metrics_overlay ;;
      hide|metrics-hide) stop_metrics_overlay ;;
      fps-show) start_fps_overlay ;;
@@ -270,45 +246,63 @@ case "$cmd" in
      add)
        valid_package "$pkg" || exit 2
        grep -Fxq "$pkg" "$GAMES" 2>/dev/null || echo "$pkg" >> "$GAMES"
+       # New games intentionally default to both overlays OFF.
        ;;
      remove)
        valid_package "$pkg" || exit 2
-       grep -Fvx "$pkg" "$GAMES" 2>/dev/null > "$GAMES.tmp.$$" || true
-       mv "$GAMES.tmp.$$" "$GAMES"
-       grep -Fvx "$pkg" "$OVERLAY_DISABLED" 2>/dev/null > "$OVERLAY_DISABLED.tmp.$$" || true
-       mv "$OVERLAY_DISABLED.tmp.$$" "$OVERLAY_DISABLED"
+       for list in "$GAMES" "$METRICS_GAMES" "$FPS_GAMES" "$OVERLAY_DISABLED"; do
+        tmp="$list.tmp.remove"
+        grep -Fvx "$pkg" "$list" 2>/dev/null > "$tmp" || true
+        mv "$tmp" "$list"
+       done
+       sync_current_game_overlays "$pkg"
        ;;
      clear)
        : > "$GAMES"
+       : > "$METRICS_GAMES"
+       : > "$FPS_GAMES"
        : > "$OVERLAY_DISABLED"
        ;;
-     overlay-list)
-       grep -Ev '^[[:space:]]*(#|$)' "$OVERLAY_DISABLED" 2>/dev/null || true
+     metrics-list)
+       grep -Ev '^[[:space:]]*(#|$)' "$METRICS_GAMES" 2>/dev/null || true
        ;;
-     overlay-state)
+     fps-list)
+       grep -Ev '^[[:space:]]*(#|$)' "$FPS_GAMES" 2>/dev/null || true
+       ;;
+     metrics-state)
        valid_package "$pkg" || exit 2
-       if grep -Fxq "$pkg" "$OVERLAY_DISABLED" 2>/dev/null; then
-        echo disabled
-       else
-        echo enabled
-       fi
+       game_overlay_enabled "$METRICS_GAMES" "$pkg" && echo enabled || echo disabled
        ;;
-     overlay-enable)
+     fps-state)
        valid_package "$pkg" || exit 2
-       tmp="$OVERLAY_DISABLED.tmp.enable"
-       grep -Fvx "$pkg" "$OVERLAY_DISABLED" 2>/dev/null > "$tmp" || true
-       mv "$tmp" "$OVERLAY_DISABLED"
-       sync_current_game_overlays "$pkg"
+       game_overlay_enabled "$FPS_GAMES" "$pkg" && echo enabled || echo disabled
        ;;
-     overlay-disable)
+     metrics-enable|metrics-disable|fps-enable|fps-disable)
        valid_package "$pkg" || exit 2
        grep -Fxq "$pkg" "$GAMES" 2>/dev/null || exit 3
-       if ! grep -Fxq "$pkg" "$OVERLAY_DISABLED" 2>/dev/null; then
-        tmp="$OVERLAY_DISABLED.tmp.disable"
-        { cat "$OVERLAY_DISABLED" 2>/dev/null; echo "$pkg"; } > "$tmp"
-        mv "$tmp" "$OVERLAY_DISABLED"
+
+       case "$sub" in
+        metrics-enable) list="$METRICS_GAMES"; enable=1 ;;
+        metrics-disable) list="$METRICS_GAMES"; enable=0 ;;
+        fps-enable) list="$FPS_GAMES"; enable=1 ;;
+        fps-disable) list="$FPS_GAMES"; enable=0 ;;
+       esac
+
+       tmp="$list.tmp.save"
+       if [ "$enable" = 1 ]; then
+        if grep -Fxq "$pkg" "$list" 2>/dev/null; then
+         cat "$list" > "$tmp"
+        else
+         { cat "$list" 2>/dev/null; echo "$pkg"; } > "$tmp"
+        fi
+       else
+        grep -Fvx "$pkg" "$list" 2>/dev/null > "$tmp" || true
        fi
+       mv "$tmp" "$list"
+
        sync_current_game_overlays "$pkg"
+       start_auto
+       if [ "$(get_conf "$AUTO_CONF" enabled 0)" != 1 ] && ! overlay_feature_enabled; then stop_auto; fi
        ;;
      *) exit 2 ;;
    esac ;;
