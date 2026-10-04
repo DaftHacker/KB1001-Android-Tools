@@ -138,15 +138,13 @@ public class OverlayService extends Service {
         actions.setGravity(Gravity.CENTER_VERTICAL);
         actions.setPadding(0,dp(6),0,0);
 
-        Button dyn=mini("Dynamic");
-        dyn.setOnClickListener(v->ctl("persist dynamic744"));
-        Button perf=mini("Performance");
-        perf.setOnClickListener(v->ctl("persist performance744"));
+        Button profile=mini("GPU Profile ▾");
+        profile.setOnClickListener(v->showProfileMenu(profile));
+
         Button rec=mini("Record");
         rec.setOnClickListener(v->ctl("logger file toggle"));
 
-        actions.addView(dyn,new LinearLayout.LayoutParams(0,-2,1));
-        actions.addView(perf,new LinearLayout.LayoutParams(0,-2,1));
+        actions.addView(profile,new LinearLayout.LayoutParams(0,-2,2));
         actions.addView(rec,new LinearLayout.LayoutParams(0,-2,1));
         details.addView(actions);
 
@@ -316,8 +314,29 @@ public class OverlayService extends Service {
         if("stock".equals(p))return "Stock 696";
         if("dynamic744".equals(p))return "Dynamic 744";
         if("performance744".equals(p))return "Performance 744";
-        if("experimental792".equals(p)||"extreme792".equals(p))return "Experimental 792";
+        if("experimental792".equals(p)||"extreme792".equals(p)||"extreme792_dynamic".equals(p))return "Extreme 792 Dynamic";
+        if("extreme792_full".equals(p)||"performance792".equals(p))return "Extreme 792 Full";
         return p;
+    }
+
+    private void showProfileMenu(View anchor){
+        PopupMenu menu=new PopupMenu(this,anchor);
+        menu.getMenu().add("Stock 696");
+        menu.getMenu().add("Dynamic 744");
+        menu.getMenu().add("Performance 744");
+        menu.getMenu().add("Extreme 792 Dynamic");
+        menu.getMenu().add("Extreme 792 Full Throttle");
+
+        menu.setOnMenuItemClickListener(item->{
+            String title=item.getTitle().toString();
+            if(title.startsWith("Stock")) ctl("persist stock");
+            else if(title.startsWith("Dynamic")) ctl("persist dynamic744");
+            else if(title.startsWith("Performance")) ctl("persist performance744");
+            else if(title.contains("Dynamic")) ctl("apply extreme792_dynamic");
+            else if(title.contains("Full")) ctl("apply extreme792_full");
+            return true;
+        });
+        menu.show();
     }
 
     private Button mini(String label){
