@@ -16,77 +16,68 @@ to_c(){ v="$1"; case "$v" in ''|*[!0-9-]*) echo "0.0";; *) if [ "$v" -gt 1000 ] 
 
 sample_fps(){
  pkg="$1"
- [ -n "$pkg" ] || { echo "0|none|"; return; }
+ [ -n "$pkg" ] || { echo 0; return; }
 
- up_raw="$(cat /proc/uptime 2>/dev/null | cut -d' ' -f1)"
- up_sec="$(printf '%s' "$up_raw" | cut -d. -f1)"
- case "$up_sec" in ''|*[!0-9]*) up_sec=0;; esac
- now_ns=$((up_sec * 1000000000))
- cutoff=$((now_ns - 2000000000))
+ layers="$(dumpsys SurfaceFlinger --list 2>/dev/null)"
+ layer="$(printf '%s\n' "$layers" | grep -F "$pkg" | grep -E 'SurfaceView|BLAST|Activity' | head -1)"
+ [ -n "$layer" ] || layer="$(printf '%s\n' "$layers" | grep -F "$pkg" | head -1)"
 
- layers="$(dumpsys SurfaceFlinger --list 2>/dev/null | grep -F "$pkg")"
-
- preferred="$(printf '%s\n' "$layers" | grep -E 'SurfaceView|BLAST|Activity|TextureView' | head -1)"
- [ -n "$preferred" ] || preferred="$(printf '%s\n' "$layers" | head -1)"
-
- if [ -n "$preferred" ]; then
-  sf_fps="$(dumpsys SurfaceFlinger --latency "$preferred" 2>/dev/null | awk -v cutoff="$cutoff" '
-   NR==1 { next }
-   NF>=3 && $2 ~ /^[0-9]+$/ && $2 > 0 && $2 >= cutoff { count++ }
-   END {
-    if (count > 0) {
-     fps=int((count/2.0)+0.5)
-     if (fps>240) fps=240
-     print fps
-    } else print 0
-   }')"
-
-  case "$sf_fps" in ''|*[!0-9]*) sf_fps=0;; esac
-  if [ "$sf_fps" -gt 0 ] 2>/dev/null; then
-   safe_layer="$(printf '%s' "$preferred" | tr '|\n\r' '   ')"
-   echo "$sf_fps|surfaceflinger|$safe_layer"
-   return
+ if [ -z "$layer" ]; then
+  short="${pkg##*.}"
+  if [ "${#short}" -ge 4 ]; then
+   layer="$(printf '%s\n' "$layers" | grep -Fi "$short" | grep -E 'SurfaceView|BLAST|Activity' | head -1)"
+   [ -n "$layer" ] || layer="$(printf '%s\n' "$layers" | grep -Fi "$short" | head -1)"
   fi
  fi
 
- gfx_fps="$(dumpsys gfxinfo "$pkg" framestats 2>/dev/null | awk -F, -v cutoff="$cutoff" '
-  BEGIN { indata=0; count=0 }
-  /^---PROFILEDATA---/ { indata=!indata; next }
-  indata && NF>=14 {
-   ts=$2
-   gsub(/[^0-9]/,"",ts)
-   if (ts ~ /^[0-9]+$/ && ts > 0 && ts >= cutoff) count++
-  }
-  END {
-   if (count > 0) {
-    fps=int((count/2.0)+0.5)
-    if (fps>240) fps=240
+ if [ -n "$layer" ]; then
+  fps="$(dumpsys SurfaceFlinger --latency "$layer" 2>/dev/null | awk '
+   NR==1 { next }
+   NF>=3 && $2 ~ /^[0-9]+$/ && $2 > 0 && $2 < 9000000000000000000 {
+    t[++n]=$2
+   }
+   END {
+    if (n < 2) { print 0; exit }
+    start=n-59
+    if(start<1)start=1
+    span=t[n]-t[start]
+    frames=n-start
+    if(span<=0 || frames<=0){print 0;exit}
+    fps=int((frames*1000000000.0/span)+0.5)
+    if(fps<0)fps=0
+    if(fps>240)fps=240
     print fps
-   } else print 0
-  }')"
-
- case "$gfx_fps" in ''|*[!0-9]*) gfx_fps=0;; esac
- if [ "$gfx_fps" -gt 0 ] 2>/dev/null; then
-  echo "$gfx_fps|gfxinfo|$pkg"
-  return
+   }')"
+  case "$fps" in ''|*[!0-9]*) fps=0;; esac
+  [ "$fps" -gt 0 ] && { echo "$fps"; return; }
  fi
 
- echo "0|none|$pkg"
+ # Package-level fallback for games whose SurfaceFlinger layer name does not
+ # contain the package or whose latency history is unavailable.
+ fps="$(dumpsys gfxinfo "$pkg" framestats 2>/dev/null | awk -F, '
+  /^Flags,IntendedVsync/ {
+   completed=0
+   for(i=1;i<=NF;i++) if($i=="FrameCompleted") completed=i
+   next
+  }
+  completed>0 && $completed ~ /^[0-9]+$/ && $completed>0 {
+   t[++n]=$completed
+  }
+  END {
+   if(n<2){print 0;exit}
+   start=n-59
+   if(start<1)start=1
+   span=t[n]-t[start]
+   frames=n-start
+   if(span<=0||frames<=0){print 0;exit}
+   fps=int((frames*1000000000.0/span)+0.5)
+   if(fps<0)fps=0
+   if(fps>240)fps=240
+   print fps
+  }')"
+ case "$fps" in ''|*[!0-9]*) fps=0;; esac
+ echo "$fps"
 }
-
-fps_debug(){
- pkg="$1"
- [ -n "$pkg" ] || pkg="$(grep -m1 '^package=' "$AUTO_STATE" 2>/dev/null | cut -d= -f2-)"
- echo "package=$pkg"
- echo "mode=$(grep -m1 '^mode=' "$AUTO_STATE" 2>/dev/null | cut -d= -f2-)"
- echo "--- SurfaceFlinger candidates ---"
- dumpsys SurfaceFlinger --list 2>/dev/null | grep -F "$pkg" | head -20
- echo "--- Sample ---"
- sample_fps "$pkg"
- echo "--- gfxinfo framestats markers ---"
- dumpsys gfxinfo "$pkg" framestats 2>/dev/null | grep -E -m8 'PROFILEDATA|^[0-9-]+,[0-9]+,[0-9]+' || true
-}
-
 
 sample(){
  MODE="$(grep -m1 '^mode=' "$AUTO_STATE" 2>/dev/null|cut -d= -f2-)"; [ -n "$MODE" ]||MODE=idle
