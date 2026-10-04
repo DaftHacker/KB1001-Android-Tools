@@ -43,9 +43,9 @@ public final class StressGaugeView extends View {
         canvas.drawArc(arc,140,260,false,track);
 
         int color;
-        if(value<60f) color=Color.rgb(77,210,126);
-        else if(value<78f) color=Color.rgb(255,202,64);
-        else color=Color.rgb(255,83,79);
+        if(value<35f) color=Color.rgb(255,83,79);
+        else if(value<65f) color=Color.rgb(255,202,64);
+        else color=Color.rgb(77,210,126);
         valuePaint.setColor(color);
         valuePaint.setShadowLayer(dp(7),0,0,Color.argb(100,Color.red(color),Color.green(color),Color.blue(color)));
         canvas.drawArc(arc,140,260*(value/100f),false,valuePaint);
