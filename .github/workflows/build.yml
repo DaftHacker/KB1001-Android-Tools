@@ -18,6 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD_SECRET: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS_SECRET: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD_SECRET: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -64,26 +69,27 @@ jobs:
           sed -i "s/^version=.*/version=${MODULE_VERSION_NAME}/" module/module.prop
           sed -i "s/^versionCode=.*/versionCode=${MODULE_VERSION_CODE}/" module/module.prop
 
-      - name: Restore release keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      - name: Build APK
         shell: bash
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/kb1001-release.keystore"
-          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/kb1001-release.keystore" >> "$GITHUB_ENV"
-          echo "ANDROID_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
-          echo "ANDROID_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
-          echo "ANDROID_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
-          echo "STABLE_SIGNING=1" >> "$GITHUB_ENV"
-
-      - name: Build signed release APK
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-        run: gradle :app:assembleRelease --stacktrace
-
-      - name: Build development debug APK
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 == '' }}
-        run: |
-          echo "STABLE_SIGNING=0" >> "$GITHUB_ENV"
-          gradle :app:assembleDebug --stacktrace
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/kb1001-release.keystore"
+            export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/kb1001-release.keystore"
+            export ANDROID_KEYSTORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD_SECRET"
+            export ANDROID_KEY_ALIAS="$ANDROID_KEY_ALIAS_SECRET"
+            export ANDROID_KEY_PASSWORD="$ANDROID_KEY_PASSWORD_SECRET"
+            export STABLE_SIGNING=1
+            echo "ANDROID_KEYSTORE_PATH=$ANDROID_KEYSTORE_PATH" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "STABLE_SIGNING=1" >> "$GITHUB_ENV"
+            gradle :app:assembleRelease --stacktrace
+          else
+            export STABLE_SIGNING=0
+            echo "STABLE_SIGNING=0" >> "$GITHUB_ENV"
+            gradle :app:assembleDebug --stacktrace
+          fi
 
       - name: Name APK
         shell: bash
