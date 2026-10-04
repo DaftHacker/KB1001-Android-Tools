@@ -336,6 +336,7 @@ sample(){
 
  PROFILE_REQUEST_STATE="$(grep -m1 '^state=' "$STATE_DIR/manual_profile.state" 2>/dev/null | cut -d= -f2-)"
  PROFILE_REQUEST_PROFILE="$(grep -m1 '^profile=' "$STATE_DIR/manual_profile.state" 2>/dev/null | cut -d= -f2-)"
+ CPU_MODE="$(cat "$STATE_DIR/cpu_mode.conf" 2>/dev/null)"
  FILE_LOGGING="$(conf_get file_logging 0)"; FILE_PATH="$(conf_get file_path "")"
 
  tmp="$SNAPSHOT.tmp.$$"
@@ -343,7 +344,7 @@ sample(){
   echo "timestamp=$(date '+%Y-%m-%d %H:%M:%S')"; echo "mode=$MODE"; echo "package=$PACKAGE"; echo "profile=$PROFILE"
   echo "gpu_clock_mhz=$GPU_MHZ"; echo "gpu_util_pct=$GPU_UTIL"; echo "gpu_voltage=$GPU_VOLTAGE"; echo "gpu_runtime=$GPU_RUNTIME"; echo "gpu_governor=$GPU_GOV"; echo "gpu_dvfs=$GPU_DVFS"
   echo "thermal_max_c=$THERMAL_MAX"; echo "thermal_zones=$zones"; echo "thermal_throttling=$THERMAL_THROTTLING"; echo "cooling_devices=$cooling"; echo "battery_temp_c=$BATTERY_C"
-  echo "cpu_util_pct=$CPU_UTIL"; echo "cpu_core_util=$CPU_CORE_UTIL"; echo "cpu_core_capacity=$cpu_capacity"; echo "cpu_online=$cpu_online"; echo "cpu_summary=$CPU_SUMMARY"; echo "cpu_policies=$cpu_detail"; echo "cpu_available=$cpu_available"; echo "devfreq=$devs"
+  echo "cpu_mode=$CPU_MODE"; echo "cpu_util_pct=$CPU_UTIL"; echo "cpu_core_util=$CPU_CORE_UTIL"; echo "cpu_core_capacity=$cpu_capacity"; echo "cpu_online=$cpu_online"; echo "cpu_summary=$CPU_SUMMARY"; echo "cpu_policies=$cpu_detail"; echo "cpu_available=$cpu_available"; echo "devfreq=$devs"
   echo "battery_status=$BATTERY_STATUS"; echo "battery_capacity=$BATTERY_CAPACITY"; echo "battery_capacity_level=$BATTERY_CAPACITY_LEVEL"; echo "battery_health=$BATTERY_HEALTH"; echo "battery_technology=$BATTERY_TECH"; echo "battery_manufacturer=$BATTERY_MANUFACTURER"
   echo "battery_current=$BATTERY_CURRENT"; echo "battery_current_avg=$BATTERY_CURRENT_AVG"; echo "battery_charge_current=$BATTERY_CHARGE_CURRENT"; echo "battery_voltage=$BATTERY_VOLTAGE"
   echo "battery_charge_counter=$BATTERY_CHARGE_COUNTER"; echo "battery_charge_full=$BATTERY_CHARGE_FULL"; echo "battery_charge_full_design=$BATTERY_CHARGE_FULL_DESIGN"; echo "battery_cycle_count=$BATTERY_CYCLE_COUNT"; echo "battery_energy_now=$BATTERY_ENERGY_NOW"; echo "battery_energy_full_design=$BATTERY_ENERGY_FULL_DESIGN"
