@@ -4,6 +4,7 @@ MODDIR=${0%/*}
 
 AUTO_CONF="$STATE_DIR/auto_boost.conf"
 GAMES="$STATE_DIR/games.list"
+OVERLAY_DISABLED="$STATE_DIR/overlay_disabled.list"
 AUTO_PID="/data/local/tmp/kb1001_game_boost.pid"
 AUTO_STATE="/data/local/tmp/kb1001_game_boost.state"
 
@@ -31,6 +32,7 @@ get_foreground_package() {
 }
 
 is_registered_game(){ [ -n "$1" ] && grep -Ev '^[[:space:]]*(#|$)' "$GAMES" 2>/dev/null | sed 's/[[:space:]]*$//' | grep -Fxq "$1"; }
+overlay_allowed(){ [ -n "$1" ] && ! grep -Fxq "$1" "$OVERLAY_DISABLED" 2>/dev/null; }
 write_state(){
     new_mode="$1"; new_pkg="$2"; new_profile="$3"
     old_mode="$(grep -m1 '^mode=' "$AUTO_STATE" 2>/dev/null | cut -d= -f2-)"
@@ -46,13 +48,11 @@ write_state(){
 }
 
 overlay_show() {
-    [ "$(conf_get overlay_auto 0)" = 1 ] || return 0
     am start-foreground-service -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 ||
       am startservice -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || true
 }
 
 overlay_hide() {
-    [ "$(conf_get overlay_auto 0)" = 1 ] || return 0
     am stopservice -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || true
 }
 
@@ -74,14 +74,18 @@ run_daemon() {
     last_mode=""
     last_pkg=""
     retry_target=""
-    log "Game detection daemon started (pid=$$)."
+    auto_overlay_visible=0
+    log "Game detection daemon started (pid=$)."
 
     while true; do
         boost_enabled="$(conf_get enabled 0)"
         overlay_enabled="$(conf_get overlay_auto 0)"
 
         if [ "$boost_enabled" != 1 ] && [ "$overlay_enabled" != 1 ]; then
-            [ "$last_mode" = game ] && overlay_hide
+            if [ "$auto_overlay_visible" = 1 ]; then
+                overlay_hide
+                auto_overlay_visible=0
+            fi
             current="$(cat "$CONFIG" 2>/dev/null)"
             write_state disabled "" "$(sanitize_profile "${current:-dynamic744}")"
             last_mode=disabled
@@ -112,15 +116,26 @@ run_daemon() {
                 [ -n "$active_profile" ] || active_profile=dynamic744
             fi
 
-            if [ "$last_mode" != game ] || [ "$last_pkg" != "$pkg" ]; then
-                overlay_show
+            if [ "$overlay_enabled" = 1 ] && overlay_allowed "$pkg"; then
+                if [ "$auto_overlay_visible" != 1 ] || [ "$last_pkg" != "$pkg" ]; then
+                    overlay_show
+                    auto_overlay_visible=1
+                fi
+            else
+                if [ "$auto_overlay_visible" = 1 ]; then
+                    overlay_hide
+                    auto_overlay_visible=0
+                fi
             fi
 
             write_state game "$pkg" "$active_profile"
             last_mode=game
             last_pkg="$pkg"
         else
-            [ "$last_mode" = game ] && overlay_hide
+            if [ "$auto_overlay_visible" = 1 ]; then
+                overlay_hide
+                auto_overlay_visible=0
+            fi
 
             if [ "$boost_enabled" = 1 ]; then
                 if [ "$last_mode" != idle ] || [ "$retry_target" = "$idle_profile" ]; then
