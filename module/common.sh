@@ -182,6 +182,8 @@ apply_custom_mhz() {
         esac
     fi
 
+    [ -e "$SCENE" ] && echo 0 > "$SCENE" 2>>"$LOG"
+    echo 0 > "$DVFS" 2>>"$LOG" || return 1
     echo "$mhz" > "$FREQ" 2>>"$LOG" || return 1
 
     if [ "$mhz" = 792 ]; then
@@ -223,6 +225,8 @@ apply_profile() {
         performance744)
             rm -f "$SESSION_EXTREME"
             ensure_744_table "$timeout" || return $?
+            [ -e "$SCENE" ] && echo 0 > "$SCENE" 2>>"$LOG"
+            echo 0 > "$DVFS" 2>>"$LOG" || return 1
             echo 744 > "$FREQ" 2>>"$LOG" || return 1
             echo performance744 > "$RUNTIME_PROFILE"
             log "Applied Performance 744 profile (744 MHz pinned, vendor DVFS off)."
@@ -237,6 +241,8 @@ apply_profile() {
             ;;
         performance792|extreme792_full)
             ensure_792_table "$timeout" || return $?
+            [ -e "$SCENE" ] && echo 0 > "$SCENE" 2>>"$LOG"
+            echo 0 > "$DVFS" 2>>"$LOG" || return 1
             echo 792 > "$FREQ" 2>>"$LOG" || return 1
             touch "$SESSION_EXTREME"
             echo extreme792_full > "$RUNTIME_PROFILE"
