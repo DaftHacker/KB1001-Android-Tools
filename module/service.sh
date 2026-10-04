@@ -24,9 +24,12 @@ profile="$(cat "$CONFIG" 2>/dev/null)"
 case "$profile" in stock|dynamic744|performance744) ;; *) profile=dynamic744; echo "$profile" > "$CONFIG";; esac
 
 enabled="$(grep -m1 '^enabled=' "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
-metrics_overlay_enabled="$(grep -m1 '^metrics_overlay_auto=' "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
-[ -n "$metrics_overlay_enabled" ] || metrics_overlay_enabled="$(grep -m1 '^overlay_auto=' "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
-fps_overlay_enabled="$(grep -m1 '^fps_overlay_auto=' "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
+metrics_games="$STATE_DIR/metrics_enabled.list"
+fps_games="$STATE_DIR/fps_enabled.list"
+metrics_overlay_enabled=0
+fps_overlay_enabled=0
+grep -q '[^[:space:]#]' "$metrics_games" 2>/dev/null && metrics_overlay_enabled=1
+grep -q '[^[:space:]#]' "$fps_games" 2>/dev/null && fps_overlay_enabled=1
 if [ "$enabled" = 1 ]; then
     idle="$(grep -m1 '^idle_profile=' "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
     case "$idle" in stock|dynamic744|performance744) profile="$idle";; esac
