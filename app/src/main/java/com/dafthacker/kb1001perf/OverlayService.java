@@ -19,7 +19,7 @@ public class OverlayService extends Service {
 
     private static final int CPU_COLOR=Color.rgb(77,210,126);
     private static final int GPU_COLOR=Color.rgb(255,151,61);
-    private static final int RAM_COLOR=Color.rgb(255,211,64);
+    private static final int RAM_COLOR=Color.rgb(72,151,255);
     private static final int THERMAL_COOL=Color.rgb(91,205,223);
     private static final int THERMAL_WARM=Color.rgb(255,175,59);
     private static final int THERMAL_HOT=Color.rgb(255,83,79);
