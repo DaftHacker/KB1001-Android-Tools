@@ -224,20 +224,14 @@ public class MainActivity extends Activity {
 
         hudSwitch = toggleCard(
                 "Metrics overlay",
-                "CPU, GPU, RAM, thermal and battery metrics. No FPS polling is performed by this overlay.",
-                checked -> {
-                    if (checked) showHud();
-                    else stopService(new Intent(this,OverlayService.class));
-                });
+                "Manual hold. ON stays visible through game launches/exits; OFF still allows per-game rules to show it.",
+                checked -> setManualOverlay("metrics",checked,hudSwitch));
         page.addView((View)hudSwitch.getParent());
 
         fpsHudSwitch = toggleCard(
                 "FPS counter",
-                "Minimal FPS-only overlay. Drag it anywhere on screen.",
-                checked -> {
-                    if (checked) showFpsHud();
-                    else stopService(new Intent(this,FpsOverlayService.class));
-                });
+                "Manual hold. ON stays visible through game launches/exits; OFF still allows per-game FPS rules.",
+                checked -> setManualOverlay("fps",checked,fpsHudSwitch));
         page.addView((View)fpsHudSwitch.getParent());
 
         page.addView(overlayScaleCard(),full());
@@ -285,36 +279,21 @@ public class MainActivity extends Activity {
         gamesContainer.addView(loading);
 
         io.execute(() -> {
-            RootBridge.Result games=RootBridge.get().ctl("game list");
-            RootBridge.Result metrics=RootBridge.get().ctl("game metrics-list");
-            RootBridge.Result fps=RootBridge.get().ctl("game fps-list");
+            RootBridge.Result snapshot=RootBridge.get().ctl("game snapshot");
 
             selectedGames.clear();
             metricsEnabledGames.clear();
             fpsEnabledGames.clear();
 
-            if(games.ok()){
-                for(String line:games.output.split("\\R")){
-                    String pkg=line.trim();
-                    if(!pkg.isEmpty())selectedGames.add(pkg);
+            if(snapshot.ok()){
+                for(String line:snapshot.output.split("\\R")){
+                    if(line.startsWith("game=")) selectedGames.add(line.substring(5));
+                    else if(line.startsWith("metrics=")) metricsEnabledGames.add(line.substring(8));
+                    else if(line.startsWith("fps=")) fpsEnabledGames.add(line.substring(4));
                 }
             }
 
-            if(metrics.ok()){
-                for(String line:metrics.output.split("\\R")){
-                    String pkg=line.trim();
-                    if(!pkg.isEmpty())metricsEnabledGames.add(pkg);
-                }
-            }
-
-            if(fps.ok()){
-                for(String line:fps.output.split("\\R")){
-                    String pkg=line.trim();
-                    if(!pkg.isEmpty())fpsEnabledGames.add(pkg);
-                }
-            }
-
-            scanLauncherApps();
+            if(launcherApps.isEmpty()) scanLauncherApps();
             runOnUiThread(this::renderGamesInline);
         });
     }
@@ -437,11 +416,9 @@ public class MainActivity extends Activity {
         io.execute(() -> {
             String writeCommand="game "+type+"-"+(enabled?"enable ":"disable ")+pkg;
             RootBridge.Result write=RootBridge.get().ctl(writeCommand);
-            RootBridge.Result readback=RootBridge.get().ctl("game "+type+"-state "+pkg);
-
-            boolean verified=write.ok()&&readback.ok()&&
-                    (enabled?"enabled".equals(readback.output.trim())
-                            :"disabled".equals(readback.output.trim()));
+            boolean verified=write.ok()&&
+                    (enabled?"enabled".equals(write.output.trim())
+                            :"disabled".equals(write.output.trim()));
 
             if(verified){
                 Set<String> set="metrics".equals(type)?metricsEnabledGames:fpsEnabledGames;
@@ -556,14 +533,18 @@ public class MainActivity extends Activity {
     }
 
     private void autoDetectGames() {
-        scanLauncherApps();
+        if(launcherApps.isEmpty()) scanLauncherApps();
         SharedPreferences prefs = getSharedPreferences("game_library",MODE_PRIVATE);
         Set<String> ignored = prefs.getStringSet("ignored_games",Collections.emptySet());
 
+        StringBuilder batch=new StringBuilder("game add-batch");
+        int count=0;
         for (LauncherApp app : launcherApps) {
             if (!app.androidGame || ignored.contains(app.pkg)) continue;
-            RootBridge.get().ctl("game add " + app.pkg);
+            batch.append(' ').append(app.pkg);
+            count++;
         }
+        if(count>0) RootBridge.get().ctl(batch.toString());
     }
 
     private void settingsPage() {
