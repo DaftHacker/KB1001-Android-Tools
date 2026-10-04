@@ -19,28 +19,28 @@ read_state_package(){
 }
 
 foreground_package(){
- line="$(dumpsys window displays 2>/dev/null | grep -m1 -E 'mCurrentFocus=Window\\{|mFocusedApp=ActivityRecord\\{')"
- out="$(printf '%s\\n' "$line" | sed -n 's/.* u[0-9][0-9]* \\([^/ }]*\\)\\/.*/\\1/p')"
+ line="$(dumpsys window displays 2>/dev/null | grep -m1 -E 'mCurrentFocus=Window\{|mFocusedApp=ActivityRecord\{')"
+ out="$(printf '%s\n' "$line" | sed -n 's/.* u[0-9][0-9]* \([^/ }]*\)\/.*/\1/p')"
  if [ -z "$out" ]; then
   line="$(dumpsys activity activities 2>/dev/null | grep -m1 -E 'topResumedActivity=ActivityRecord|mResumedActivity: ActivityRecord')"
-  out="$(printf '%s\\n' "$line" | sed -n 's/.* u[0-9][0-9]* \\([^/ }]*\\)\\/.*/\\1/p')"
+  out="$(printf '%s\n' "$line" | sed -n 's/.* u[0-9][0-9]* \([^/ }]*\)\/.*/\1/p')"
  fi
- printf '%s\\n' "$out"
+ printf '%s\n' "$out"
 }
 
 discover_layer(){
  target="$1"
  [ -n "$target" ] || return
  layers="$(dumpsys SurfaceFlinger --list 2>/dev/null)"
- line="$(printf '%s\\n' "$layers" | grep -F "$target" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | head -1)"
- [ -n "$line" ] || line="$(printf '%s\\n' "$layers" | grep -F "$target" | grep -E 'SurfaceView|BLAST' | head -1)"
- [ -n "$line" ] || line="$(printf '%s\\n' "$layers" | grep -F "$target" | head -1)"
+ line="$(printf '%s\n' "$layers" | grep -F "$target" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | head -1)"
+ [ -n "$line" ] || line="$(printf '%s\n' "$layers" | grep -F "$target" | grep -E 'SurfaceView|BLAST' | head -1)"
+ [ -n "$line" ] || line="$(printf '%s\n' "$layers" | grep -F "$target" | head -1)"
 
  if [ -z "$line" ]; then
   short="${target##*.}"
   if [ "${#short}" -ge 4 ]; then
-   line="$(printf '%s\\n' "$layers" | grep -Fi "$short" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | head -1)"
-   [ -n "$line" ] || line="$(printf '%s\\n' "$layers" | grep -Fi "$short" | grep -E 'SurfaceView|BLAST' | head -1)"
+   line="$(printf '%s\n' "$layers" | grep -Fi "$short" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | head -1)"
+   [ -n "$line" ] || line="$(printf '%s\n' "$layers" | grep -Fi "$short" | grep -E 'SurfaceView|BLAST' | head -1)"
   fi
  fi
 
@@ -127,7 +127,7 @@ stream(){
    fi
   fi
 
-  printf '%s\\n' "$fps" || exit 0
+  printf '%s\n' "$fps" || exit 0
   sleep 0.5
  done
 }
