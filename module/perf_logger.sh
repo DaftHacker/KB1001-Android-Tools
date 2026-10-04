@@ -276,6 +276,7 @@ sample(){
  done
 
  mem="$(awk '/MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null)"; MEM_MB=$((${mem:-0}/1024))
+ mem_total="$(awk '/MemTotal:/{print $2}' /proc/meminfo 2>/dev/null)"; MEM_TOTAL_MB=$((${mem_total:-0}/1024))
  LOADAVG="$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
  detect_power_paths
  batt="$(cat "$BAT_PATH/temp" 2>/dev/null)"; case "$batt" in ''|*[!0-9-]*) BATTERY_C=0.0;; *) BATTERY_C="$(awk "BEGIN{printf \"%.1f\",$batt/10}")";; esac
@@ -320,7 +321,11 @@ sample(){
  FPS_LAYER=""
  if [ "$MODE" = game ] && [ -n "$PACKAGE" ] && { demand_active || [ "$(conf_get file_logging 0)" = 1 ]; }; then
   now_s="$(date +%s)"
-  if [ "$PACKAGE" != "$FPS_CACHE_PACKAGE" ] || [ $((now_s-FPS_CACHE_TS)) -ge 3 ]; then
+  fps_interval=3
+  if [ -e "$HUD_DEMAND" ] && [ ! -e "$UI_DEMAND" ] && [ "$(conf_get file_logging 0)" != 1 ]; then
+   fps_interval=10
+  fi
+  if [ "$PACKAGE" != "$FPS_CACHE_PACKAGE" ] || [ $((now_s-FPS_CACHE_TS)) -ge "$fps_interval" ]; then
    fps_sample="$(sample_fps "$PACKAGE")"
    FPS_CACHE="$(printf '%s' "$fps_sample" | cut -d'|' -f1)"
    FPS_CACHE_SOURCE="$(printf '%s' "$fps_sample" | cut -d'|' -f2)"
@@ -354,7 +359,7 @@ sample(){
   echo "power_current=$POWER_CURRENT"; echo "power_current_max=$POWER_CURRENT_MAX"; echo "power_input_limit=$POWER_INPUT_LIMIT"; echo "power_voltage_max=$POWER_VOLTAGE_MAX"; echo "power_usb_type=$POWER_USB_TYPE"; echo "power_scope=$POWER_SCOPE"
   echo "fps=$FPS"; echo "fps_source=$FPS_SOURCE"; echo "fps_layer=$FPS_LAYER"
   echo "profile_request_state=$PROFILE_REQUEST_STATE"; echo "profile_request_profile=$PROFILE_REQUEST_PROFILE"
-  echo "mem_available_mb=$MEM_MB"; echo "loadavg=$LOADAVG"; echo "file_logging=$FILE_LOGGING"; echo "file_path=$FILE_PATH"
+  echo "mem_available_mb=$MEM_MB"; echo "mem_total_mb=$MEM_TOTAL_MB"; echo "loadavg=$LOADAVG"; echo "file_logging=$FILE_LOGGING"; echo "file_path=$FILE_PATH"
  } > "$tmp" && mv "$tmp" "$SNAPSHOT"
  chmod 0644 "$SNAPSHOT" 2>/dev/null
 
@@ -394,11 +399,14 @@ run(){
  while true; do
   sample
 
-  if demand_active; then
+  if [ -e "$UI_DEMAND" ]; then
    i=1
   elif [ "$(conf_get file_logging 0)" = 1 ]; then
    i="$(conf_get interval_seconds 1)"
    case "$i" in 1|2|3|4|5|6|7|8|9|10) ;; *) i=1;; esac
+  elif [ -e "$HUD_DEMAND" ]; then
+   # HUD-only mode is deliberately slower to reduce game-side CPU/compositor overhead.
+   i=2
   else
    # Background/minimized with no recording: tiny maintenance cadence only.
    i=30
