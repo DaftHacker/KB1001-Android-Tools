@@ -54,15 +54,22 @@ run_daemon() {
     echo $$ > "$AUTO_PID"
     trap 'rm -f "$AUTO_PID"; exit 0' INT TERM EXIT
 
-    last_mode=""; last_pkg=""; retry_target=""
-    log "AutoBoost daemon started (pid=$$)."
+    last_mode=""
+    last_pkg=""
+    retry_target=""
+    log "Game detection daemon started (pid=$$)."
 
     while true; do
-        enabled="$(conf_get enabled 0)"
-        if [ "$enabled" != 1 ]; then
+        boost_enabled="$(conf_get enabled 0)"
+        overlay_enabled="$(conf_get overlay_auto 0)"
+
+        if [ "$boost_enabled" != 1 ] && [ "$overlay_enabled" != 1 ]; then
             [ "$last_mode" = game ] && overlay_hide
-            write_state disabled "" "$(sanitize_profile "$(cat "$CONFIG" 2>/dev/null)")"
-            last_mode=disabled; last_pkg=""; retry_target=""
+            current="$(cat "$CONFIG" 2>/dev/null)"
+            write_state disabled "" "$(sanitize_profile "${current:-dynamic744}")"
+            last_mode=disabled
+            last_pkg=""
+            retry_target=""
             sleep 3
             continue
         fi
@@ -74,20 +81,49 @@ run_daemon() {
 
         pkg="$(get_foreground_package)"
         if is_registered_game "$pkg"; then
-            if [ "$last_mode" != game ] || [ "$last_pkg" != "$pkg" ] || [ "$retry_target" = "$game_profile" ]; then
-                if apply_auto_profile "$game_profile" "game=$pkg"; then retry_target=""; else retry_target="$game_profile"; fi
-                [ "$last_mode" != game ] && overlay_show
+            if [ "$boost_enabled" = 1 ]; then
+                if [ "$last_mode" != game ] || [ "$last_pkg" != "$pkg" ] || [ "$retry_target" = "$game_profile" ]; then
+                    if apply_auto_profile "$game_profile" "game=$pkg"; then
+                        retry_target=""
+                    else
+                        retry_target="$game_profile"
+                    fi
+                fi
+                active_profile="$game_profile"
+            else
+                active_profile="$(cat "$CONFIG" 2>/dev/null)"
+                [ -n "$active_profile" ] || active_profile=dynamic744
             fi
-            write_state game "$pkg" "$game_profile"
-            last_mode=game; last_pkg="$pkg"
+
+            if [ "$last_mode" != game ] || [ "$last_pkg" != "$pkg" ]; then
+                overlay_show
+            fi
+
+            write_state game "$pkg" "$active_profile"
+            last_mode=game
+            last_pkg="$pkg"
         else
             [ "$last_mode" = game ] && overlay_hide
-            if [ "$last_mode" != idle ] || [ "$retry_target" = "$idle_profile" ]; then
-                if apply_auto_profile "$idle_profile" "foreground=${pkg:-unknown}"; then retry_target=""; else retry_target="$idle_profile"; fi
+
+            if [ "$boost_enabled" = 1 ]; then
+                if [ "$last_mode" != idle ] || [ "$retry_target" = "$idle_profile" ]; then
+                    if apply_auto_profile "$idle_profile" "foreground=${pkg:-unknown}"; then
+                        retry_target=""
+                    else
+                        retry_target="$idle_profile"
+                    fi
+                fi
+                active_profile="$idle_profile"
+            else
+                active_profile="$(cat "$CONFIG" 2>/dev/null)"
+                [ -n "$active_profile" ] || active_profile=dynamic744
             fi
-            write_state idle "$pkg" "$idle_profile"
-            last_mode=idle; last_pkg="$pkg"
+
+            write_state idle "$pkg" "$active_profile"
+            last_mode=idle
+            last_pkg="$pkg"
         fi
+
         sleep "$poll"
     done
 }
