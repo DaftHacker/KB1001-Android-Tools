@@ -23,6 +23,11 @@ mkdir -p "$STATE_DIR" 2>/dev/null
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null) $*" >> "$LOG"
+    size="$(wc -c < "$LOG" 2>/dev/null)"
+    case "$size" in ''|*[!0-9]*) return;; esac
+    if [ "$size" -gt 262144 ]; then
+        tail -n 500 "$LOG" > "$LOG.tmp.$$" 2>/dev/null && mv "$LOG.tmp.$$" "$LOG"
+    fi
 }
 
 wait_for_sysfs() {
