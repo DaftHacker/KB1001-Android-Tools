@@ -35,7 +35,30 @@ valid_package(){ case "$1" in ''|*[!A-Za-z0-9._-]*) return 1;; *.*) return 0;; *
 
 start_auto(){ p="$(cat "$AUTO_PID" 2>/dev/null)"; [ -n "$p" ]&&kill -0 "$p" 2>/dev/null&&return 0; rm -f "$AUTO_PID"; nohup "$MODDIR/game_boost.sh" --daemon >/dev/null 2>&1 & }
 stop_auto(){ p="$(cat "$AUTO_PID" 2>/dev/null)"; [ -n "$p" ]&&kill "$p" 2>/dev/null; rm -f "$AUTO_PID"; }
-start_logger(){ p="$(cat "$LOGGER_PID" 2>/dev/null)"; [ -n "$p" ]&&kill -0 "$p" 2>/dev/null&&return 0; rm -f "$LOGGER_PID"; nohup "$MODDIR/perf_logger.sh" --daemon >/dev/null 2>&1 & }
+start_logger(){
+ p="$(cat "$LOGGER_PID" 2>/dev/null)"
+ case "$p" in
+  ''|*[!0-9]*) ;;
+  *) kill -0 "$p" 2>/dev/null && return 0 ;;
+ esac
+ rm -f "$LOGGER_PID"
+ nohup "$MODDIR/perf_logger.sh" --daemon >/dev/null 2>&1 &
+}
+
+stop_logger_instances(){
+ # Kill only daemon instances whose command line contains the module logger path.
+ ps -A -o PID,ARGS 2>/dev/null | awk '/perf_logger[.]sh --daemon/ {print $1}' | while read -r p; do
+  case "$p" in ''|*[!0-9]*) continue;; esac
+  kill "$p" 2>/dev/null || true
+ done
+ rm -f "$LOGGER_PID" /data/local/tmp/kb1001_cpu_stat.* 2>/dev/null
+}
+
+repair_logger(){
+ stop_logger_instances
+ sleep 1
+ start_logger
+}
 
 status(){
  echo "KB1001 Performance Manager v1.3"
@@ -48,6 +71,7 @@ status(){
  echo "Idle profile: $(get_conf "$AUTO_CONF" idle_profile dynamic744)"
  echo "Overlay auto: $(get_conf "$AUTO_CONF" overlay_auto 0)"
  echo "Logger interval: $(get_conf "$LOGGER_CONF" interval_seconds 1)s"
+ echo "Logger PID: $(cat "$LOGGER_PID" 2>/dev/null)"
  echo "File logging: $(get_conf "$LOGGER_CONF" file_logging 0)"
  echo "Log file: $(get_conf "$LOGGER_CONF" file_path "")"
  echo "--- Telemetry ---"
@@ -125,6 +149,9 @@ case "$cmd" in
    esac ;;
  logger)
    case "$1" in
+     repair) repair_logger ;;
+     start) start_logger ;;
+     stop) stop_logger_instances ;;
      interval) case "$2" in 1|2|3|4|5|6|7|8|9|10) set_conf "$LOGGER_CONF" interval_seconds "$2";; *) exit 2;; esac ;;
      file)
        case "$2" in
