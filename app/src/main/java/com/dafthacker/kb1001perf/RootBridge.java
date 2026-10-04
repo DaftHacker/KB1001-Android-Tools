@@ -1,13 +1,11 @@
 package com.dafthacker.kb1001perf;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
+import android.content.Context;
+
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 
 public final class RootBridge {
-    public static final String CONTROLLER = "/data/adb/modules/kb1001_gpu_profiles/kb1001ctl";
     private static final RootBridge INSTANCE = new RootBridge();
 
     private Process process;
@@ -34,6 +32,7 @@ public final class RootBridge {
             String marker = "__KB1001_DONE_" + (++sequence) + "__";
             writer.write(command + "; __kb_rc=$?; echo " + marker + "$__kb_rc\n");
             writer.flush();
+
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.startsWith(marker)) {
@@ -51,18 +50,74 @@ public final class RootBridge {
     }
 
     public Result ctl(String args) {
-        return exec("test -x " + CONTROLLER + " && " + CONTROLLER + " " + args);
+        Context context = BackendManager.context();
+        if (context != null) {
+            Result ready = BackendManager.ensureInstalled(context);
+            if (!ready.ok()) return ready;
+        }
+        return exec("test -r " + shellQuote(BackendManager.CONTROLLER) +
+                " && sh " + shellQuote(BackendManager.CONTROLLER) + " " + args);
+    }
+
+    public Result writeRootFile(String path, byte[] data, String mode) {
+        String parent = new File(path).getParent();
+        String command =
+                "mkdir -p " + shellQuote(parent) +
+                " && cat > " + shellQuote(path) +
+                " && chmod " + mode + " " + shellQuote(path);
+
+        StringBuilder output = new StringBuilder();
+        int rc = -1;
+        java.lang.Process p = null;
+        try {
+            p = new ProcessBuilder("su", "-c", command)
+                    .redirectErrorStream(true)
+                    .start();
+
+            try (OutputStream out = p.getOutputStream()) {
+                out.write(data);
+                out.flush();
+            }
+
+            try (BufferedReader in = new BufferedReader(
+                    new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = in.readLine()) != null) {
+                    output.append(line).append('\n');
+                }
+            }
+
+            rc = p.waitFor();
+        } catch (Exception e) {
+            output.append(e.getClass().getSimpleName()).append(": ").append(e.getMessage());
+            if (p != null) {
+                try { p.destroy(); } catch (Exception ignored) {}
+            }
+        }
+
+        return new Result(rc, output.toString().trim());
+    }
+
+    public static String shellQuote(String s) {
+        return "'" + s.replace("'", "'\\''") + "'";
     }
 
     private void reset() {
         try { if (process != null) process.destroy(); } catch (Exception ignored) {}
-        process = null; writer = null; reader = null;
+        process = null;
+        writer = null;
+        reader = null;
     }
 
     public static final class Result {
         public final int exitCode;
         public final String output;
-        Result(int exitCode, String output) { this.exitCode = exitCode; this.output = output; }
+
+        Result(int exitCode, String output) {
+            this.exitCode = exitCode;
+            this.output = output;
+        }
+
         public boolean ok() { return exitCode == 0; }
     }
 }
