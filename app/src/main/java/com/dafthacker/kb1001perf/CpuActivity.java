@@ -42,6 +42,9 @@ public class CpuActivity extends Activity {
 
     private boolean active;
     private boolean ocLoaded;
+    private String pendingCpuMode;
+    private final Map<String,Button> cpuModeButtons=new LinkedHashMap<>();
+    private final Map<String,String> cpuModeButtonLabels=new LinkedHashMap<>();
 
     @Override protected void onCreate(Bundle state){
         super.onCreate(state);
@@ -102,20 +105,23 @@ public class CpuActivity extends Activity {
                 "Restores the exact per-policy governor, minimum and maximum captured at boot. On this firmware the stock governor is already performance.",
                 "RESTORE FIRMWARE STOCK",
                 GREEN,
-                ()->applyCpuMode("cpu restore","Firmware Stock")),full());
+                "stock",
+                ()->applyCpuMode("cpu restore","Firmware Stock","stock")),full());
 
         content.addView(profileCard(
                 "Balanced",
                 "Uses schedutil with the normal firmware min/max range. This lets Android scale clocks down when full performance is not needed.",
                 "APPLY BALANCED",
                 BLUE,
-                ()->applyCpuMode("cpu balanced","Balanced")),full());
+                "balanced",
+                ()->applyCpuMode("cpu balanced","Balanced","balanced")),full());
 
         content.addView(profileCard(
                 "Locked Maximum",
                 "Pins all three CPU policies to their current kernel-advertised maximum. Thermal cooling remains enabled. This is not an overclock.",
                 "LOCK STOCK MAXIMUM",
                 ORANGE,
+                "performance",
                 this::confirmLockedMaximum),full());
 
         section(content,"LIVE CPU DOMAINS",
@@ -255,7 +261,7 @@ public class CpuActivity extends Activity {
     }
 
     private View profileCard(
-            String title,String subtitle,String action,int accent,Runnable run){
+            String title,String subtitle,String action,int accent,String modeKey,Runnable run){
         LinearLayout card=card(accent);
         card.addView(text(title,15,TEXT,true));
 
@@ -264,6 +270,8 @@ public class CpuActivity extends Activity {
         card.addView(detail);
 
         Button b=button(action,accent,v->run.run());
+        cpuModeButtons.put(modeKey,b);
+        cpuModeButtonLabels.put(modeKey,action);
         card.addView(b,new LinearLayout.LayoutParams(-1,dp(44)));
         return card;
     }
@@ -275,23 +283,57 @@ public class CpuActivity extends Activity {
                         "This keeps each CPU domain at the highest frequency already validated and exposed by the current kernel. " +
                         "It is not an overclock. Kernel thermal protection remains enabled.")
                 .setNegativeButton("Cancel",null)
-                .setPositiveButton("Apply",(d,w)->applyCpuMode("cpu performance","Locked Maximum"))
+                .setPositiveButton("Apply",(d,w)->applyCpuMode("cpu performance","Locked Maximum","performance"))
                 .show();
     }
 
-    private void applyCpuMode(String command,String friendly){
-        if(modeValue!=null) modeValue.setText("Applying…");
+    private void applyCpuMode(String command,String friendly,String modeKey){
+        pendingCpuMode=modeKey;
+        updateCpuButtons(TelemetryStore.get(TelemetryStore.read(this),"cpu_mode","stock"));
+
+        Button target=cpuModeButtons.get(modeKey);
+        if(target!=null)target.setText("REQUESTED…");
+        if(modeValue!=null)modeValue.setText(friendly+" • requested");
+
+        handler.postDelayed(()->{
+            if(modeKey.equals(pendingCpuMode)){
+                Button b=cpuModeButtons.get(modeKey);
+                if(b!=null)b.setText("SWITCHING…");
+                if(modeValue!=null)modeValue.setText(friendly+" • switching");
+            }
+        },140);
+
         io.execute(()->{
             RootBridge.Result r=RootBridge.get().ctl(command);
+            if(r.ok())RootBridge.get().ctl("logger refresh");
+
             runOnUiThread(()->{
                 if(!r.ok()){
-                    Toast.makeText(this,"CPU command failed",Toast.LENGTH_LONG).show();
-                }else{
-                    Toast.makeText(this,friendly+" applied",Toast.LENGTH_SHORT).show();
+                    pendingCpuMode=null;
+                    Toast.makeText(this,"CPU profile request failed",Toast.LENGTH_LONG).show();
                 }
-                handler.postDelayed(this::refresh,900);
+                refresh();
+                handler.postDelayed(this::refresh,250);
+                handler.postDelayed(this::refresh,700);
             });
         });
+    }
+
+    private void updateCpuButtons(String currentMode){
+        for(Map.Entry<String,Button> e:cpuModeButtons.entrySet()){
+            String key=e.getKey();
+            Button b=e.getValue();
+            String normal=cpuModeButtonLabels.get(key);
+
+            if(pendingCpuMode!=null&&pendingCpuMode.equals(key)){
+                b.setEnabled(false);
+                String now=b.getText().toString();
+                if(!now.contains("REQUESTED")&&!now.contains("SWITCHING"))b.setText("SWITCHING…");
+            }else{
+                b.setEnabled(pendingCpuMode==null);
+                b.setText(key.equals(currentMode)?"ACTIVE":normal);
+            }
+        }
     }
 
     private void loadOcStatus(){
@@ -340,6 +382,11 @@ public class CpuActivity extends Activity {
         Map<String,String> cooling=parseDelimited(TelemetryStore.get(telemetry,"cooling_devices",""));
 
         String cpuMode=TelemetryStore.get(telemetry,"cpu_mode","stock");
+
+        if(pendingCpuMode!=null&&pendingCpuMode.equals(cpuMode)){
+            pendingCpuMode=null;
+        }
+        updateCpuButtons(cpuMode);
 
         PolicyState primePolicy=policies.get("policy4");
         int primeUtil=util.getOrDefault(4,0);
