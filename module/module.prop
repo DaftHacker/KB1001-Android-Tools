@@ -1,7 +1,0 @@
-id=kb1001_gpu_profiles
-name=KB1001 Performance Manager
-version=v1.3-HUD-Logger
-versionCode=13
-author=DaftHacker
-description=KB1001/A333 GPU profiles, persistent AutoBoost, in-game HUD integration and read-only performance telemetry. 792 MHz is experimental/session-only. Thermal protection remains enabled.
-updateJson=https://github.com/DaftHacker/KB1001-Android-Tools/releases/download/dev-latest/update.json
