@@ -117,6 +117,36 @@ query_layer(){
  printf '%s|%s|%s\n' "-1" "0" "$current_layer"
 }
 
+global_surface_fps(){
+ dumpsys SurfaceFlinger --latency 2>/dev/null | awk '
+  NF>=3 && $2 ~ /^[0-9]+$/ && $2>0 && $2<9000000000000000000 {
+   seen[$2]=1
+   if($2>latest)latest=$2
+  }
+  END {
+   if(latest<=0){print -1;exit}
+
+   count=0
+   first=latest
+   for(t in seen){
+    n=t+0
+    if(n>=latest-1000000000 && n<=latest){
+     count++
+     if(n<first)first=n
+    }
+   }
+
+   if(count<2){print 0;exit}
+   span=latest-first
+   if(span<=0){print 0;exit}
+
+   fps=int(((count-1)*1000000000.0/span)+0.5)
+   if(fps<0)fps=0
+   if(fps>240)fps=240
+   print fps
+  }'
+}
+
 gfxinfo_fps(){
  target="$1"
  [ -n "$target" ] || { echo -1; return; }
@@ -226,15 +256,24 @@ stream(){
   # If layer latency is unavailable, use gfxinfo only once per second.
   # This keeps normal SurfaceFlinger sampling cheap while making the counter
   # useful on launcher/system apps that do not expose usable layer latency.
-  if [ "$fps" -lt 0 ] 2>/dev/null && [ -n "$pkg_cached" ]; then
+  if [ "$fps" -lt 0 ] 2>/dev/null; then
    gfx_tick=$((gfx_tick+1))
    if [ "$gfx_tick" -ge 2 ]; then
-    gfx_fps="$(gfxinfo_fps "$pkg_cached")"
-    case "$gfx_fps" in ''|*[!0-9-]*) gfx_fps=-1;; esac
+    gfx_fps=-1
+    if [ -n "$pkg_cached" ]; then
+     gfx_fps="$(gfxinfo_fps "$pkg_cached")"
+     case "$gfx_fps" in ''|*[!0-9-]*) gfx_fps=-1;; esac
+    fi
+
     if [ "$gfx_fps" -ge 0 ] 2>/dev/null; then
      fps="$gfx_fps"
-     [ "$fps" -gt 0 ] 2>/dev/null && last_good_fps="$fps"
+    else
+     global_fps="$(global_surface_fps)"
+     case "$global_fps" in ''|*[!0-9-]*) global_fps=-1;; esac
+     [ "$global_fps" -ge 0 ] 2>/dev/null && fps="$global_fps"
     fi
+
+    [ "$fps" -gt 0 ] 2>/dev/null && last_good_fps="$fps"
     gfx_tick=0
    elif [ "$last_good_fps" -ge 0 ] 2>/dev/null; then
     fps="$last_good_fps"
