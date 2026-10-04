@@ -20,6 +20,7 @@ public class SparklineView extends View {
     private int maxSamples = 46;
     private float scaleMax = 100f;
     private int accent = Color.rgb(158,218,226);
+    private float renderScale = 1f;
 
     private ValueAnimator animator;
     private float animatedTail = Float.NaN;
@@ -49,6 +50,15 @@ public class SparklineView extends View {
 
     public int getAccentColor() {
         return accent;
+    }
+
+    public void setRenderScale(float scale) {
+        renderScale = Math.max(.5f, Math.min(1.75f, scale));
+        line.setStrokeWidth(dp(2.35f) * renderScale);
+        grid.setStrokeWidth(dp(.75f) * renderScale);
+        line.setShadowLayer(dp(5) * renderScale,0,0,
+                Color.argb(72,Color.red(accent),Color.green(accent),Color.blue(accent)));
+        invalidate();
     }
 
     public void setScaleMax(float value) {
@@ -163,7 +173,7 @@ public class SparklineView extends View {
         Paint dot=new Paint(Paint.ANTI_ALIAS_FLAG);
         dot.setColor(accent);
         dot.setShadowLayer(dp(5),0,0,accent);
-        canvas.drawCircle(xs[xs.length-1],ys[ys.length-1],dp(2.8f),dot);
+        canvas.drawCircle(xs[xs.length-1],ys[ys.length-1],dp(2.8f)*renderScale,dot);
     }
 
     private float clamp(float value) {
