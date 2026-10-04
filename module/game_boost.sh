@@ -9,7 +9,12 @@ AUTO_STATE="/data/local/tmp/kb1001_game_boost.state"
 
 conf_get(){ v="$(grep -m1 "^$1=" "$AUTO_CONF" 2>/dev/null|cut -d= -f2-)"; [ -n "$v" ]&&printf '%s' "$v"||printf '%s' "$2"; }
 sanitize_profile(){ case "$1" in stock|dynamic744|performance744) printf '%s' "$1";; *) printf dynamic744;; esac; }
-sanitize_game_profile(){ case "$1" in dynamic744|performance744) printf '%s' "$1";; *) printf performance744;; esac; }
+sanitize_game_profile(){
+    case "$1" in
+        dynamic744|performance744|extreme792_dynamic|extreme792_full) printf '%s' "$1" ;;
+        *) printf performance744 ;;
+    esac
+}
 
 get_foreground_package() {
     line="$(dumpsys window displays 2>/dev/null | grep -m1 -E 'mCurrentFocus=Window\{|mFocusedApp=ActivityRecord\{')"
