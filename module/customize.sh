@@ -8,7 +8,7 @@ ui_print "- Read-only CPU/GPU/thermal/devfreq logger"
 ui_print "- Optional CSV session logging"
 ui_print "- 792 MHz renamed Experimental 792"
 ui_print "- Thermal protection remains enabled"
-ui_print "- CPU/DDR tuning remains read-only"
+ui_print "- CPU stock-safe performance controls enabled"
 
 STATE=/data/adb/kb1001_gpu_profiles
 mkdir -p "$STATE"
@@ -30,6 +30,6 @@ EOC
 
 [ -f "$STATE/games.list" ] || : > "$STATE/games.list"
 
-for f in common.sh service.sh uninstall.sh game_boost.sh perf_logger.sh kb1001ctl; do
+for f in common.sh service.sh uninstall.sh game_boost.sh perf_logger.sh cpu_control.sh kb1001ctl; do
     set_perm "$MODPATH/$f" 0 0 0755
 done
