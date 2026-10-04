@@ -18,7 +18,7 @@ import java.util.concurrent.*;
 
 public final class FpsOverlayService extends Service {
     private static final String CHANNEL="kb1001_fps_hud";
-    private static final String FPS_SAMPLER="/data/adb/modules/kb1001_gpu_profiles/fps_sampler.sh";
+    private static final String FPS_SAMPLER=BackendManager.FPS_SAMPLER;
     private static volatile boolean running;
 
     private final Handler handler=new Handler(Looper.getMainLooper());
@@ -171,6 +171,14 @@ public final class FpsOverlayService extends Service {
 
     private void startSampler(){
         reader.execute(()->{
+            RootBridge.Result ready=BackendManager.ensureInstalled(this);
+            if(!ready.ok()){
+                handler.post(()->{
+                    if(fpsText!=null)fpsText.setText("— FPS");
+                });
+                return;
+            }
+
             int lastGoodFps=-1;
             while(running && !Thread.currentThread().isInterrupted()){
                 try{
