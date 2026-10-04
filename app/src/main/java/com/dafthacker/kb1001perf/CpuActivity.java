@@ -43,6 +43,7 @@ public class CpuActivity extends Activity {
     private boolean active;
     private boolean ocLoaded;
     private String pendingCpuMode;
+    private String confirmedCpuMode;
     private final Map<String,Button> cpuModeButtons=new LinkedHashMap<>();
     private final Map<String,String> cpuModeButtonLabels=new LinkedHashMap<>();
 
@@ -304,17 +305,25 @@ public class CpuActivity extends Activity {
         },140);
 
         io.execute(()->{
-            RootBridge.Result r=RootBridge.get().ctl(command);
-            if(r.ok())RootBridge.get().ctl("logger refresh");
+            RootBridge.Result r=RootBridge.get().ctl("cpu request "+modeKey);
+            Map<String,String> state=parseKeyValue(r.output);
+            boolean applied=r.ok() && "applied".equals(state.get("state")) &&
+                    modeKey.equals(state.get("mode"));
+            if(applied)RootBridge.get().ctl("logger refresh");
 
             runOnUiThread(()->{
-                if(!r.ok()){
+                if(applied){
+                    confirmedCpuMode=modeKey;
                     pendingCpuMode=null;
+                    updateCpuButtons(modeKey);
+                    if(modeValue!=null)modeValue.setText(friendlyMode(modeKey));
+                }else{
+                    pendingCpuMode=null;
+                    confirmedCpuMode=null;
+                    updateCpuButtons(TelemetryStore.get(TelemetryStore.read(this),"cpu_mode","stock"));
                     Toast.makeText(this,"CPU profile request failed",Toast.LENGTH_LONG).show();
                 }
-                refresh();
-                handler.postDelayed(this::refresh,250);
-                handler.postDelayed(this::refresh,700);
+                handler.postDelayed(this::refresh,350);
             });
         });
     }
@@ -381,11 +390,11 @@ public class CpuActivity extends Activity {
         Map<String,String> thermals=parseDelimited(TelemetryStore.get(telemetry,"thermal_zones",""));
         Map<String,String> cooling=parseDelimited(TelemetryStore.get(telemetry,"cooling_devices",""));
 
-        String cpuMode=TelemetryStore.get(telemetry,"cpu_mode","stock");
-
-        if(pendingCpuMode!=null&&pendingCpuMode.equals(cpuMode)){
-            pendingCpuMode=null;
+        String telemetryCpuMode=TelemetryStore.get(telemetry,"cpu_mode","stock");
+        if(confirmedCpuMode!=null && confirmedCpuMode.equals(telemetryCpuMode)){
+            confirmedCpuMode=null;
         }
+        String cpuMode=confirmedCpuMode!=null?confirmedCpuMode:telemetryCpuMode;
         updateCpuButtons(cpuMode);
 
         PolicyState primePolicy=policies.get("policy4");
