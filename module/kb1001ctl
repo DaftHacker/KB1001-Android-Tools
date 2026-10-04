@@ -71,7 +71,10 @@ case "$cmd" in
    sub="$1"; value="$2"
    case "$sub" in
      enable) set_conf "$AUTO_CONF" enabled 1; start_auto ;;
-     disable) set_conf "$AUTO_CONF" enabled 0; stop_auto ;;
+     disable)
+       set_conf "$AUTO_CONF" enabled 0
+       [ "$(get_conf "$AUTO_CONF" overlay_auto 0)" = 1 ] || stop_auto
+       ;;
      profile) case "$value" in dynamic744|performance744) set_conf "$AUTO_CONF" game_profile "$value";; *) exit 2;; esac ;;
      idle) case "$value" in stock|dynamic744|performance744) set_conf "$AUTO_CONF" idle_profile "$value";; *) exit 2;; esac ;;
      poll) case "$value" in 1|2|3|4|5|6|7|8|9|10) set_conf "$AUTO_CONF" poll_seconds "$value";; *) exit 2;; esac ;;
@@ -81,7 +84,16 @@ case "$cmd" in
    esac ;;
  overlay)
    case "$1" in
-     auto) case "$2" in enable) set_conf "$AUTO_CONF" overlay_auto 1;; disable) set_conf "$AUTO_CONF" overlay_auto 0;; *) exit 2;; esac ;;
+     auto)
+       case "$2" in
+         enable) set_conf "$AUTO_CONF" overlay_auto 1; start_auto ;;
+         disable)
+           set_conf "$AUTO_CONF" overlay_auto 0
+           [ "$(get_conf "$AUTO_CONF" enabled 0)" = 1 ] || stop_auto
+           ;;
+         *) exit 2 ;;
+       esac
+       ;;
      show) am start-foreground-service -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || am startservice -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 ;;
      hide) am stopservice -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 ;;
      *) exit 2 ;;
