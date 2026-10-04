@@ -39,6 +39,7 @@ start_logger(){ p="$(cat "$LOGGER_PID" 2>/dev/null)"; [ -n "$p" ]&&kill -0 "$p" 
 status(){
  echo "KB1001 Performance Manager v1.3"
  echo "Persistent profile: $(cat "$CONFIG" 2>/dev/null)"
+ echo "Runtime profile: $(cat "$RUNTIME_PROFILE" 2>/dev/null)"
  echo "Auto boost: $(get_conf "$AUTO_CONF" enabled 0)"
  echo "Game profile: $(get_conf "$AUTO_CONF" game_profile performance744)"
  echo "Idle profile: $(get_conf "$AUTO_CONF" idle_profile dynamic744)"
@@ -59,7 +60,14 @@ case "$cmd" in
  apply)
    case "$1" in
      stock|dynamic744|performance744) apply_profile "$1" 120 ;;
-     experimental792|extreme792) echo dynamic744 > "$CONFIG"; apply_profile extreme792 120 ;;
+     experimental792|extreme792|extreme792_dynamic)
+       echo dynamic744 > "$CONFIG"
+       apply_profile extreme792_dynamic 120
+       ;;
+     performance792|extreme792_full)
+       echo dynamic744 > "$CONFIG"
+       apply_profile extreme792_full 120
+       ;;
      *) exit 2 ;;
    esac ;;
  persist)
