@@ -4,6 +4,11 @@ plugins {
 
 def ciCode = System.getenv("APP_VERSION_CODE")
 def ciName = System.getenv("APP_VERSION_NAME")
+def ksPath = System.getenv("ANDROID_KEYSTORE_PATH")
+def ksPass = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+def keyAliasEnv = System.getenv("ANDROID_KEY_ALIAS")
+def keyPass = System.getenv("ANDROID_KEY_PASSWORD")
+def hasReleaseKey = ksPath && ksPass && keyAliasEnv && keyPass && file(ksPath).exists()
 
 android {
     namespace 'com.dafthacker.kb1001perf'
@@ -17,10 +22,26 @@ android {
         versionName ciName ?: '0.3-alpha'
     }
 
+    if (hasReleaseKey) {
+        signingConfigs {
+            release {
+                storeFile file(ksPath)
+                storePassword ksPass
+                keyAlias keyAliasEnv
+                keyPassword keyPass
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasReleaseKey) signingConfig signingConfigs.release
         }
     }
+}
+
+dependencies {
+    implementation 'androidx.core:core:1.15.0'
 }
