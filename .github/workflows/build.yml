@@ -100,6 +100,18 @@ jobs:
             cp app/build/outputs/apk/debug/app-debug.apk "$APP_ASSET"
           fi
 
+      - name: Verify APK signing certificate
+        shell: bash
+        run: |
+          APKSIGNER="/usr/local/lib/android/sdk/build-tools/35.0.0/apksigner"
+          "$APKSIGNER" verify --verbose --print-certs "$APP_ASSET" | tee apk-signing.txt
+          CERT_SHA256="$(grep -m1 'Signer #1 certificate SHA-256 digest:' apk-signing.txt | sed 's/.*digest: //')"
+          if [ -z "$CERT_SHA256" ]; then
+            echo "Unable to read APK signing certificate fingerprint."
+            exit 1
+          fi
+          echo "APK_CERT_SHA256=$CERT_SHA256" >> "$GITHUB_ENV"
+
       - name: Package Magisk module
         shell: bash
         run: |
@@ -173,6 +185,8 @@ jobs:
             else
               echo "APK signing: **ephemeral debug key** ⚠️ — configure the signing secrets before relying on in-place self-updates."
             fi
+            echo
+            echo "APK certificate SHA-256: \`${APK_CERT_SHA256}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload CI verification artifact
