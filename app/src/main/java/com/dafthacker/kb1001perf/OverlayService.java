@@ -41,6 +41,7 @@ public class OverlayService extends Service {
     private TextView footer;
     private TextView fpsValue;
     private float uiScale=1f;
+    private volatile String pendingProfile;
 
     private OverlayMetric cpu;
     private OverlayMetric gpu;
@@ -233,12 +234,24 @@ public class OverlayService extends Service {
             thermal.setAccent(thermalColor);
             battery.setAccent(batteryColor);
 
-            if(("waiting".equals(requestState)||"applying".equals(requestState)) &&
-                    requestedProfile!=null&&!requestedProfile.isEmpty()){
-                title.setText("Performance • "+displayProfile(requestedProfile));
-            }else{
-                title.setText("Performance • "+displayProfile(profile));
+            if(pendingProfile!=null){
+                if(pendingProfile.equals(profile) &&
+                        !"waiting".equals(requestState) && !"applying".equals(requestState)){
+                    pendingProfile=null;
+                }else if("error".equals(requestState) && pendingProfile.equals(requestedProfile)){
+                    pendingProfile=null;
+                }
             }
+
+            String profileForUi=pendingProfile;
+            if(profileForUi==null &&
+                    ("waiting".equals(requestState)||"applying".equals(requestState)) &&
+                    requestedProfile!=null&&!requestedProfile.isEmpty()){
+                profileForUi=requestedProfile;
+            }
+            if(profileForUi==null) profileForUi=profile;
+
+            title.setText("Performance • "+displayProfile(profileForUi));
             subtitle.setText("game".equalsIgnoreCase(mode)&&!pkg.isEmpty()?pkg:"Live system monitor");
 
             if(fpsValue!=null){
@@ -316,6 +329,7 @@ public class OverlayService extends Service {
     }
 
     private void requestProfile(String mode,String profile){
+        pendingProfile=profile;
         if(title!=null) title.setText("Performance • "+displayProfile(profile));
         if(footer!=null) footer.setText("GPU switching • latest request wins");
 
@@ -354,6 +368,7 @@ public class OverlayService extends Service {
         if("performance744".equals(p))return "Performance 744";
         if("experimental792".equals(p)||"extreme792".equals(p)||"extreme792_dynamic".equals(p))return "Extreme 792 Dynamic";
         if("extreme792_full".equals(p)||"performance792".equals(p))return "Extreme 792 Full";
+        if(p!=null&&p.startsWith("custom_"))return "Custom "+p.substring("custom_".length())+" MHz";
         return p;
     }
 
