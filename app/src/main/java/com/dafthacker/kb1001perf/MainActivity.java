@@ -178,6 +178,7 @@ public class MainActivity extends Activity {
         page.addView(thermalMetric.root,full());
 
         batteryMetric = metricCard("BATTERY",BATTERY_GOOD);
+        batteryMetric.root.setOnClickListener(v -> showBatteryMenu());
         page.addView(batteryMetric.root,full());
 
         section("PERFORMANCE LIMIT","Live estimate based on CPU/GPU utilization, thermal cooling state and power state.");
@@ -202,6 +203,10 @@ public class MainActivity extends Activity {
 
     private void showCpuMenu() {
         startActivity(new Intent(this,CpuActivity.class));
+    }
+
+    private void showBatteryMenu() {
+        startActivity(new Intent(this,BatteryActivity.class));
     }
 
     private void gamesPage() {
@@ -1084,6 +1089,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        TelemetryDemand.activityResumed();
         active = true;
         handler.removeCallbacks(ticker);
         handler.post(ticker);
@@ -1095,6 +1101,7 @@ public class MainActivity extends Activity {
     @Override protected void onPause() {
         active = false;
         handler.removeCallbacks(ticker);
+        TelemetryDemand.activityPaused();
         super.onPause();
     }
 
