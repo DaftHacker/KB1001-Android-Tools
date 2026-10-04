@@ -32,6 +32,8 @@ public class GpuActivity extends Activity {
     private TextView defaultValue;
     private TextView gameValue;
     private TextView outsideValue;
+    private volatile String pendingProfile;
+    private volatile String pendingMode;
     private boolean active;
 
     @Override protected void onCreate(Bundle state) {
@@ -109,6 +111,8 @@ public class GpuActivity extends Activity {
                 "Pins the GPU at 744 MHz for maximum sustained clock.",
                 "performance744",
                 true),full());
+
+        content.addView(customClockCard(),full());
 
         content.addView(actionCard(
                 "Extreme 792 • Dynamic",
@@ -202,11 +206,59 @@ public class GpuActivity extends Activity {
         labels.addView(text(subtitle,10,MUTED,false));
         row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
 
-        TextView arrow=text("›",25,ORANGE,true);
-        row.addView(arrow);
-
         row.setOnClickListener(v -> requestProfile(persistent ? "persist" : "apply", key));
         return row;
+    }
+
+    private View customClockCard(){
+        LinearLayout card=new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(13),dp(12),dp(13),dp(12));
+        card.setBackground(tintedCard(ORANGE,58));
+
+        card.addView(text("Custom MHz",15,TEXT,true));
+
+        TextView note=text(
+                "Session-only pinned clock. Supported OPPs: 200, 300, 400, 600, 696, 744, 792 MHz.",
+                10,MUTED,false);
+        note.setPadding(0,dp(2),0,dp(8));
+        card.addView(note);
+
+        LinearLayout row=new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        EditText input=new EditText(this);
+        input.setHint("MHz");
+        input.setTextColor(TEXT);
+        input.setHintTextColor(MUTED);
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        input.setSingleLine(true);
+        input.setPadding(dp(10),0,dp(10),0);
+        input.setBackground(blackAccentCard(ORANGE));
+        row.addView(input,new LinearLayout.LayoutParams(0,dp(46),1));
+
+        Button apply=smallButton("Apply",v->{
+            String raw=input.getText().toString().trim();
+            int mhz=parseInt(raw);
+            if(!isSupportedCustomMhz(mhz)){
+                Toast.makeText(this,
+                        "Supported values: 200, 300, 400, 600, 696, 744, 792 MHz",
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
+            requestProfile("apply","custom_"+mhz);
+        });
+        LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(dp(100),dp(46));
+        bp.setMargins(dp(8),0,0,0);
+        row.addView(apply,bp);
+
+        card.addView(row);
+        return card;
+    }
+
+    private boolean isSupportedCustomMhz(int mhz){
+        return mhz==200||mhz==300||mhz==400||mhz==600||mhz==696||mhz==744||mhz==792;
     }
 
     private TextView settingValueRow(String title,String subtitle,View.OnClickListener listener){
@@ -301,6 +353,9 @@ public class GpuActivity extends Activity {
     }
 
     private void requestProfile(String mode,String profile){
+        pendingProfile=profile;
+        pendingMode=mode;
+
         String display=displayProfile(profile);
         if(runtimeValue!=null) runtimeValue.setText(display+" • switching");
         if("persist".equals(mode) && defaultValue!=null) defaultValue.setText(display+" • requested");
@@ -373,7 +428,31 @@ public class GpuActivity extends Activity {
             Map<String,String> telemetry=TelemetryStore.read(this);
 
             runOnUiThread(() -> {
-                if(defaultValue!=null) defaultValue.setText(displayProfile(status.get("Persistent profile")));
+                String persistent=status.get("Persistent profile");
+                String runtime=status.get("Runtime profile");
+                String requestState=status.get("Profile request state");
+                String requested=status.get("Requested profile");
+
+                if(runtime==null||runtime.isEmpty()) runtime=TelemetryStore.get(telemetry,"profile","—");
+
+                if(pendingProfile!=null){
+                    if(pendingProfile.equals(runtime) && !"waiting".equals(requestState) && !"applying".equals(requestState)){
+                        pendingProfile=null;
+                        pendingMode=null;
+                    }else if("error".equals(requestState) && pendingProfile.equals(requested)){
+                        pendingProfile=null;
+                        pendingMode=null;
+                    }
+                }
+
+                if(defaultValue!=null){
+                    if(pendingProfile!=null && "persist".equals(pendingMode)){
+                        defaultValue.setText(displayProfile(pendingProfile)+" • requested");
+                    }else{
+                        defaultValue.setText(displayProfile(persistent));
+                    }
+                }
+
                 if(gameValue!=null) gameValue.setText(displayProfile(status.get("Game profile")));
                 if(outsideValue!=null) outsideValue.setText(displayProfile(status.get("Idle profile")));
 
@@ -383,15 +462,14 @@ public class GpuActivity extends Activity {
                 if(governorValue!=null) governorValue.setText(TelemetryStore.get(telemetry,"gpu_governor","—"));
                 if(dvfsValue!=null) dvfsValue.setText("0".equals(TelemetryStore.get(telemetry,"gpu_dvfs",""))?"Pinned":"Dynamic");
                 if(runtimeValue!=null){
-                    String requestState=status.get("Profile request state");
-                    String requested=status.get("Requested profile");
-                    String runtime=status.get("Runtime profile");
-                    if(runtime==null||runtime.isEmpty()) runtime=TelemetryStore.get(telemetry,"profile","—");
+                    String uiTarget=pendingProfile;
+                    if(uiTarget==null && ("waiting".equals(requestState)||"applying".equals(requestState))){
+                        uiTarget=requested;
+                    }
 
-                    if(("waiting".equals(requestState)||"applying".equals(requestState)) &&
-                            requested!=null && !requested.isEmpty()){
-                        runtimeValue.setText(displayProfile(requested)+
-                                ("waiting".equals(requestState) ? " • waiting for GPU idle" : " • applying"));
+                    if(uiTarget!=null && !uiTarget.isEmpty() && !uiTarget.equals(runtime)){
+                        runtimeValue.setText(displayProfile(uiTarget)+
+                                ("waiting".equals(requestState) ? " • waiting for GPU idle" : " • switching"));
                     }else{
                         runtimeValue.setText(displayProfile(runtime));
                     }
@@ -416,6 +494,7 @@ public class GpuActivity extends Activity {
         if("performance744".equals(p))return "Performance 744";
         if("extreme792_dynamic".equals(p)||"extreme792".equals(p))return "Extreme 792 Dynamic";
         if("extreme792_full".equals(p)||"performance792".equals(p))return "Extreme 792 Full";
+        if(p.startsWith("custom_"))return "Custom "+p.substring("custom_".length())+" MHz";
         return p;
     }
 
