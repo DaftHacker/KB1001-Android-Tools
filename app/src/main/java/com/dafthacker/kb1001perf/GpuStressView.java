@@ -16,6 +16,7 @@ public final class GpuStressView extends GLSurfaceView {
 
     private final StressRenderer renderer;
     private volatile float lastFps;
+    private volatile boolean stressActive;
 
     public GpuStressView(Context context){
         super(context);
@@ -35,10 +36,14 @@ public final class GpuStressView extends GLSurfaceView {
     }
 
     public void startStress(){
+        stressActive=true;
+        renderer.resetFpsWindow();
         setRenderMode(RENDERMODE_CONTINUOUSLY);
     }
 
     public void stopStress(){
+        stressActive=false;
+        lastFps=0f;
         setRenderMode(RENDERMODE_WHEN_DIRTY);
         requestRender();
     }
@@ -100,6 +105,11 @@ public final class GpuStressView extends GLSurfaceView {
         }
 
         @Override public void onDrawFrame(GL10 gl){
+            if(!stressActive){
+                GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+                return;
+            }
+
             long now=System.nanoTime();
             float time=(now-startNs)/1_000_000_000f;
 
@@ -131,6 +141,12 @@ public final class GpuStressView extends GLSurfaceView {
                     post(() -> cb.onFps(fps));
                 }
             }
+        }
+
+        void resetFpsWindow(){
+            frames=0;
+            fpsWindowNs=System.nanoTime();
+            lastFps=0f;
         }
 
         private int compile(int type,String src){
