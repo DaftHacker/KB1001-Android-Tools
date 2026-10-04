@@ -9,6 +9,7 @@ LOGGER_CONF="$STATE_DIR/logger.conf"
 LOGGER_PID="/data/local/tmp/kb1001_perf_logger.pid"
 HISTORY="$STATE_DIR/telemetry_history.log"
 SNAPSHOT="$STATE_DIR/telemetry.txt"
+PROFILE_REQUEST_STATE="$STATE_DIR/manual_profile.state"
 
 ensure_configs(){
  mkdir -p "$STATE_DIR"
@@ -40,6 +41,8 @@ status(){
  echo "KB1001 Performance Manager v1.3"
  echo "Persistent profile: $(cat "$CONFIG" 2>/dev/null)"
  echo "Runtime profile: $(cat "$RUNTIME_PROFILE" 2>/dev/null)"
+ echo "Profile request state: $(grep -m1 '^state=' "$PROFILE_REQUEST_STATE" 2>/dev/null | cut -d= -f2-)"
+ echo "Requested profile: $(grep -m1 '^profile=' "$PROFILE_REQUEST_STATE" 2>/dev/null | cut -d= -f2-)"
  echo "Auto boost: $(get_conf "$AUTO_CONF" enabled 0)"
  echo "Game profile: $(get_conf "$AUTO_CONF" game_profile performance744)"
  echo "Idle profile: $(get_conf "$AUTO_CONF" idle_profile dynamic744)"
@@ -57,6 +60,13 @@ cmd="$1"; shift 2>/dev/null || true
 
 case "$cmd" in
  status) status ;;
+ profile)
+   case "$1" in
+     request) "$MODDIR/profile_switch.sh" request "$2" "$3" ;;
+     status) "$MODDIR/profile_switch.sh" status ;;
+     *) exit 2 ;;
+   esac
+   ;;
  apply)
    case "$1" in
      stock|dynamic744|performance744) apply_profile "$1" 120 ;;
@@ -141,5 +151,5 @@ case "$cmd" in
    esac ;;
  foreground) "$MODDIR/game_boost.sh" foreground ;;
  cpu) "$MODDIR/cpu_control.sh" "$@" ;;
- *) echo "kb1001ctl status|apply|persist|auto|overlay|logger|game|foreground|cpu" ;;
+ *) echo "kb1001ctl status|profile|apply|persist|auto|overlay|logger|game|foreground|cpu" ;;
 esac
