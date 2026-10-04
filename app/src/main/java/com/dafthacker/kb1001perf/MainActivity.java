@@ -326,18 +326,28 @@ public class MainActivity extends Activity {
         control.setOrientation(LinearLayout.VERTICAL);
         control.setGravity(Gravity.CENTER_HORIZONTAL);
 
-        TextView hudLabel=text("HUD",8,MUTED,true);
+        TextView hudLabel=text("AUTO HUD",8,MUTED,true);
         hudLabel.setGravity(Gravity.CENTER);
         control.addView(hudLabel);
 
-        Switch enabled=new Switch(this);
-        enabled.setShowText(true);
-        enabled.setTextOn("ON");
-        enabled.setTextOff("OFF");
-        enabled.setChecked(!overlayDisabledGames.contains(pkg));
-        enabled.setContentDescription("Auto HUD for "+name);
-        enabled.setOnCheckedChangeListener((button,checked)->setGameOverlayEnabled(pkg,checked));
-        control.addView(enabled,new LinearLayout.LayoutParams(dp(72),dp(42)));
+        boolean hudEnabled=!overlayDisabledGames.contains(pkg);
+        Button hudButton=new Button(this);
+        hudButton.setAllCaps(false);
+        hudButton.setTextSize(10);
+        hudButton.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        hudButton.setMinHeight(0);
+        hudButton.setMinimumHeight(0);
+        hudButton.setMinWidth(0);
+        hudButton.setMinimumWidth(0);
+        hudButton.setPadding(dp(10),0,dp(10),0);
+        styleGameHudButton(hudButton,hudEnabled);
+        hudButton.setContentDescription("Auto HUD for "+name);
+        hudButton.setOnClickListener(v -> {
+            boolean next=!Boolean.TRUE.equals(hudButton.getTag());
+            styleGameHudButton(hudButton,next);
+            setGameOverlayEnabled(pkg,next,hudButton);
+        });
+        control.addView(hudButton,new LinearLayout.LayoutParams(dp(78),dp(34)));
 
         row.addView(control);
 
@@ -353,7 +363,18 @@ public class MainActivity extends Activity {
         return row;
     }
 
-    private void setGameOverlayEnabled(String pkg,boolean enabled) {
+    private void styleGameHudButton(Button button,boolean enabled) {
+        button.setTag(enabled);
+        button.setText(enabled?"ENABLED":"DISABLED");
+        button.setTextColor(enabled?Color.rgb(7,28,13):Color.rgb(220,225,224));
+        GradientDrawable bg=new GradientDrawable();
+        bg.setCornerRadius(dp(999));
+        bg.setColor(enabled?CPU_COLOR:Color.rgb(48,58,58));
+        bg.setStroke(dp(1),enabled?Color.rgb(120,235,151):Color.rgb(92,108,106));
+        button.setBackground(bg);
+    }
+
+    private void setGameOverlayEnabled(String pkg,boolean enabled,Button button) {
         io.execute(() -> {
             RootBridge.Result result=RootBridge.get().ctl(
                     "game "+(enabled ? "overlay-enable " : "overlay-disable ")+pkg);
@@ -362,8 +383,8 @@ public class MainActivity extends Activity {
                 else overlayDisabledGames.add(pkg);
             }else{
                 runOnUiThread(() -> {
+                    styleGameHudButton(button,!enabled);
                     Toast.makeText(this,"Could not save HUD setting.",Toast.LENGTH_SHORT).show();
-                    loadGamesInline();
                 });
             }
         });
@@ -510,6 +531,8 @@ public class MainActivity extends Activity {
 
         Button check = button("Check for Update",true,v -> checkForUpdate(false));
         check.setTextSize(14);
+        check.setTextColor(Color.rgb(7,28,13));
+        check.setBackground(metricBackground(CPU_COLOR));
         page.addView(card(check),full());
 
         TextView versions = text(
@@ -534,7 +557,7 @@ public class MainActivity extends Activity {
         LinearLayout labels = new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
         labels.addView(text("Overlay size",15,Color.rgb(231,240,238),true));
-        labels.addView(text("Scales the entire HUD: text, graphs, spacing and controls.",10,MUTED,false));
+        labels.addView(text("Scales the low-overhead HUD text, spacing and controls.",10,MUTED,false));
         head.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
 
         float saved = getSharedPreferences("hud",MODE_PRIVATE).getFloat("scale",1f);
@@ -689,11 +712,13 @@ public class MainActivity extends Activity {
         CpuPolicies cpu = parseCpuPolicies(TelemetryStore.get(m,"cpu_policies",""));
         int cpuUtil = Math.max(0,Math.min(100,parseInt(TelemetryStore.get(m,"cpu_util_pct","0"))));
         String coreUtil = TelemetryStore.get(m,"cpu_core_util","");
+        String cpuPoliciesRaw = TelemetryStore.get(m,"cpu_policies","");
         int primeUtil = coreUtilValue(coreUtil,4);
+        int primeClock = cpuPolicyCurrent(cpuPoliciesRaw,"policy4");
         cpuMetric.set(
-                cpuUtil + "% • Prime " + primeUtil + "%",
-                (cpu.summary.isEmpty() ? "CPU policy data unavailable" : cpu.summary) +
-                        " • A73 CPU4 " + primeUtil + "%",
+                cpuUtil + "% total • " + cpu.peakCurrent + " MHz",
+                "A73 CPU4 " + primeUtil + "% @ " + primeClock + " MHz" +
+                        (cpu.summary.isEmpty() ? "" : " • " + cpu.summary),
                 cpuUtil);
 
         int gpuMhz = parseInt(TelemetryStore.get(m,"gpu_clock_mhz","0"));
@@ -786,6 +811,19 @@ public class MainActivity extends Activity {
         for(String item:raw.split(";")){
             if(!item.startsWith(key))continue;
             try{return Math.max(0,Math.min(100,Integer.parseInt(item.substring(key.length()).trim())));}
+            catch(Exception ignored){return 0;}
+        }
+        return 0;
+    }
+
+    private int cpuPolicyCurrent(String raw,String policy) {
+        if(raw==null)return 0;
+        for(String item:raw.split(";")){
+            if(!item.startsWith(policy))continue;
+            int eq=item.indexOf('=');
+            int slash=item.indexOf('/',eq+1);
+            if(eq<0||slash<0)continue;
+            try{return Integer.parseInt(item.substring(eq+1,slash).replaceAll("[^0-9]",""));}
             catch(Exception ignored){return 0;}
         }
         return 0;
