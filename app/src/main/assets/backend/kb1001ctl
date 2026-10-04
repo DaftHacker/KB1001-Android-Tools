@@ -1,0 +1,455 @@
+#!/system/bin/sh
+MODDIR=${0%/*}
+. "$MODDIR/common.sh"
+
+AUTO_CONF="$STATE_DIR/auto_boost.conf"
+GAMES="$STATE_DIR/games.list"
+OVERLAY_DISABLED="$STATE_DIR/overlay_disabled.list"
+METRICS_GAMES="$STATE_DIR/metrics_enabled.list"
+FPS_GAMES="$STATE_DIR/fps_enabled.list"
+AUTO_PID="/data/local/tmp/kb1001_game_boost.pid"
+LOGGER_CONF="$STATE_DIR/logger.conf"
+LOGGER_PID="/data/local/tmp/kb1001_perf_logger.pid"
+HISTORY="$STATE_DIR/telemetry_history.log"
+SNAPSHOT="$STATE_DIR/telemetry.txt"
+PROFILE_REQUEST_STATE="$STATE_DIR/manual_profile.state"
+CPU_REQUEST_STATE="$STATE_DIR/cpu_profile.state"
+CPU_MODE_STATE="$STATE_DIR/cpu_mode.conf"
+MANUAL_METRICS="$STATE_DIR/manual_metrics_overlay"
+MANUAL_FPS="$STATE_DIR/manual_fps_overlay"
+UI_DEMAND="/data/local/tmp/kb1001_telemetry_ui"
+HUD_DEMAND="/data/local/tmp/kb1001_telemetry_hud"
+
+ensure_configs(){
+ mkdir -p "$STATE_DIR"
+ [ -f "$CONFIG" ] || echo dynamic744 > "$CONFIG"
+ [ -f "$AUTO_CONF" ] || cat > "$AUTO_CONF" <<EOC
+enabled=0
+game_profile=performance744
+idle_profile=dynamic744
+poll_seconds=2
+overlay_auto=0
+metrics_overlay_auto=0
+fps_overlay_auto=0
+EOC
+ [ -f "$LOGGER_CONF" ] || cat > "$LOGGER_CONF" <<EOC
+interval_seconds=1
+file_logging=0
+file_path=
+EOC
+ [ -f "$GAMES" ] || : > "$GAMES"
+ [ -f "$OVERLAY_DISABLED" ] || : > "$OVERLAY_DISABLED"
+ [ -f "$METRICS_GAMES" ] || : > "$METRICS_GAMES"
+ [ -f "$FPS_GAMES" ] || : > "$FPS_GAMES"
+ [ -f "$MANUAL_METRICS" ] || echo 0 > "$MANUAL_METRICS"
+ [ -f "$MANUAL_FPS" ] || echo 0 > "$MANUAL_FPS"
+
+ set_conf "$AUTO_CONF" overlay_auto 0
+ set_conf "$AUTO_CONF" metrics_overlay_auto 0
+ set_conf "$AUTO_CONF" fps_overlay_auto 0
+}
+
+set_conf(){ file="$1"; key="$2"; value="$3"; tmp="$file.tmp.$$"; grep -v "^${key}=" "$file" 2>/dev/null > "$tmp"; echo "${key}=${value}" >> "$tmp"; mv "$tmp" "$file"; }
+get_conf(){ file="$1"; key="$2"; def="$3"; v="$(grep -m1 "^${key}=" "$file" 2>/dev/null|cut -d= -f2-)"; [ -n "$v" ]&&echo "$v"||echo "$def"; }
+valid_package(){ case "$1" in ''|*[!A-Za-z0-9._-]*) return 1;; *.*) return 0;; *) return 1;; esac; }
+
+start_auto(){ p="$(cat "$AUTO_PID" 2>/dev/null)"; [ -n "$p" ]&&kill -0 "$p" 2>/dev/null&&return 0; rm -f "$AUTO_PID"; nohup sh "$MODDIR/game_boost.sh" --daemon >/dev/null 2>&1 & }
+stop_auto(){ p="$(cat "$AUTO_PID" 2>/dev/null)"; [ -n "$p" ]&&kill "$p" 2>/dev/null; rm -f "$AUTO_PID"; }
+start_logger(){
+ p="$(cat "$LOGGER_PID" 2>/dev/null)"
+ case "$p" in
+  ''|*[!0-9]*) ;;
+  *) kill -0 "$p" 2>/dev/null && return 0 ;;
+ esac
+ rm -f "$LOGGER_PID"
+ nohup sh "$MODDIR/perf_logger.sh" --daemon >/dev/null 2>&1 &
+}
+
+stop_logger_instances(){
+ # Kill only daemon instances whose command line contains the module logger path.
+ ps -A -o PID,ARGS 2>/dev/null | awk '/perf_logger[.]sh --daemon/ {print $1}' | while read -r p; do
+  case "$p" in ''|*[!0-9]*) continue;; esac
+  kill "$p" 2>/dev/null || true
+ done
+ rm -f "$LOGGER_PID" /data/local/tmp/kb1001_cpu_stat.* 2>/dev/null
+}
+
+repair_logger(){
+ stop_logger_instances
+ sleep 1
+ start_logger
+}
+
+restart_logger(){
+ p="$(cat "$LOGGER_PID" 2>/dev/null)"
+ case "$p" in ''|*[!0-9]*) ;; *) kill "$p" 2>/dev/null || true;; esac
+ rm -f "$LOGGER_PID"
+ start_logger
+}
+
+telemetry_active(){
+ [ -e "$UI_DEMAND" ] || [ -e "$HUD_DEMAND" ] || [ "$(get_conf "$LOGGER_CONF" file_logging 0)" = 1 ]
+}
+
+overlay_feature_enabled(){
+ grep -q '[^[:space:]#]' "$METRICS_GAMES" 2>/dev/null ||
+ grep -q '[^[:space:]#]' "$FPS_GAMES" 2>/dev/null
+}
+
+game_overlay_enabled(){
+ list="$1"; target="$2"
+ [ -n "$target" ] && grep -Fxq "$target" "$list" 2>/dev/null
+}
+
+manual_overlay_enabled(){
+ [ "$(cat "$1" 2>/dev/null)" = 1 ]
+}
+
+current_game_package(){
+ mode="$(grep -m1 '^mode=' /data/local/tmp/kb1001_game_boost.state 2>/dev/null | cut -d= -f2-)"
+ current="$(grep -m1 '^package=' /data/local/tmp/kb1001_game_boost.state 2>/dev/null | cut -d= -f2-)"
+ [ "$mode" = game ] && printf '%s\n' "$current"
+}
+
+start_metrics_overlay(){
+ am start-foreground-service -a kb1001.auto_metrics -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 ||
+  am startservice -a kb1001.auto_metrics -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || true
+}
+
+stop_metrics_overlay(){
+ am stopservice -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || true
+}
+
+start_fps_overlay(){
+ am start-foreground-service -a kb1001.auto_fps -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1 ||
+  am startservice -a kb1001.auto_fps -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1 || true
+}
+
+stop_fps_overlay(){
+ am stopservice -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1 || true
+}
+
+sync_current_game_overlays(){
+ target="$1"
+ mode="$(grep -m1 '^mode=' /data/local/tmp/kb1001_game_boost.state 2>/dev/null | cut -d= -f2-)"
+ current="$(grep -m1 '^package=' /data/local/tmp/kb1001_game_boost.state 2>/dev/null | cut -d= -f2-)"
+ [ "$mode" = game ] && [ "$current" = "$target" ] || return 0
+
+ if manual_overlay_enabled "$MANUAL_METRICS" || game_overlay_enabled "$METRICS_GAMES" "$target"; then start_metrics_overlay; else stop_metrics_overlay; fi
+ if manual_overlay_enabled "$MANUAL_FPS" || game_overlay_enabled "$FPS_GAMES" "$target"; then start_fps_overlay; else stop_fps_overlay; fi
+}
+
+reconcile_manual_overlays(){
+ current="$(current_game_package)"
+ if manual_overlay_enabled "$MANUAL_METRICS" || { [ -n "$current" ] && game_overlay_enabled "$METRICS_GAMES" "$current"; }; then
+  start_metrics_overlay
+ else
+  stop_metrics_overlay
+ fi
+ if manual_overlay_enabled "$MANUAL_FPS" || { [ -n "$current" ] && game_overlay_enabled "$FPS_GAMES" "$current"; }; then
+  start_fps_overlay
+ else
+  stop_fps_overlay
+ fi
+}
+
+set_manual_overlay(){
+ file="$1"; value="$2"
+ tmp="$file.tmp.$"
+ printf '%s\n' "$value" > "$tmp" && mv "$tmp" "$file"
+}
+
+cpu_request(){
+ target="$1"
+ case "$target" in
+  stock) action=restore ;;
+  balanced|performance) action="$target" ;;
+  *) exit 2 ;;
+ esac
+
+ {
+  echo "state=requested"
+  echo "mode=$target"
+ } > "$CPU_REQUEST_STATE"
+ {
+  echo "state=applying"
+  echo "mode=$target"
+ } > "$CPU_REQUEST_STATE"
+
+ sh "$MODDIR/cpu_control.sh" "$action"
+ rc=$?
+ actual="$(cat "$CPU_MODE_STATE" 2>/dev/null)"
+ if [ $rc -eq 0 ] && [ "$actual" = "$target" ]; then
+  {
+   echo "state=applied"
+   echo "mode=$actual"
+  } > "$CPU_REQUEST_STATE"
+ else
+  {
+   echo "state=error"
+   echo "mode=$target"
+   echo "actual=$actual"
+   echo "rc=$rc"
+  } > "$CPU_REQUEST_STATE"
+ fi
+ cat "$CPU_REQUEST_STATE"
+ return $rc
+}
+
+status(){
+ echo "KB1001 Performance Manager v1.3"
+ echo "Persistent profile: $(cat "$CONFIG" 2>/dev/null)"
+ echo "Runtime profile: $(cat "$RUNTIME_PROFILE" 2>/dev/null)"
+ echo "Profile request state: $(grep -m1 '^state=' "$PROFILE_REQUEST_STATE" 2>/dev/null | cut -d= -f2-)"
+ echo "Requested profile: $(grep -m1 '^profile=' "$PROFILE_REQUEST_STATE" 2>/dev/null | cut -d= -f2-)"
+ echo "CPU mode: $(cat "$CPU_MODE_STATE" 2>/dev/null)"
+ echo "CPU request state: $(grep -m1 '^state=' "$CPU_REQUEST_STATE" 2>/dev/null | cut -d= -f2-)"
+ echo "Requested CPU mode: $(grep -m1 '^mode=' "$CPU_REQUEST_STATE" 2>/dev/null | cut -d= -f2-)"
+ echo "Manual Metrics overlay: $(cat "$MANUAL_METRICS" 2>/dev/null)"
+ echo "Manual FPS overlay: $(cat "$MANUAL_FPS" 2>/dev/null)"
+ echo "Auto boost: $(get_conf "$AUTO_CONF" enabled 0)"
+ echo "Game profile: $(get_conf "$AUTO_CONF" game_profile performance744)"
+ echo "Idle profile: $(get_conf "$AUTO_CONF" idle_profile dynamic744)"
+ echo "Per-game Metrics overlays: $(grep -c '[^[:space:]#]' "$METRICS_GAMES" 2>/dev/null)"
+ echo "Per-game FPS overlays: $(grep -c '[^[:space:]#]' "$FPS_GAMES" 2>/dev/null)"
+ echo "Logger interval: $(get_conf "$LOGGER_CONF" interval_seconds 1)s"
+ echo "Logger PID: $(cat "$LOGGER_PID" 2>/dev/null)"
+ echo "UI telemetry demand: $([ -e "$UI_DEMAND" ] && echo 1 || echo 0)"
+ echo "HUD telemetry demand: $([ -e "$HUD_DEMAND" ] && echo 1 || echo 0)"
+ echo "File logging: $(get_conf "$LOGGER_CONF" file_logging 0)"
+ echo "Log file: $(get_conf "$LOGGER_CONF" file_path "")"
+ echo "--- Telemetry ---"
+ cat "$SNAPSHOT" 2>/dev/null
+}
+
+ensure_configs
+start_logger
+cmd="$1"; shift 2>/dev/null || true
+
+case "$cmd" in
+ bootstrap)
+   sh "$MODDIR/cpu_control.sh" init >/dev/null 2>&1 || true
+   start_logger
+   if [ "$(get_conf "$AUTO_CONF" enabled 0)" = 1 ] ||
+      overlay_feature_enabled ||
+      manual_overlay_enabled "$MANUAL_METRICS" ||
+      manual_overlay_enabled "$MANUAL_FPS"; then
+     start_auto
+   fi
+   echo "backend=ready"
+   ;;
+ status) status ;;
+ profile)
+   case "$1" in
+     request) sh "$MODDIR/profile_switch.sh" request "$2" "$3" ;;
+     status) sh "$MODDIR/profile_switch.sh" status ;;
+     *) exit 2 ;;
+   esac
+   ;;
+ apply)
+   case "$1" in
+     stock|dynamic744|performance744) apply_profile "$1" 120 ;;
+     experimental792|extreme792|extreme792_dynamic)
+       echo dynamic744 > "$CONFIG"
+       apply_profile extreme792_dynamic 120
+       ;;
+     performance792|extreme792_full)
+       echo dynamic744 > "$CONFIG"
+       apply_profile extreme792_full 120
+       ;;
+     *) exit 2 ;;
+   esac ;;
+ persist)
+   case "$1" in
+     stock|dynamic744|performance744) echo "$1" > "$CONFIG"; apply_profile "$1" 120 ;;
+     *) exit 2 ;;
+   esac ;;
+ auto)
+   sub="$1"; value="$2"
+   case "$sub" in
+     enable) set_conf "$AUTO_CONF" enabled 1; start_auto ;;
+     disable)
+       set_conf "$AUTO_CONF" enabled 0
+       overlay_feature_enabled || stop_auto
+       ;;
+     profile)
+       case "$value" in
+         dynamic744|performance744|extreme792_dynamic|extreme792_full)
+           set_conf "$AUTO_CONF" game_profile "$value"
+           ;;
+         *) exit 2 ;;
+       esac
+       ;;
+     idle) case "$value" in stock|dynamic744|performance744) set_conf "$AUTO_CONF" idle_profile "$value";; *) exit 2;; esac ;;
+     poll) case "$value" in 1|2|3|4|5|6|7|8|9|10) set_conf "$AUTO_CONF" poll_seconds "$value";; *) exit 2;; esac ;;
+     start) start_auto ;;
+     stop) stop_auto ;;
+     *) exit 2 ;;
+   esac ;;
+ overlay)
+   case "$1" in
+     show|metrics-show) start_metrics_overlay ;;
+     hide|metrics-hide) stop_metrics_overlay ;;
+     fps-show) start_fps_overlay ;;
+     fps-hide) stop_fps_overlay ;;
+     metrics-manual-on)
+       set_manual_overlay "$MANUAL_METRICS" 1 || exit 1
+       start_metrics_overlay
+       echo enabled
+       ;;
+     metrics-manual-off)
+       set_manual_overlay "$MANUAL_METRICS" 0 || exit 1
+       reconcile_manual_overlays
+       echo disabled
+       ;;
+     fps-manual-on)
+       set_manual_overlay "$MANUAL_FPS" 1 || exit 1
+       start_fps_overlay
+       echo enabled
+       ;;
+     fps-manual-off)
+       set_manual_overlay "$MANUAL_FPS" 0 || exit 1
+       reconcile_manual_overlays
+       echo disabled
+       ;;
+     *) exit 2 ;;
+   esac ;;
+ logger)
+   case "$1" in
+     demand)
+       was_active=0; telemetry_active && was_active=1
+       case "$2:$3" in
+         ui:on) touch "$UI_DEMAND" ;;
+         ui:off) rm -f "$UI_DEMAND" ;;
+         hud:on) touch "$HUD_DEMAND" ;;
+         hud:off) rm -f "$HUD_DEMAND" ;;
+         *) exit 2 ;;
+       esac
+       now_active=0; telemetry_active && now_active=1
+       [ "$was_active" = 0 ] && [ "$now_active" = 1 ] && restart_logger
+       ;;
+     repair) repair_logger ;;
+     start) start_logger ;;
+     stop) stop_logger_instances ;;
+     interval) case "$2" in 1|2|3|4|5|6|7|8|9|10) set_conf "$LOGGER_CONF" interval_seconds "$2";; *) exit 2;; esac ;;
+     file)
+       case "$2" in
+         on) set_conf "$LOGGER_CONF" file_path ""; set_conf "$LOGGER_CONF" file_logging 1; restart_logger ;;
+         off) set_conf "$LOGGER_CONF" file_logging 0 ;;
+         toggle)
+           if [ "$(get_conf "$LOGGER_CONF" file_logging 0)" = 1 ]; then set_conf "$LOGGER_CONF" file_logging 0
+           else set_conf "$LOGGER_CONF" file_path ""; set_conf "$LOGGER_CONF" file_logging 1; restart_logger; fi ;;
+         *) exit 2 ;;
+       esac ;;
+     tail) tail -n "${2:-60}" "$HISTORY" 2>/dev/null ;;
+     snapshot) cat "$SNAPSHOT" 2>/dev/null ;;
+     refresh) sh "$MODDIR/perf_logger.sh" --once >/dev/null 2>&1 ;;
+     *) exit 2 ;;
+   esac ;;
+ game)
+   sub="$1"; pkg="$2"
+   case "$sub" in
+     list)
+       grep -Ev '^[[:space:]]*(#|$)' "$GAMES" 2>/dev/null || true
+       ;;
+     add)
+       valid_package "$pkg" || exit 2
+       grep -Fxq "$pkg" "$GAMES" 2>/dev/null || echo "$pkg" >> "$GAMES"
+       # New games intentionally default to both overlays OFF.
+       ;;
+     add-batch)
+       shift
+       added=0
+       for candidate in "$@"; do
+        valid_package "$candidate" || continue
+        if ! grep -Fxq "$candidate" "$GAMES" 2>/dev/null; then
+         echo "$candidate" >> "$GAMES"
+         added=$((added+1))
+        fi
+       done
+       echo "added=$added"
+       ;;
+     snapshot)
+       while IFS= read -r candidate; do [ -n "$candidate" ] && echo "game=$candidate"; done < "$GAMES"
+       while IFS= read -r candidate; do [ -n "$candidate" ] && echo "metrics=$candidate"; done < "$METRICS_GAMES"
+       while IFS= read -r candidate; do [ -n "$candidate" ] && echo "fps=$candidate"; done < "$FPS_GAMES"
+       ;;
+     remove)
+       valid_package "$pkg" || exit 2
+       for list in "$GAMES" "$METRICS_GAMES" "$FPS_GAMES" "$OVERLAY_DISABLED"; do
+        tmp="$list.tmp.remove"
+        grep -Fvx "$pkg" "$list" 2>/dev/null > "$tmp" || true
+        mv "$tmp" "$list"
+       done
+       sync_current_game_overlays "$pkg"
+       ;;
+     clear)
+       : > "$GAMES"
+       : > "$METRICS_GAMES"
+       : > "$FPS_GAMES"
+       : > "$OVERLAY_DISABLED"
+       ;;
+     metrics-list)
+       grep -Ev '^[[:space:]]*(#|$)' "$METRICS_GAMES" 2>/dev/null || true
+       ;;
+     fps-list)
+       grep -Ev '^[[:space:]]*(#|$)' "$FPS_GAMES" 2>/dev/null || true
+       ;;
+     metrics-state)
+       valid_package "$pkg" || exit 2
+       game_overlay_enabled "$METRICS_GAMES" "$pkg" && echo enabled || echo disabled
+       ;;
+     fps-state)
+       valid_package "$pkg" || exit 2
+       game_overlay_enabled "$FPS_GAMES" "$pkg" && echo enabled || echo disabled
+       ;;
+     metrics-enable|metrics-disable|fps-enable|fps-disable)
+       valid_package "$pkg" || exit 2
+       grep -Fxq "$pkg" "$GAMES" 2>/dev/null || exit 3
+
+       case "$sub" in
+        metrics-enable) list="$METRICS_GAMES"; enable=1 ;;
+        metrics-disable) list="$METRICS_GAMES"; enable=0 ;;
+        fps-enable) list="$FPS_GAMES"; enable=1 ;;
+        fps-disable) list="$FPS_GAMES"; enable=0 ;;
+       esac
+
+       tmp="$list.tmp.save"
+       if [ "$enable" = 1 ]; then
+        if grep -Fxq "$pkg" "$list" 2>/dev/null; then
+         cat "$list" > "$tmp"
+        else
+         { cat "$list" 2>/dev/null; echo "$pkg"; } > "$tmp"
+        fi
+       else
+        grep -Fvx "$pkg" "$list" 2>/dev/null > "$tmp" || true
+       fi
+       mv "$tmp" "$list"
+
+       saved=disabled
+       game_overlay_enabled "$list" "$pkg" && saved=enabled
+       sync_current_game_overlays "$pkg"
+       start_auto
+       if [ "$(get_conf "$AUTO_CONF" enabled 0)" != 1 ] && ! overlay_feature_enabled; then stop_auto; fi
+       echo "$saved"
+       if [ "$enable" = 1 ]; then [ "$saved" = enabled ] || exit 4
+       else [ "$saved" = disabled ] || exit 4
+       fi
+       ;;
+     *) exit 2 ;;
+   esac ;;
+ foreground) sh "$MODDIR/game_boost.sh" foreground ;;
+ fps)
+   case "$1" in
+     stream) exec sh "$MODDIR/fps_sampler.sh" stream ;;
+     *) exit 2 ;;
+   esac ;;
+ cpu)
+   case "$1" in
+    request) cpu_request "$2" ;;
+    request-state) cat "$CPU_REQUEST_STATE" 2>/dev/null ;;
+    *) sh "$MODDIR/cpu_control.sh" "$@" ;;
+   esac
+   ;;
+ *) echo "kb1001ctl bootstrap|status|profile|apply|persist|auto|overlay|logger|game|foreground|fps|cpu" ;;
+esac
