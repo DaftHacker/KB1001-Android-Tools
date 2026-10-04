@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.drawable.GradientDrawable;
 import android.os.*;
 import android.provider.Settings;
 import android.view.*;
@@ -54,15 +55,24 @@ public final class FpsOverlayService extends Service {
     }
 
     private void createOverlay(){
-        float scale=getSharedPreferences("fps_hud",MODE_PRIVATE).getFloat("scale",1f);
+        android.content.SharedPreferences prefs=getSharedPreferences("fps_hud",MODE_PRIVATE);
+        float scale=prefs.getFloat("scale",1f);
+        int textColor=prefs.getInt("color",Color.WHITE);
 
         fpsText=new TextView(this);
         fpsText.setText("— FPS");
-        fpsText.setTextColor(Color.WHITE);
+        fpsText.setTextColor(textColor);
         fpsText.setTextSize(18f*scale);
-        fpsText.setShadowLayer(2.5f,0f,0f,Color.BLACK);
-        fpsText.setPadding(dp(3),dp(1),dp(3),dp(1));
+        fpsText.setShadowLayer(3f,0f,0f,Color.BLACK);
+        fpsText.setPadding(dp(7),dp(3),dp(7),dp(3));
+        fpsText.setIncludeFontPadding(false);
         fpsText.setSingleLine(true);
+
+        GradientDrawable backing=new GradientDrawable();
+        backing.setColor(Color.argb(112,0,0,0));
+        backing.setCornerRadius(dp(6));
+        backing.setStroke(dp(1),Color.argb(150,0,0,0));
+        fpsText.setBackground(backing);
 
         params=new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -85,8 +95,12 @@ public final class FpsOverlayService extends Service {
                     return true;
 
                 case MotionEvent.ACTION_MOVE:
-                    params.x=Math.max(0,startX+Math.round(e.getRawX()-downX));
-                    params.y=Math.max(0,startY+Math.round(e.getRawY()-downY));
+                    int desiredX=startX+Math.round(e.getRawX()-downX);
+                    int desiredY=startY+Math.round(e.getRawY()-downY);
+                    int maxX=Math.max(0,getResources().getDisplayMetrics().widthPixels-Math.max(1,fpsText.getWidth()));
+                    int maxY=Math.max(0,getResources().getDisplayMetrics().heightPixels-Math.max(1,fpsText.getHeight()));
+                    params.x=Math.max(0,Math.min(maxX,desiredX));
+                    params.y=Math.max(0,Math.min(maxY,desiredY));
                     try{wm.updateViewLayout(fpsText,params);}catch(Exception ignored){}
                     return true;
 
@@ -153,7 +167,7 @@ public final class FpsOverlayService extends Service {
                         final int fps=parseFps(line);
                         handler.post(()->{
                             if(fpsText==null)return;
-                            fpsText.setText(fps>0?fps+" FPS":"— FPS");
+                            fpsText.setText(fps>=0?fps+" FPS":"— FPS");
                         });
                     }
                 }catch(Exception ignored){
@@ -177,7 +191,7 @@ public final class FpsOverlayService extends Service {
     private int parseFps(String line){
         try{
             int v=Integer.parseInt(line.trim());
-            return Math.max(0,Math.min(240,v));
+            return Math.max(-1,Math.min(240,v));
         }catch(Exception e){
             return 0;
         }
