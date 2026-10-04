@@ -813,9 +813,15 @@ public class MainActivity extends Activity {
                 if (autoFpsHudSwitch != null) autoFpsHudSwitch.setChecked("1".equals(status.get("FPS overlay auto")));
                 if (loggingSwitch != null) loggingSwitch.setChecked("1".equals(status.get("File logging")));
                 boolean metricsRunning=OverlayService.isRunning() ||
-                        getSharedPreferences("hud",MODE_PRIVATE).getBoolean("runtime_running",false);
+                        isOwnServiceRunning(OverlayService.class);
                 boolean fpsRunning=FpsOverlayService.isRunning() ||
-                        getSharedPreferences("fps_hud",MODE_PRIVATE).getBoolean("runtime_running",false);
+                        isOwnServiceRunning(FpsOverlayService.class);
+
+                getSharedPreferences("hud",MODE_PRIVATE).edit()
+                        .putBoolean("runtime_running",metricsRunning).apply();
+                getSharedPreferences("fps_hud",MODE_PRIVATE).edit()
+                        .putBoolean("runtime_running",fpsRunning).apply();
+
                 if (hudSwitch != null) hudSwitch.setChecked(metricsRunning);
                 if (fpsHudSwitch != null) fpsHudSwitch.setChecked(fpsRunning);
 
@@ -831,6 +837,19 @@ public class MainActivity extends Activity {
                 suppressSwitchCallbacks = false;
             });
         });
+    }
+
+    private boolean isOwnServiceRunning(Class<?> serviceClass) {
+        ActivityManager am=(ActivityManager)getSystemService(ACTIVITY_SERVICE);
+        if(am==null)return false;
+        try{
+            for(ActivityManager.RunningServiceInfo info:am.getRunningServices(Integer.MAX_VALUE)){
+                if(info.service!=null && serviceClass.getName().equals(info.service.getClassName())){
+                    return true;
+                }
+            }
+        }catch(Exception ignored){}
+        return false;
     }
 
     private Map<String,String> parseStatus(String out) {
