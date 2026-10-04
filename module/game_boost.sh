@@ -7,6 +7,8 @@ GAMES="$STATE_DIR/games.list"
 OVERLAY_DISABLED="$STATE_DIR/overlay_disabled.list"
 METRICS_GAMES="$STATE_DIR/metrics_enabled.list"
 FPS_GAMES="$STATE_DIR/fps_enabled.list"
+MANUAL_METRICS="$STATE_DIR/manual_metrics_overlay"
+MANUAL_FPS="$STATE_DIR/manual_fps_overlay"
 AUTO_PID="/data/local/tmp/kb1001_game_boost.pid"
 AUTO_STATE="/data/local/tmp/kb1001_game_boost.state"
 
@@ -36,6 +38,8 @@ get_foreground_package() {
 is_registered_game(){ [ -n "$1" ] && grep -Ev '^[[:space:]]*(#|$)' "$GAMES" 2>/dev/null | sed 's/[[:space:]]*$//' | grep -Fxq "$1"; }
 metrics_allowed(){ [ -n "$1" ] && grep -Fxq "$1" "$METRICS_GAMES" 2>/dev/null; }
 fps_allowed(){ [ -n "$1" ] && grep -Fxq "$1" "$FPS_GAMES" 2>/dev/null; }
+manual_metrics(){ [ "$(cat "$MANUAL_METRICS" 2>/dev/null)" = 1 ]; }
+manual_fps(){ [ "$(cat "$MANUAL_FPS" 2>/dev/null)" = 1 ]; }
 any_overlay_configured(){
  grep -q '[^[:space:]#]' "$METRICS_GAMES" 2>/dev/null ||
  grep -q '[^[:space:]#]' "$FPS_GAMES" 2>/dev/null
@@ -97,7 +101,7 @@ run_daemon() {
     while true; do
         boost_enabled="$(conf_get enabled 0)"
 
-        if [ "$boost_enabled" != 1 ] && ! any_overlay_configured; then
+        if [ "$boost_enabled" != 1 ] && ! any_overlay_configured && ! manual_metrics && ! manual_fps; then
             if [ "$auto_metrics_visible" = 1 ]; then
                 metrics_hide
                 auto_metrics_visible=0
@@ -140,7 +144,7 @@ run_daemon() {
             # sampler can resolve the correct SurfaceFlinger layer immediately.
             write_state game "$pkg" "$active_profile"
 
-            if metrics_allowed "$pkg"; then
+            if manual_metrics || metrics_allowed "$pkg"; then
                 if [ "$auto_metrics_visible" != 1 ] || [ "$last_pkg" != "$pkg" ]; then
                     metrics_show
                     auto_metrics_visible=1
@@ -150,7 +154,7 @@ run_daemon() {
                 auto_metrics_visible=0
             fi
 
-            if fps_allowed "$pkg"; then
+            if manual_fps || fps_allowed "$pkg"; then
                 if [ "$auto_fps_visible" != 1 ] || [ "$last_pkg" != "$pkg" ]; then
                     fps_show
                     auto_fps_visible=1
@@ -163,11 +167,15 @@ run_daemon() {
             last_mode=game
             last_pkg="$pkg"
         else
-            if [ "$auto_metrics_visible" = 1 ]; then
+            if manual_metrics; then
+                if [ "$auto_metrics_visible" != 1 ]; then metrics_show; auto_metrics_visible=1; fi
+            elif [ "$auto_metrics_visible" = 1 ]; then
                 metrics_hide
                 auto_metrics_visible=0
             fi
-            if [ "$auto_fps_visible" = 1 ]; then
+            if manual_fps; then
+                if [ "$auto_fps_visible" != 1 ]; then fps_show; auto_fps_visible=1; fi
+            elif [ "$auto_fps_visible" = 1 ]; then
                 fps_hide
                 auto_fps_visible=0
             fi
