@@ -5,186 +5,112 @@ MODDIR=${0%/*}
 AUTO_CONF="$STATE_DIR/auto_boost.conf"
 GAMES="$STATE_DIR/games.list"
 AUTO_PID="/data/local/tmp/kb1001_game_boost.pid"
-AUTO_STATE="/data/local/tmp/kb1001_game_boost.state"
+LOGGER_CONF="$STATE_DIR/logger.conf"
+LOGGER_PID="/data/local/tmp/kb1001_perf_logger.pid"
+HISTORY="$STATE_DIR/telemetry_history.log"
+SNAPSHOT="$STATE_DIR/telemetry.txt"
 
-ensure_configs() {
-    mkdir -p "$STATE_DIR"
-    [ -f "$CONFIG" ] || echo dynamic744 > "$CONFIG"
-    if [ ! -f "$AUTO_CONF" ]; then
-        cat > "$AUTO_CONF" <<EOC
-# KB1001 automatic game boost
+ensure_configs(){
+ mkdir -p "$STATE_DIR"
+ [ -f "$CONFIG" ] || echo dynamic744 > "$CONFIG"
+ [ -f "$AUTO_CONF" ] || cat > "$AUTO_CONF" <<EOC
 enabled=0
 game_profile=performance744
 idle_profile=dynamic744
 poll_seconds=2
+overlay_auto=0
 EOC
-    fi
-    [ -f "$GAMES" ] || : > "$GAMES"
+ [ -f "$LOGGER_CONF" ] || cat > "$LOGGER_CONF" <<EOC
+interval_seconds=1
+file_logging=0
+file_path=
+EOC
+ [ -f "$GAMES" ] || : > "$GAMES"
 }
 
-set_conf() {
-    key="$1"; value="$2"
-    tmp="$AUTO_CONF.tmp.$$"
-    grep -v "^${key}=" "$AUTO_CONF" 2>/dev/null > "$tmp"
-    echo "${key}=${value}" >> "$tmp"
-    mv "$tmp" "$AUTO_CONF"
-}
+set_conf(){ file="$1"; key="$2"; value="$3"; tmp="$file.tmp.$$"; grep -v "^${key}=" "$file" 2>/dev/null > "$tmp"; echo "${key}=${value}" >> "$tmp"; mv "$tmp" "$file"; }
+get_conf(){ file="$1"; key="$2"; def="$3"; v="$(grep -m1 "^${key}=" "$file" 2>/dev/null|cut -d= -f2-)"; [ -n "$v" ]&&echo "$v"||echo "$def"; }
+valid_package(){ case "$1" in ''|*[!A-Za-z0-9._-]*) return 1;; *.*) return 0;; *) return 1;; esac; }
 
-get_conf() {
-    key="$1"; def="$2"
-    value="$(grep -m1 "^${key}=" "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
-    [ -n "$value" ] && echo "$value" || echo "$def"
-}
+start_auto(){ p="$(cat "$AUTO_PID" 2>/dev/null)"; [ -n "$p" ]&&kill -0 "$p" 2>/dev/null&&return 0; rm -f "$AUTO_PID"; nohup "$MODDIR/game_boost.sh" --daemon >/dev/null 2>&1 & }
+stop_auto(){ p="$(cat "$AUTO_PID" 2>/dev/null)"; [ -n "$p" ]&&kill "$p" 2>/dev/null; rm -f "$AUTO_PID"; }
+start_logger(){ p="$(cat "$LOGGER_PID" 2>/dev/null)"; [ -n "$p" ]&&kill -0 "$p" 2>/dev/null&&return 0; rm -f "$LOGGER_PID"; nohup "$MODDIR/perf_logger.sh" --daemon >/dev/null 2>&1 & }
 
-valid_package() {
-    case "$1" in
-        ''|*[!A-Za-z0-9._-]*) return 1 ;;
-        *.*) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-start_daemon() {
-    pid="$(cat "$AUTO_PID" 2>/dev/null)"
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        echo "AutoBoost daemon already running (pid $pid)."
-        return 0
-    fi
-    rm -f "$AUTO_PID"
-    nohup "$MODDIR/game_boost.sh" --daemon >/dev/null 2>&1 &
-    sleep 1
-    pid="$(cat "$AUTO_PID" 2>/dev/null)"
-    [ -n "$pid" ] && echo "AutoBoost daemon started (pid $pid)." || echo "AutoBoost daemon start requested."
-}
-
-stop_daemon() {
-    pid="$(cat "$AUTO_PID" 2>/dev/null)"
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        kill "$pid" 2>/dev/null
-        i=0
-        while kill -0 "$pid" 2>/dev/null && [ $i -lt 10 ]; do sleep 1; i=$((i+1)); done
-    fi
-    rm -f "$AUTO_PID" "$AUTO_STATE"
-}
-
-status() {
-    echo "KB1001 Performance Manager"
-    echo "Persistent profile: $(cat "$CONFIG" 2>/dev/null)"
-    echo "Auto boost:         $(get_conf enabled 0)"
-    echo "Game profile:       $(get_conf game_profile performance744)"
-    echo "Idle profile:       $(get_conf idle_profile dynamic744)"
-    echo "Poll seconds:       $(get_conf poll_seconds 2)"
-    echo "Registered games:   $(grep -Ev '^[[:space:]]*(#|$)' "$GAMES" 2>/dev/null | wc -l)"
-    pid="$(cat "$AUTO_PID" 2>/dev/null)"
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        echo "Auto daemon:        running (pid $pid)"
-    else
-        echo "Auto daemon:        stopped"
-    fi
-    if [ -f "$AUTO_STATE" ]; then
-        echo "--- Auto state ---"
-        cat "$AUTO_STATE"
-    fi
-    if [ -f "$SESSION_EXTREME" ]; then
-        echo "Session override:   Extreme 792 ACTIVE"
-    fi
-    echo "--- GPU ---"
-    show_status
+status(){
+ echo "KB1001 Performance Manager v1.3"
+ echo "Persistent profile: $(cat "$CONFIG" 2>/dev/null)"
+ echo "Auto boost: $(get_conf "$AUTO_CONF" enabled 0)"
+ echo "Game profile: $(get_conf "$AUTO_CONF" game_profile performance744)"
+ echo "Idle profile: $(get_conf "$AUTO_CONF" idle_profile dynamic744)"
+ echo "Overlay auto: $(get_conf "$AUTO_CONF" overlay_auto 0)"
+ echo "Logger interval: $(get_conf "$LOGGER_CONF" interval_seconds 1)s"
+ echo "File logging: $(get_conf "$LOGGER_CONF" file_logging 0)"
+ echo "Log file: $(get_conf "$LOGGER_CONF" file_path "")"
+ echo "--- Telemetry ---"
+ cat "$SNAPSHOT" 2>/dev/null
 }
 
 ensure_configs
+start_logger
+cmd="$1"; shift 2>/dev/null || true
 
-cmd="$1"
-shift 2>/dev/null || true
 case "$cmd" in
-    status) status ;;
-    apply)
-        profile="$1"
-        case "$profile" in
-            stock|dynamic744|performance744) apply_profile "$profile" 120 ;;
-            extreme792) echo dynamic744 > "$CONFIG"; apply_profile extreme792 120 ;;
-            *) echo "Usage: kb1001ctl apply stock|dynamic744|performance744|extreme792" >&2; exit 2 ;;
-        esac
-        ;;
-    persist)
-        profile="$1"
-        case "$profile" in
-            stock|dynamic744|performance744) echo "$profile" > "$CONFIG"; apply_profile "$profile" 120 ;;
-            *) echo "Extreme 792 cannot be persisted." >&2; exit 2 ;;
-        esac
-        ;;
-    auto)
-        sub="$1"; value="$2"
-        case "$sub" in
-            enable)
-                set_conf enabled 1
-                idle="$(get_conf idle_profile dynamic744)"
-                apply_profile "$idle" 120 || true
-                start_daemon
-                ;;
-            disable)
-                set_conf enabled 0
-                stop_daemon
-                restore="$(cat "$CONFIG" 2>/dev/null)"
-                case "$restore" in stock|dynamic744|performance744) ;; *) restore=dynamic744 ;; esac
-                apply_profile "$restore" 120
-                ;;
-            profile)
-                case "$value" in
-                    dynamic744|performance744) set_conf game_profile "$value" ;;
-                    extreme792) echo "Extreme 792 is blocked for unattended auto boost." >&2; exit 2 ;;
-                    *) echo "Use: auto profile dynamic744|performance744" >&2; exit 2 ;;
-                esac
-                ;;
-            idle)
-                case "$value" in
-                    stock|dynamic744|performance744) set_conf idle_profile "$value" ;;
-                    *) echo "Use: auto idle stock|dynamic744|performance744" >&2; exit 2 ;;
-                esac
-                ;;
-            poll)
-                case "$value" in ''|*[!0-9]*) echo "Poll must be 1-10 seconds." >&2; exit 2 ;; esac
-                [ "$value" -ge 1 ] && [ "$value" -le 10 ] || { echo "Poll must be 1-10 seconds." >&2; exit 2; }
-                set_conf poll_seconds "$value"
-                ;;
-            start) start_daemon ;;
-            stop) stop_daemon ;;
-            *) echo "Usage: kb1001ctl auto enable|disable|profile <...>|idle <...>|poll <1-10>|start|stop" >&2; exit 2 ;;
-        esac
-        ;;
-    game)
-        sub="$1"; pkg="$2"
-        case "$sub" in
-            list) grep -Ev '^[[:space:]]*(#|$)' "$GAMES" 2>/dev/null || true ;;
-            add)
-                valid_package "$pkg" || { echo "Invalid package name." >&2; exit 2; }
-                grep -Fxq "$pkg" "$GAMES" 2>/dev/null || echo "$pkg" >> "$GAMES"
-                ;;
-            remove)
-                valid_package "$pkg" || { echo "Invalid package name." >&2; exit 2; }
-                tmp="$GAMES.tmp.$$"
-                grep -Fvx "$pkg" "$GAMES" 2>/dev/null > "$tmp" || true
-                mv "$tmp" "$GAMES"
-                ;;
-            clear) : > "$GAMES" ;;
-            *) echo "Usage: kb1001ctl game list|add <package>|remove <package>|clear" >&2; exit 2 ;;
-        esac
-        ;;
-    foreground) "$MODDIR/game_boost.sh" foreground ;;
-    *)
-        cat <<EOH
-KB1001 Performance Manager controller
-
-Commands:
-  status
-  apply stock|dynamic744|performance744|extreme792
-  persist stock|dynamic744|performance744
-  auto enable|disable
-  auto profile dynamic744|performance744
-  auto idle stock|dynamic744|performance744
-  auto poll 1..10
-  game list|add <package>|remove <package>|clear
-  foreground
-EOH
-        ;;
+ status) status ;;
+ apply)
+   case "$1" in
+     stock|dynamic744|performance744) apply_profile "$1" 120 ;;
+     experimental792|extreme792) echo dynamic744 > "$CONFIG"; apply_profile extreme792 120 ;;
+     *) exit 2 ;;
+   esac ;;
+ persist)
+   case "$1" in
+     stock|dynamic744|performance744) echo "$1" > "$CONFIG"; apply_profile "$1" 120 ;;
+     *) exit 2 ;;
+   esac ;;
+ auto)
+   sub="$1"; value="$2"
+   case "$sub" in
+     enable) set_conf "$AUTO_CONF" enabled 1; start_auto ;;
+     disable) set_conf "$AUTO_CONF" enabled 0; stop_auto ;;
+     profile) case "$value" in dynamic744|performance744) set_conf "$AUTO_CONF" game_profile "$value";; *) exit 2;; esac ;;
+     idle) case "$value" in stock|dynamic744|performance744) set_conf "$AUTO_CONF" idle_profile "$value";; *) exit 2;; esac ;;
+     poll) case "$value" in 1|2|3|4|5|6|7|8|9|10) set_conf "$AUTO_CONF" poll_seconds "$value";; *) exit 2;; esac ;;
+     start) start_auto ;;
+     stop) stop_auto ;;
+     *) exit 2 ;;
+   esac ;;
+ overlay)
+   case "$1" in
+     auto) case "$2" in enable) set_conf "$AUTO_CONF" overlay_auto 1;; disable) set_conf "$AUTO_CONF" overlay_auto 0;; *) exit 2;; esac ;;
+     show) am start-foreground-service -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || am startservice -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 ;;
+     hide) am stopservice -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 ;;
+     *) exit 2 ;;
+   esac ;;
+ logger)
+   case "$1" in
+     interval) case "$2" in 1|2|3|4|5|6|7|8|9|10) set_conf "$LOGGER_CONF" interval_seconds "$2";; *) exit 2;; esac ;;
+     file)
+       case "$2" in
+         on) set_conf "$LOGGER_CONF" file_path ""; set_conf "$LOGGER_CONF" file_logging 1 ;;
+         off) set_conf "$LOGGER_CONF" file_logging 0 ;;
+         toggle)
+           if [ "$(get_conf "$LOGGER_CONF" file_logging 0)" = 1 ]; then set_conf "$LOGGER_CONF" file_logging 0
+           else set_conf "$LOGGER_CONF" file_path ""; set_conf "$LOGGER_CONF" file_logging 1; fi ;;
+         *) exit 2 ;;
+       esac ;;
+     tail) tail -n "${2:-60}" "$HISTORY" 2>/dev/null ;;
+     snapshot) cat "$SNAPSHOT" 2>/dev/null ;;
+     *) exit 2 ;;
+   esac ;;
+ game)
+   sub="$1"; pkg="$2"
+   case "$sub" in
+     list) grep -Ev '^[[:space:]]*(#|$)' "$GAMES" 2>/dev/null || true ;;
+     add) valid_package "$pkg" || exit 2; grep -Fxq "$pkg" "$GAMES" 2>/dev/null || echo "$pkg" >> "$GAMES" ;;
+     remove) valid_package "$pkg" || exit 2; grep -Fvx "$pkg" "$GAMES" 2>/dev/null > "$GAMES.tmp.$$" || true; mv "$GAMES.tmp.$$" "$GAMES" ;;
+     clear) : > "$GAMES" ;;
+     *) exit 2 ;;
+   esac ;;
+ foreground) "$MODDIR/game_boost.sh" foreground ;;
+ *) echo "kb1001ctl status|apply|persist|auto|overlay|logger|game|foreground" ;;
 esac
