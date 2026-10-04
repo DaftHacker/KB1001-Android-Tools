@@ -13,6 +13,7 @@ import android.widget.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class StressTestActivity extends Activity {
     private static final int CPU=Color.rgb(77,210,126);
@@ -28,6 +29,7 @@ public final class StressTestActivity extends Activity {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     private final AtomicBoolean cpuBurn=new AtomicBoolean(false);
+    private final AtomicLong cpuWork=new AtomicLong();
 
     private ExecutorService cpuPool;
     private LinearLayout content;
@@ -57,7 +59,18 @@ public final class StressTestActivity extends Activity {
     private double sumGpu;
     private double sumTemp;
     private double sumRenderFps;
+    private double sumCpuUtil;
+    private double sumGpuUtil;
+    private double sumCpuScore;
+    private double sumGpuScore;
+    private double sumSystemScore;
     private float maxTemp;
+    private long lastScoreAt;
+    private long lastCpuWork;
+    private int scoreSamples;
+    private float cpuScore;
+    private float gpuScore;
+    private float systemScore;
 
     @Override protected void onCreate(Bundle state){
         super.onCreate(state);
@@ -94,8 +107,8 @@ public final class StressTestActivity extends Activity {
         LinearLayout titles=new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
         titles.setPadding(dp(8),0,0,0);
-        titles.addView(text("Stress Test",26,TEXT,true));
-        titles.addView(text("Bounded diagnostics with live telemetry",11,COMBINED,true));
+        titles.addView(text("System Stress & Test",26,TEXT,true));
+        titles.addView(text("Repeatable CPU/GPU benchmark with live telemetry",11,COMBINED,true));
         top.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
         root.addView(top);
 
@@ -110,7 +123,7 @@ public final class StressTestActivity extends Activity {
         LinearLayout modes=row();
         modeButtons[0]=modeButton("CPU",CPU,"cpu");
         modeButtons[1]=modeButton("GPU",GPU,"gpu");
-        modeButtons[2]=modeButton("Combined",COMBINED,"combined");
+        modeButtons[2]=modeButton("System",COMBINED,"combined");
         for(Button b:modeButtons)modes.addView(b,weight());
         content.addView(modes);
 
@@ -128,7 +141,7 @@ public final class StressTestActivity extends Activity {
         }
         content.addView(durations);
 
-        section("LIVE TEST","Clock response, rendering throughput and thermal headroom.",CPU);
+        section("LIVE BENCHMARK","Score, utilization, clocks and thermal headroom.",CPU);
 
         LinearLayout statusCard=new LinearLayout(this);
         statusCard.setOrientation(LinearLayout.HORIZONTAL);
@@ -155,8 +168,8 @@ public final class StressTestActivity extends Activity {
         statusCard.addView(status,new LinearLayout.LayoutParams(0,-2,1));
         content.addView(statusCard,full());
 
-        cpuMetric=metric("CPU CLOCK",CPU);
-        gpuMetric=metric("GPU CLOCK",GPU);
+        cpuMetric=metric("CPU UTILIZATION / CLOCK",CPU);
+        gpuMetric=metric("GPU UTILIZATION / CLOCK",GPU);
         tempMetric=metric("THERMAL",TEMP);
         content.addView(cpuMetric.root,full());
         content.addView(gpuMetric.root,full());
@@ -179,7 +192,7 @@ public final class StressTestActivity extends Activity {
         content.addView(testButton,new LinearLayout.LayoutParams(-1,dp(50)));
 
         TextView note=text(
-                "The CPU test loads all app-visible cores. The GPU test continuously renders a fragment-heavy OpenGL workload. Combined runs both. Android/kernel thermal throttling remains enabled, and this screen adds its own 80°C stop.",
+                "Scores are relative benchmark scores for comparing the same mode/duration across Stock, Performance and future OC profiles. CPU score measures completed math work per second; GPU score measures sustained render throughput; System score uses both. Android/kernel thermal throttling remains enabled and the test also stops at 80°C.",
                 10,MUTED,false);
         content.addView(note,full());
 
@@ -194,9 +207,15 @@ public final class StressTestActivity extends Activity {
         endsAt=startedAt+durationSeconds*1000L;
         lastTelemetryKick=0;
         samples=0;
+        scoreSamples=0;
         sumCpu=sumGpu=sumTemp=sumRenderFps=0;
+        sumCpuUtil=sumGpuUtil=sumCpuScore=sumGpuScore=sumSystemScore=0;
         maxTemp=0;
         renderFps=0;
+        cpuScore=gpuScore=systemScore=0;
+        cpuWork.set(0);
+        lastCpuWork=0;
+        lastScoreAt=startedAt;
 
         cpuMetric.graph.clear();
         gpuMetric.graph.clear();
@@ -234,6 +253,7 @@ public final class StressTestActivity extends Activity {
                         n++;
                     }
                     cpuSink=x;
+                    cpuWork.addAndGet(10000);
                 }
             });
         }
@@ -262,28 +282,72 @@ public final class StressTestActivity extends Activity {
 
             Map<String,String> m=TelemetryStore.read(StressTestActivity.this);
             CpuPeak cpu=parseCpu(TelemetryStore.get(m,"cpu_policies",""));
+            int cpuUtil=Math.max(0,Math.min(100,parseInt(TelemetryStore.get(m,"cpu_util_pct","0"))));
             int gpu=parseInt(TelemetryStore.get(m,"gpu_clock_mhz","0"));
+            int gpuUtil=Math.max(0,Math.min(100,parseInt(TelemetryStore.get(m,"gpu_util_pct","0"))));
             float temp=parseFloat(TelemetryStore.get(m,"thermal_max_c","0"));
+            boolean throttling="1".equals(TelemetryStore.get(m,"thermal_throttling","0"));
 
-            int cpuPct=cpu.max>0?Math.max(0,Math.min(100,Math.round(cpu.current*100f/cpu.max))):0;
-            int gpuPct=Math.max(0,Math.min(100,Math.round(gpu*100f/792f)));
             int tempPct=Math.max(0,Math.min(100,Math.round(temp/90f*100)));
 
-            cpuMetric.set(cpu.current+" MHz",cpuPct);
-            gpuMetric.set(gpu+" MHz",gpuPct);
-            tempMetric.set(String.format(Locale.US,"%.1f °C",temp),tempPct);
-            gauge.setGauge(tempPct,String.format(Locale.US,"%.1f°C",temp),"THERMAL LOAD");
+            long workNow=cpuWork.get();
+            long scoreDt=Math.max(1,now-lastScoreAt);
+            if(hasCpu() && now-lastScoreAt>=400){
+                long workDelta=Math.max(0,workNow-lastCpuWork);
+                double opsPerSec=workDelta*1000.0/scoreDt;
+                cpuScore=(float)(opsPerSec/5000.0);
+                lastCpuWork=workNow;
+                lastScoreAt=now;
+            }else if(!hasCpu()){
+                cpuScore=0;
+            }
+
+            if(hasGpu()){
+                gpuScore=Math.max(0f,renderFps*20f);
+            }else{
+                gpuScore=0;
+            }
+
+            if(hasCpu()&&hasGpu()){
+                systemScore=(float)Math.sqrt(Math.max(0.0,cpuScore*gpuScore));
+            }else if(hasCpu()){
+                systemScore=cpuScore;
+            }else{
+                systemScore=gpuScore;
+            }
+
+            cpuMetric.set(cpuUtil+"% • "+cpu.current+" MHz",cpuUtil);
+            gpuMetric.set(gpuUtil+"% • "+gpu+" MHz",gpuUtil);
+            tempMetric.set(String.format(Locale.US,"%.1f °C%s",temp,throttling?" • THROTTLING":""),tempPct);
+
+            float gaugePct=Math.max(0f,Math.min(100f,systemScore/20f));
+            String scoreLabel="combined".equals(mode)?"SYSTEM SCORE":("cpu".equals(mode)?"CPU SCORE":"GPU SCORE");
+            gauge.setGauge(gaugePct,String.format(Locale.US,"%.0f",systemScore),scoreLabel);
+
             renderFpsValue.setText(hasGpu()
-                    ? String.format(Locale.US,"Render FPS %.0f",renderFps)
-                    : "GPU workload disabled");
+                    ? String.format(Locale.US,"GPU %.0f score • %.0f FPS",gpuScore,renderFps)
+                    : String.format(Locale.US,"CPU %.0f score",cpuScore));
+
+            workersValue.setText(
+                    "CPU "+cpuUtil+"% • GPU "+gpuUtil+"% • "+
+                    (throttling?"thermal throttle active":"no thermal throttle"));
 
             if(temp>=0){
                 samples++;
                 sumCpu+=cpu.current;
                 sumGpu+=gpu;
                 sumTemp+=temp;
+                sumCpuUtil+=cpuUtil;
+                sumGpuUtil+=gpuUtil;
                 if(hasGpu())sumRenderFps+=renderFps;
                 maxTemp=Math.max(maxTemp,temp);
+
+                if((hasCpu() && cpuScore>0)||(hasGpu() && gpuScore>0)){
+                    scoreSamples++;
+                    sumCpuScore+=cpuScore;
+                    sumGpuScore+=gpuScore;
+                    sumSystemScore+=systemScore;
+                }
             }
 
             if(temp>=THERMAL_STOP_C){
@@ -315,15 +379,25 @@ public final class StressTestActivity extends Activity {
 
         if(showSummary && !isFinishing()){
             double n=Math.max(1,samples);
+            double sn=Math.max(1,scoreSamples);
+            String profile=TelemetryStore.get(TelemetryStore.read(this),"profile","—");
             String message=
-                    "Mode: "+mode.toUpperCase(Locale.US)+"\n"+
-                    "Duration: "+Math.max(1,(SystemClock.elapsedRealtime()-startedAt)/1000)+" sec\n"+
+                    "Mode: "+("combined".equals(mode)?"SYSTEM":mode.toUpperCase(Locale.US))+"\n"+
+                    "Profile: "+profile+"\n"+
+                    "Duration: "+Math.max(1,(SystemClock.elapsedRealtime()-startedAt)/1000)+" sec\n\n"+
+                    (hasCpu()?String.format(Locale.US,"CPU score: %.0f\n",sumCpuScore/sn):"")+
+                    (hasGpu()?String.format(Locale.US,"GPU score: %.0f\n",sumGpuScore/sn):"")+
+                    String.format(Locale.US,"%s score: %.0f\n",
+                            "combined".equals(mode)?"System":("cpu".equals(mode)?"CPU":"GPU"),
+                            sumSystemScore/sn)+
+                    (hasCpu()?String.format(Locale.US,"Average CPU utilization: %.0f%%\n",sumCpuUtil/n):"")+
+                    (hasGpu()?String.format(Locale.US,"Average GPU utilization: %.0f%%\n",sumGpuUtil/n):"")+
                     String.format(Locale.US,"Average CPU clock: %.0f MHz\n",sumCpu/n)+
                     String.format(Locale.US,"Average GPU clock: %.0f MHz\n",sumGpu/n)+
+                    (hasGpu()?String.format(Locale.US,"Average render FPS: %.1f\n",sumRenderFps/n):"")+
                     String.format(Locale.US,"Average temperature: %.1f°C\n",sumTemp/n)+
                     String.format(Locale.US,"Peak temperature: %.1f°C\n",maxTemp)+
-                    (hasGpu()?String.format(Locale.US,"Average render FPS: %.0f\n",sumRenderFps/n):"")+
-                    "\n"+reason;
+                    "\n"+reason+"\n\nCompare scores using the same mode and duration.";
 
             new AlertDialog.Builder(this)
                     .setTitle("Stress test result")
@@ -338,7 +412,7 @@ public final class StressTestActivity extends Activity {
         stateValue.setText("READY");
         renderFpsValue.setText("Render FPS —");
         workersValue.setText("Thermal cutoff "+(int)THERMAL_STOP_C+"°C");
-        gauge.setGauge(0,"—","THERMAL LOAD");
+        gauge.setGauge(0,"—","BENCH SCORE");
         if(testButton!=null){
             testButton.setText("Start Test");
             testButton.setTextColor(TEXT);
