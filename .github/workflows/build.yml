@@ -123,7 +123,11 @@ jobs:
           mkdir -p out
           (cd module && zip -r -9 "../out/$MODULE_ASSET" . -x '*.DS_Store' 'action.sh')
           unzip -t "out/$MODULE_ASSET" >/dev/null
-          unzip -p "out/$MODULE_ASSET" module.prop | grep -q '^id=kb1001_gpu_profiles
+          unzip -p "out/$MODULE_ASSET" module.prop | grep -q '^id=kb1001_gpu_profiles$'
+          if unzip -Z1 "out/$MODULE_ASSET" | grep -qx 'action.sh'; then
+            echo "Legacy action.sh must not be shipped."
+            exit 1
+          fi
 
       - name: Generate update manifest
         shell: bash
