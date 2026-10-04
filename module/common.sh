@@ -12,6 +12,7 @@ DEVFREQ="/sys/class/devfreq/1800000.gpu"
 STATE_DIR="/data/adb/kb1001_gpu_profiles"
 CONFIG="$STATE_DIR/profile.conf"
 SESSION_EXTREME="/data/local/tmp/kb1001_gpu_extreme_active"
+RUNTIME_PROFILE="/data/local/tmp/kb1001_gpu_runtime_profile"
 LOG="/data/local/tmp/kb1001_gpu_profiles.log"
 
 STOCK_TABLE="696 960 600 960 400 960 300 960 200 960"
@@ -165,27 +166,43 @@ apply_profile() {
             rm -f "$SESSION_EXTREME"
             ensure_stock_table "$timeout"
             rc=$?
-            [ $rc -eq 0 ] && log "Applied Stock 696 profile."
+            if [ $rc -eq 0 ]; then
+                echo stock > "$RUNTIME_PROFILE"
+                log "Applied Stock 696 profile."
+            fi
             return $rc
             ;;
         dynamic744)
             rm -f "$SESSION_EXTREME"
             ensure_744_table "$timeout"
             rc=$?
-            [ $rc -eq 0 ] && log "Applied Dynamic 744 profile."
+            if [ $rc -eq 0 ]; then
+                echo dynamic744 > "$RUNTIME_PROFILE"
+                log "Applied Dynamic 744 profile."
+            fi
             return $rc
             ;;
         performance744)
             rm -f "$SESSION_EXTREME"
             ensure_744_table "$timeout" || return $?
             echo 744 > "$FREQ" 2>>"$LOG" || return 1
+            echo performance744 > "$RUNTIME_PROFILE"
             log "Applied Performance 744 profile (744 MHz pinned, vendor DVFS off)."
             return 0
             ;;
-        extreme792)
+        extreme792|extreme792_dynamic)
             ensure_792_table "$timeout" || return $?
             touch "$SESSION_EXTREME"
-            log "Applied SESSION-ONLY Extreme 792 profile."
+            echo extreme792_dynamic > "$RUNTIME_PROFILE"
+            log "Applied SESSION-ONLY Extreme 792 Dynamic profile."
+            return 0
+            ;;
+        performance792|extreme792_full)
+            ensure_792_table "$timeout" || return $?
+            echo 792 > "$FREQ" 2>>"$LOG" || return 1
+            touch "$SESSION_EXTREME"
+            echo extreme792_full > "$RUNTIME_PROFILE"
+            log "Applied SESSION-ONLY Extreme 792 Full Throttle profile (792 MHz pinned)."
             return 0
             ;;
         *)
