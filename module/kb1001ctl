@@ -83,7 +83,14 @@ case "$cmd" in
        set_conf "$AUTO_CONF" enabled 0
        [ "$(get_conf "$AUTO_CONF" overlay_auto 0)" = 1 ] || stop_auto
        ;;
-     profile) case "$value" in dynamic744|performance744) set_conf "$AUTO_CONF" game_profile "$value";; *) exit 2;; esac ;;
+     profile)
+       case "$value" in
+         dynamic744|performance744|extreme792_dynamic|extreme792_full)
+           set_conf "$AUTO_CONF" game_profile "$value"
+           ;;
+         *) exit 2 ;;
+       esac
+       ;;
      idle) case "$value" in stock|dynamic744|performance744) set_conf "$AUTO_CONF" idle_profile "$value";; *) exit 2;; esac ;;
      poll) case "$value" in 1|2|3|4|5|6|7|8|9|10) set_conf "$AUTO_CONF" poll_seconds "$value";; *) exit 2;; esac ;;
      start) start_auto ;;
@@ -120,6 +127,7 @@ case "$cmd" in
        esac ;;
      tail) tail -n "${2:-60}" "$HISTORY" 2>/dev/null ;;
      snapshot) cat "$SNAPSHOT" 2>/dev/null ;;
+     refresh) "$MODDIR/perf_logger.sh" --once >/dev/null 2>&1 ;;
      *) exit 2 ;;
    esac ;;
  game)
