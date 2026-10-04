@@ -682,9 +682,13 @@ public class MainActivity extends Activity {
         float battTemp = parseFloat(TelemetryStore.get(m,"battery_temp_c","0"));
         int batteryColor = batt >= 50 ? BATTERY_GOOD : (batt >= 20 ? BATTERY_WARN : BATTERY_LOW);
         batteryMetric.setAccent(batteryColor);
+        String batteryStatus=TelemetryStore.get(m,"battery_status","—");
+        boolean plugged="1".equals(TelemetryStore.get(m,"power_online","0"));
+        String usbType=TelemetryStore.get(m,"power_usb_type","");
         batteryMetric.set(
                 batt < 0 ? "—" : batt + "%",
-                String.format(Locale.US,"%.1f °C battery",battTemp),
+                batteryStatus+" • "+(plugged ? "plugged in"+(usbType.isEmpty()?"":" • "+usbType) : "battery")+
+                        String.format(Locale.US," • %.1f °C",battTemp),
                 Math.max(0,batt));
 
         if (loggingSwitch != null) {
