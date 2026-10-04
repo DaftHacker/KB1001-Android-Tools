@@ -19,8 +19,21 @@ sample(){
  PACKAGE="$(grep -m1 '^package=' "$AUTO_STATE" 2>/dev/null|cut -d= -f2-)"
  PROFILE="$(grep -m1 '^profile=' "$AUTO_STATE" 2>/dev/null|cut -d= -f2-)"; [ -n "$PROFILE" ]||PROFILE="$(cat "$CONFIG" 2>/dev/null)"
 
- raw="$(cat "$FREQ" 2>/dev/null|head -1)"
- case "$raw" in ''|*[!0-9]*) GPU_MHZ=0;; *) if [ "$raw" -gt 1000000 ] 2>/dev/null; then GPU_MHZ=$((raw/1000000)); else GPU_MHZ="$raw"; fi;; esac
+ raw="$(cat "$DEVFREQ/cur_freq" 2>/dev/null | head -1)"
+ [ -n "$raw" ] || raw="$(cat "$FREQ" 2>/dev/null | head -1)"
+ gpu_num="$(printf '%s' "$raw" | grep -o '[0-9][0-9]*' | head -1)"
+ case "$gpu_num" in
+   ''|*[!0-9]*) GPU_MHZ=0 ;;
+   *)
+     if [ "$gpu_num" -ge 10000000 ] 2>/dev/null; then
+       GPU_MHZ=$((gpu_num/1000000))
+     elif [ "$gpu_num" -ge 10000 ] 2>/dev/null; then
+       GPU_MHZ=$((gpu_num/1000))
+     else
+       GPU_MHZ="$gpu_num"
+     fi
+     ;;
+ esac
  GPU_VOLTAGE="$(cat "$SUNXI/sunxi_gpu_volt" 2>/dev/null|head -1)"
  GPU_RUNTIME="$(cat "$GPU/power/runtime_status" 2>/dev/null)"
  GPU_GOV="$(cat "$DEVFREQ/governor" 2>/dev/null)"
