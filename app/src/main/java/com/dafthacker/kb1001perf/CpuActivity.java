@@ -31,9 +31,6 @@ public class CpuActivity extends Activity {
     private TextView overallValue;
     private TextView primeValue;
     private TextView modeValue;
-    private TextView pressureValue;
-    private TextView thermalValue;
-    private TextView coolingValue;
     private TextView vfValue;
     private TextView ocStage1Value;
     private TextView ocStage2Value;
@@ -156,25 +153,6 @@ public class CpuActivity extends Activity {
                 "cpub",
                 "cpufreq-cpu4",
                 ORANGE);
-
-        section(content,"SCHEDULER / THERMAL",
-                "A saturated prime core can limit a game even when total CPU utilization is below 100%.",YELLOW);
-
-        LinearLayout analysis=card(YELLOW);
-        pressureValue=text("Prime pressure • collecting…",15,TEXT,true);
-        thermalValue=text("CPU thermal • collecting…",11,MUTED,false);
-        coolingValue=text("Cooling state • collecting…",11,MUTED,false);
-        analysis.addView(pressureValue);
-        analysis.addView(thermalValue);
-        analysis.addView(coolingValue);
-        content.addView(analysis,full());
-
-        Button bench=button("Run CPU Benchmark",PURPLE,v->{
-            Intent i=new Intent(this,StressTestActivity.class);
-            i.putExtra("mode","cpu");
-            startActivity(i);
-        });
-        content.addView(bench,new LinearLayout.LayoutParams(-1,dp(48)));
 
         section(content,"EXPERIMENTAL CPU OC",
                 "Readiness for staged boot-time OPP work. No new CPU OPP or voltage is applied by this build.",PURPLE);
@@ -376,32 +354,6 @@ public class CpuActivity extends Activity {
         updateCluster(performance,util,capacity,policies,thermals,cooling);
         updateCluster(prime,util,capacity,policies,thermals,cooling);
 
-        boolean primeAtMax=primePolicy!=null && primePolicy.max>0 &&
-                primePolicy.current>=primePolicy.max-24;
-        boolean primeHot=primeUtil>=90 && primeAtMax;
-        boolean anyCooling=cpuCoolingActive(cooling);
-
-        if(anyCooling){
-            pressureValue.setText("THERMAL / COOLING LIMIT ACTIVE");
-            pressureValue.setTextColor(RED);
-        }else if(primeHot){
-            pressureValue.setText("PRIME CORE SATURATED");
-            pressureValue.setTextColor(ORANGE);
-        }else if(primeUtil>=75){
-            pressureValue.setText("Prime core under heavy load");
-            pressureValue.setTextColor(YELLOW);
-        }else{
-            pressureValue.setText("CPU has scheduler headroom");
-            pressureValue.setTextColor(GREEN);
-        }
-
-        String cpul=findThermal(thermals,"cpul");
-        String cpum=findThermal(thermals,"cpum");
-        String cpub=findThermal(thermals,"cpub");
-        thermalValue.setText("Thermal • A53-E "+cpul+" • A53-P "+cpum+" • A73 "+cpub);
-        coolingValue.setText(anyCooling
-                ? "Cooling • active: "+cpuCoolingSummary(cooling)
-                : "Cooling • no CPU frequency throttling detected");
     }
 
     private void updateCluster(
@@ -525,35 +477,6 @@ public class CpuActivity extends Activity {
             if(e.getKey().equals(type)||e.getKey().contains(type)) return e.getValue();
         }
         return null;
-    }
-
-    private boolean cpuCoolingActive(Map<String,String> map){
-        for(Map.Entry<String,String> e:map.entrySet()){
-            if(!e.getKey().toLowerCase(Locale.US).contains("cpu"))continue;
-            String state=e.getValue();
-            int slash=state.indexOf('/');
-            String current=slash>=0?state.substring(0,slash):state;
-            try{
-                if(Integer.parseInt(current.replaceAll("[^0-9]",""))>0)return true;
-            }catch(Exception ignored){}
-        }
-        return false;
-    }
-
-    private String cpuCoolingSummary(Map<String,String> map){
-        ArrayList<String> active=new ArrayList<>();
-        for(Map.Entry<String,String> e:map.entrySet()){
-            if(!e.getKey().toLowerCase(Locale.US).contains("cpu"))continue;
-            String state=e.getValue();
-            int slash=state.indexOf('/');
-            String current=slash>=0?state.substring(0,slash):state;
-            try{
-                if(Integer.parseInt(current.replaceAll("[^0-9]",""))>0){
-                    active.add(e.getKey()+" "+state);
-                }
-            }catch(Exception ignored){}
-        }
-        return active.isEmpty()?"none":android.text.TextUtils.join(" • ",active);
     }
 
     private void section(LinearLayout content,String title,String subtitle,int color){
