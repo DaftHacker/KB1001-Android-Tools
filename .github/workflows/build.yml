@@ -14,7 +14,7 @@ on:
   pull_request:
 
 concurrency:
-  group: kb1001-dev-${{ github.ref }}
+  group: kb1001-dev-main
   cancel-in-progress: true
 
 jobs:
@@ -27,6 +27,7 @@ jobs:
       ANDROID_KEYSTORE_PASSWORD_SECRET: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS_SECRET: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD_SECRET: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -38,6 +39,7 @@ jobs:
           java-version: '17'
 
       - name: Install Android SDK packages
+        shell: bash
         run: |
           SDKMANAGER="/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
@@ -49,8 +51,8 @@ jobs:
         run: |
           APP_CODE=$((100000 + GITHUB_RUN_NUMBER))
           MODULE_CODE=$((100000 + GITHUB_RUN_NUMBER))
-          APP_NAME="0.3-dev.${GITHUB_RUN_NUMBER}"
-          MODULE_NAME="v1.3-dev.${GITHUB_RUN_NUMBER}"
+          APP_NAME="0.4-dev.${GITHUB_RUN_NUMBER}"
+          MODULE_NAME="v1.4-dev.${GITHUB_RUN_NUMBER}"
           echo "APP_VERSION_CODE=$APP_CODE" >> "$GITHUB_ENV"
           echo "APP_VERSION_NAME=$APP_NAME" >> "$GITHUB_ENV"
           echo "MODULE_VERSION_CODE=$MODULE_CODE" >> "$GITHUB_ENV"
@@ -64,8 +66,11 @@ jobs:
           gradle-version: '8.9'
 
       - name: Validate module scripts
+        shell: bash
         run: |
-          for f in module/*.sh module/kb1001ctl; do sh -n "$f"; done
+          for f in module/*.sh module/kb1001ctl; do
+            sh -n "$f"
+          done
 
       - name: Stamp module version
         shell: bash
@@ -110,10 +115,7 @@ jobs:
           APKSIGNER="/usr/local/lib/android/sdk/build-tools/35.0.0/apksigner"
           "$APKSIGNER" verify --verbose --print-certs "$APP_ASSET" | tee apk-signing.txt
           CERT_SHA256="$(grep -m1 'Signer #1 certificate SHA-256 digest:' apk-signing.txt | sed 's/.*digest: //')"
-          if [ -z "$CERT_SHA256" ]; then
-            echo "Unable to read APK signing certificate fingerprint."
-            exit 1
-          fi
+          test -n "$CERT_SHA256"
           echo "APK_CERT_SHA256=$CERT_SHA256" >> "$GITHUB_ENV"
 
       - name: Package Magisk module
@@ -121,7 +123,10 @@ jobs:
         run: |
           rm -rf out
           mkdir -p out
-          (cd module && zip -r -9 "../out/$MODULE_ASSET" . -x '*.DS_Store' 'action.sh')
+          (
+            cd module
+            zip -r -9 "../out/$MODULE_ASSET" . -x '*.DS_Store' 'action.sh'
+          )
           unzip -t "out/$MODULE_ASSET" >/dev/null
           unzip -p "out/$MODULE_ASSET" module.prop | grep -q '^id=kb1001_gpu_profiles$'
           if unzip -Z1 "out/$MODULE_ASSET" | grep -qx 'action.sh'; then
@@ -160,9 +165,9 @@ jobs:
         shell: bash
         run: |
           if gh release view dev-latest >/dev/null 2>&1; then
-            gh release edit dev-latest               --title "KB1001 Performance Manager - Development"               --notes "Rolling main build. Download the APK directly to install the app, or the Magisk ZIP directly to flash/update the backend."
+            gh release edit dev-latest               --title "KB1001 Performance Manager - Development"               --notes "Rolling main build. APK installs directly; Magisk ZIP flashes directly."
           else
-            gh release create dev-latest               --title "KB1001 Performance Manager - Development"               --notes "Rolling main build. Download the APK directly to install the app, or the Magisk ZIP directly to flash/update the backend."               --prerelease
+            gh release create dev-latest               --title "KB1001 Performance Manager - Development"               --notes "Rolling main build. APK installs directly; Magisk ZIP flashes directly."               --prerelease
           fi
 
           gh release view dev-latest --json assets --jq '.assets[].name' | while read -r asset; do
@@ -187,94 +192,6 @@ jobs:
             echo "App: **${APP_VERSION_NAME}** (code ${APP_VERSION_CODE})"
             echo
             echo "Module: **${MODULE_VERSION_NAME}** (code ${MODULE_VERSION_CODE})"
-            echo
-            if [ "${STABLE_SIGNING:-0}" = "1" ]; then
-              echo "APK signing: **stable release key** ✅"
-            else
-              echo "APK signing: **ephemeral debug key** ⚠️ — configure the signing secrets before relying on in-place self-updates."
-            fi
-            echo
-            echo "APK certificate SHA-256: \`${APK_CERT_SHA256}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload CI verification artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: build-verification
-          path: |
-            ${{ env.APP_ASSET }}
-            out/${{ env.MODULE_ASSET }}
-            update.json
-
-          if unzip -Z1 "out/$MODULE_ASSET" | grep -qx 'action.sh'; then
-            echo "Legacy action.sh must not be shipped."
-            exit 1
-          fi
-
-      - name: Generate update manifest
-        shell: bash
-        run: |
-          APP_SHA="$(sha256sum "$APP_ASSET" | awk '{print $1}')"
-          MODULE_SHA="$(sha256sum "out/$MODULE_ASSET" | awk '{print $1}')"
-          cat > update.json <<EOF
-          {
-            "version": "${MODULE_VERSION_NAME}",
-            "versionCode": ${MODULE_VERSION_CODE},
-            "zipUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/${MODULE_ASSET}",
-            "changelog": "https://github.com/${GITHUB_REPOSITORY}/releases/tag/dev-latest",
-            "app_version_code": ${APP_VERSION_CODE},
-            "app_version_name": "${APP_VERSION_NAME}",
-            "module_version_code": ${MODULE_VERSION_CODE},
-            "module_version_name": "${MODULE_VERSION_NAME}",
-            "commit": "${GITHUB_SHA}",
-            "app_asset": "${APP_ASSET}",
-            "app_sha256": "${APP_SHA}",
-            "module_asset": "${MODULE_ASSET}",
-            "module_sha256": "${MODULE_SHA}",
-            "stable_app_signing": ${STABLE_SIGNING:-0}
-          }
-          EOF
-
-      - name: Publish direct development downloads
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          if gh release view dev-latest >/dev/null 2>&1; then
-            gh release edit dev-latest               --title "KB1001 Performance Manager - Development"               --notes "Rolling main build. Download the APK directly to install the app, or the Magisk ZIP directly to flash/update the backend."
-          else
-            gh release create dev-latest               --title "KB1001 Performance Manager - Development"               --notes "Rolling main build. Download the APK directly to install the app, or the Magisk ZIP directly to flash/update the backend."               --prerelease
-          fi
-
-          gh release view dev-latest --json assets --jq '.assets[].name' | while read -r asset; do
-            gh release delete-asset dev-latest "$asset" -y || true
-          done
-
-          gh release upload dev-latest "$APP_ASSET" "out/$MODULE_ASSET" update.json --clobber
-
-      - name: Write direct download links to Actions summary
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        shell: bash
-        run: |
-          {
-            echo "# KB1001 Development Build"
-            echo
-            echo "### Direct downloads"
-            echo
-            echo "- [📱 Download APK](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/${APP_ASSET})"
-            echo "- [🧩 Download Magisk module](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/${MODULE_ASSET})"
-            echo "- [📄 Update manifest](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/update.json)"
-            echo
-            echo "App: **${APP_VERSION_NAME}** (code ${APP_VERSION_CODE})"
-            echo
-            echo "Module: **${MODULE_VERSION_NAME}** (code ${MODULE_VERSION_CODE})"
-            echo
-            if [ "${STABLE_SIGNING:-0}" = "1" ]; then
-              echo "APK signing: **stable release key** ✅"
-            else
-              echo "APK signing: **ephemeral debug key** ⚠️ — configure the signing secrets before relying on in-place self-updates."
-            fi
             echo
             echo "APK certificate SHA-256: \`${APK_CERT_SHA256}\`"
           } >> "$GITHUB_STEP_SUMMARY"
