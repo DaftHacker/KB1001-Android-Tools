@@ -14,7 +14,7 @@ LOG_ROOT="/storage/emulated/0/Documents/KB1001Performance/logs"
 conf_get(){ v="$(grep -m1 "^$1=" "$LOGGER_CONF" 2>/dev/null|cut -d= -f2-)"; [ -n "$v" ]&&printf '%s' "$v"||printf '%s' "$2"; }
 to_c(){ v="$1"; case "$v" in ''|*[!0-9-]*) echo "0.0";; *) if [ "$v" -gt 1000 ] 2>/dev/null; then awk "BEGIN{printf \"%.1f\",$v/1000}"; else awk "BEGIN{printf \"%.1f\",$v}"; fi;; esac; }
 
-CPU_STAT_PREV="/data/local/tmp/kb1001_cpu_stat.$.prev"
+CPU_STAT_PREV="/data/local/tmp/kb1001_cpu_stat.$$.prev"
 FPS_CACHE=0
 FPS_CACHE_SOURCE=none
 FPS_CACHE_LAYER=""
@@ -253,7 +253,7 @@ sample(){
  FPS_LAYER=""
  if [ "$MODE" = game ] && [ -n "$PACKAGE" ]; then
   now_s="$(date +%s)"
-  if [ "$PACKAGE" != "$FPS_CACHE_PACKAGE" ] || [ $((now_s-FPS_CACHE_TS)) -ge 2 ]; then
+  if [ "$PACKAGE" != "$FPS_CACHE_PACKAGE" ] || [ $((now_s-FPS_CACHE_TS)) -ge 3 ]; then
    fps_sample="$(sample_fps "$PACKAGE")"
    FPS_CACHE="$(printf '%s' "$fps_sample" | cut -d'|' -f1)"
    FPS_CACHE_SOURCE="$(printf '%s' "$fps_sample" | cut -d'|' -f2)"
@@ -287,10 +287,11 @@ sample(){
 
  if [ -d "$PUBLIC_DIR" ]; then cp "$SNAPSHOT" "$PUBLIC_SNAPSHOT.tmp" 2>/dev/null&&mv "$PUBLIC_SNAPSHOT.tmp" "$PUBLIC_SNAPSHOT"; chmod 0644 "$PUBLIC_SNAPSHOT" 2>/dev/null; fi
 
- echo "$(date '+%H:%M:%S') | $MODE | $PROFILE | FPS $FPS | CPU ${CPU_UTIL}% $CPU_SUMMARY | GPU ${GPU_UTIL}% ${GPU_MHZ}MHz | TEMP ${THERMAL_MAX}C | RAM ${MEM_MB}MB | $PACKAGE" >> "$HISTORY"
- lines="$(wc -l < "$HISTORY" 2>/dev/null)"; [ "${lines:-0}" -gt 600 ]&&tail -n 300 "$HISTORY" > "$HISTORY.tmp"&&mv "$HISTORY.tmp" "$HISTORY"
-
  if [ "$FILE_LOGGING" = 1 ]; then
+  echo "$(date '+%H:%M:%S') | $MODE | $PROFILE | FPS $FPS | CPU ${CPU_UTIL}% $CPU_SUMMARY | GPU ${GPU_UTIL}% ${GPU_MHZ}MHz | TEMP ${THERMAL_MAX}C | RAM ${MEM_MB}MB | $PACKAGE" >> "$HISTORY"
+  lines="$(wc -l < "$HISTORY" 2>/dev/null)"; [ "${lines:-0}" -gt 600 ]&&tail -n 300 "$HISTORY" > "$HISTORY.tmp"&&mv "$HISTORY.tmp" "$HISTORY"
+
+
   path="$FILE_PATH"
   if [ -z "$path" ]; then
    mkdir -p "$LOG_ROOT" 2>/dev/null
@@ -304,10 +305,22 @@ sample(){
 }
 
 run(){
- old="$(cat "$LOGGER_PID" 2>/dev/null)"; [ -n "$old" ]&&kill -0 "$old" 2>/dev/null&&exit 0
- echo $ > "$LOGGER_PID"; trap 'rm -f "$LOGGER_PID" "$CPU_STAT_PREV" "$CPU_STAT_PREV.cur"; exit 0' INT TERM EXIT
+ old="$(cat "$LOGGER_PID" 2>/dev/null)"
+ case "$old" in
+  ''|*[!0-9]*) ;;
+  *) [ "$old" != "$$" ] && kill -0 "$old" 2>/dev/null && exit 0 ;;
+ esac
+
+ echo $$ > "$LOGGER_PID"
+ trap 'rm -f "$LOGGER_PID" "$CPU_STAT_PREV" "$CPU_STAT_PREV.cur"; exit 0' INT TERM EXIT
  log "Performance telemetry daemon started (pid=$$)."
- while true; do sample; i="$(conf_get interval_seconds 1)"; case "$i" in 1|2|3|4|5|6|7|8|9|10) ;; *) i=1;; esac; sleep "$i"; done
+
+ while true; do
+  sample
+  i="$(conf_get interval_seconds 1)"
+  case "$i" in 1|2|3|4|5|6|7|8|9|10) ;; *) i=1;; esac
+  sleep "$i"
+ done
 }
 case "$1" in
  --daemon|daemon) run;;
