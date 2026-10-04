@@ -10,6 +10,26 @@ HISTORY="$STATE_DIR/telemetry_history.log"
 PUBLIC_DIR="/storage/emulated/0/Android/data/com.dafthacker.kb1001perf/files/telemetry"
 PUBLIC_SNAPSHOT="$PUBLIC_DIR/current.txt"
 LOG_ROOT="/storage/emulated/0/Documents/KB1001Performance/logs"
+UI_DEMAND="/data/local/tmp/kb1001_telemetry_ui"
+HUD_DEMAND="/data/local/tmp/kb1001_telemetry_hud"
+
+BAT_PATH=""
+INPUT_PATH=""
+CPU_AVAILABLE_CACHE=""
+
+demand_active(){
+ [ -e "$UI_DEMAND" ] || [ -e "$HUD_DEMAND" ]
+}
+
+detect_power_paths(){
+ [ -n "$BAT_PATH" ] && return 0
+ for ps in /sys/class/power_supply/*; do
+  [ -d "$ps" ] || continue
+  pst="$(cat "$ps/type" 2>/dev/null)"
+  if [ "$pst" = Battery ] && [ -z "$BAT_PATH" ]; then BAT_PATH="$ps"; fi
+  case "$pst" in USB|USB_C|Mains|Wireless) [ -z "$INPUT_PATH" ] && INPUT_PATH="$ps";; esac
+ done
+}
 
 conf_get(){ v="$(grep -m1 "^$1=" "$LOGGER_CONF" 2>/dev/null|cut -d= -f2-)"; [ -n "$v" ]&&printf '%s' "$v"||printf '%s' "$2"; }
 to_c(){ v="$1"; case "$v" in ''|*[!0-9-]*) echo "0.0";; *) if [ "$v" -gt 1000 ] 2>/dev/null; then awk "BEGIN{printf \"%.1f\",$v/1000}"; else awk "BEGIN{printf \"%.1f\",$v}"; fi;; esac; }
@@ -210,16 +230,26 @@ sample(){
   cooling="${cooling}${ctype}:${ccur}/${cmax};"
  done
 
- cpu=""; cpu_detail=""; cpu_available=""
+ cpu=""; cpu_detail=""
+ if [ -z "$CPU_AVAILABLE_CACHE" ]; then
+  cpu_available_build=""
+  for p in /sys/devices/system/cpu/cpufreq/policy*; do
+   [ -d "$p" ]||continue
+   n="${p##*/}"; cpus="$(cat "$p/related_cpus" 2>/dev/null|tr ' ' '-')"
+   avail="$(cat "$p/scaling_available_frequencies" 2>/dev/null | tr ' ' ',' | sed 's/,$//')"
+   govs="$(cat "$p/scaling_available_governors" 2>/dev/null | tr ' ' ',')"
+   cpu_available_build="${cpu_available_build}${n}[${cpus}]=${avail}@${govs};"
+  done
+  CPU_AVAILABLE_CACHE="$cpu_available_build"
+ fi
+ cpu_available="$CPU_AVAILABLE_CACHE"
+
  for p in /sys/devices/system/cpu/cpufreq/policy*; do
   [ -d "$p" ]||continue
   n="${p##*/}"; cur="$(cat "$p/scaling_cur_freq" 2>/dev/null)"; min="$(cat "$p/scaling_min_freq" 2>/dev/null)"; maxf="$(cat "$p/scaling_max_freq" 2>/dev/null)"; gov="$(cat "$p/scaling_governor" 2>/dev/null)"; cpus="$(cat "$p/related_cpus" 2>/dev/null|tr ' ' '-')"
-  avail="$(cat "$p/scaling_available_frequencies" 2>/dev/null | tr ' ' ',' | sed 's/,$//')"
-  govs="$(cat "$p/scaling_available_governors" 2>/dev/null | tr ' ' ',')"
   cm=$((${cur:-0}/1000)); mim=$((${min:-0}/1000)); mam=$((${maxf:-0}/1000))
   cpu="${cpu}${n}:${cm}MHz "
   cpu_detail="${cpu_detail}${n}[${cpus}]=${cm}/${mim}-${mam}@${gov};"
-  cpu_available="${cpu_available}${n}[${cpus}]=${avail}@${govs};"
  done
  CPU_SUMMARY="$(echo "$cpu"|sed 's/[[:space:]]*$//')"
 
@@ -231,27 +261,33 @@ sample(){
 
  mem="$(awk '/MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null)"; MEM_MB=$((${mem:-0}/1024))
  LOADAVG="$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
- BAT_PATH=""
- INPUT_PATH=""
- for ps in /sys/class/power_supply/*; do
-  [ -d "$ps" ] || continue
-  pst="$(cat "$ps/type" 2>/dev/null)"
-  if [ "$pst" = Battery ] && [ -z "$BAT_PATH" ]; then BAT_PATH="$ps"; fi
-  case "$pst" in USB|USB_C|Mains|Wireless) [ -z "$INPUT_PATH" ] && INPUT_PATH="$ps";; esac
- done
+ detect_power_paths
  batt="$(cat "$BAT_PATH/temp" 2>/dev/null)"; case "$batt" in ''|*[!0-9-]*) BATTERY_C=0.0;; *) BATTERY_C="$(awk "BEGIN{printf \"%.1f\",$batt/10}")";; esac
  BATTERY_STATUS="$(cat "$BAT_PATH/status" 2>/dev/null)"
+ BATTERY_CAPACITY="$(cat "$BAT_PATH/capacity" 2>/dev/null)"
+ BATTERY_HEALTH="$(cat "$BAT_PATH/health" 2>/dev/null)"
+ BATTERY_TECH="$(cat "$BAT_PATH/technology" 2>/dev/null)"
  BATTERY_CURRENT="$(cat "$BAT_PATH/current_now" 2>/dev/null)"
+ BATTERY_CURRENT_AVG="$(cat "$BAT_PATH/current_avg" 2>/dev/null)"
  BATTERY_VOLTAGE="$(cat "$BAT_PATH/voltage_now" 2>/dev/null)"
+ BATTERY_CHARGE_COUNTER="$(cat "$BAT_PATH/charge_counter" 2>/dev/null)"
+ BATTERY_CHARGE_FULL="$(cat "$BAT_PATH/charge_full" 2>/dev/null)"
+ BATTERY_CHARGE_FULL_DESIGN="$(cat "$BAT_PATH/charge_full_design" 2>/dev/null)"
+ BATTERY_CYCLE_COUNT="$(cat "$BAT_PATH/cycle_count" 2>/dev/null)"
+ BATTERY_ENERGY_NOW="$(cat "$BAT_PATH/energy_now" 2>/dev/null)"
  POWER_ONLINE="$(cat "$INPUT_PATH/online" 2>/dev/null)"
+ POWER_PRESENT="$(cat "$INPUT_PATH/present" 2>/dev/null)"
+ POWER_VOLTAGE="$(cat "$INPUT_PATH/voltage_now" 2>/dev/null)"
+ POWER_CURRENT="$(cat "$INPUT_PATH/current_now" 2>/dev/null)"
  POWER_CURRENT_MAX="$(cat "$INPUT_PATH/current_max" 2>/dev/null)"
  POWER_INPUT_LIMIT="$(cat "$INPUT_PATH/input_current_limit" 2>/dev/null)"
+ POWER_VOLTAGE_MAX="$(cat "$INPUT_PATH/voltage_max" 2>/dev/null)"
  POWER_USB_TYPE="$(cat "$INPUT_PATH/usb_type" 2>/dev/null)"
 
  FPS=0
  FPS_SOURCE=none
  FPS_LAYER=""
- if [ "$MODE" = game ] && [ -n "$PACKAGE" ]; then
+ if [ "$MODE" = game ] && [ -n "$PACKAGE" ] && { demand_active || [ "$(conf_get file_logging 0)" = 1 ]; }; then
   now_s="$(date +%s)"
   if [ "$PACKAGE" != "$FPS_CACHE_PACKAGE" ] || [ $((now_s-FPS_CACHE_TS)) -ge 3 ]; then
    fps_sample="$(sample_fps "$PACKAGE")"
@@ -277,15 +313,20 @@ sample(){
   echo "gpu_clock_mhz=$GPU_MHZ"; echo "gpu_util_pct=$GPU_UTIL"; echo "gpu_voltage=$GPU_VOLTAGE"; echo "gpu_runtime=$GPU_RUNTIME"; echo "gpu_governor=$GPU_GOV"; echo "gpu_dvfs=$GPU_DVFS"
   echo "thermal_max_c=$THERMAL_MAX"; echo "thermal_zones=$zones"; echo "thermal_throttling=$THERMAL_THROTTLING"; echo "cooling_devices=$cooling"; echo "battery_temp_c=$BATTERY_C"
   echo "cpu_util_pct=$CPU_UTIL"; echo "cpu_core_util=$CPU_CORE_UTIL"; echo "cpu_summary=$CPU_SUMMARY"; echo "cpu_policies=$cpu_detail"; echo "cpu_available=$cpu_available"; echo "devfreq=$devs"
-  echo "battery_status=$BATTERY_STATUS"; echo "battery_current=$BATTERY_CURRENT"; echo "battery_voltage=$BATTERY_VOLTAGE"
-  echo "power_online=$POWER_ONLINE"; echo "power_current_max=$POWER_CURRENT_MAX"; echo "power_input_limit=$POWER_INPUT_LIMIT"; echo "power_usb_type=$POWER_USB_TYPE"
+  echo "battery_status=$BATTERY_STATUS"; echo "battery_capacity=$BATTERY_CAPACITY"; echo "battery_health=$BATTERY_HEALTH"; echo "battery_technology=$BATTERY_TECH"
+  echo "battery_current=$BATTERY_CURRENT"; echo "battery_current_avg=$BATTERY_CURRENT_AVG"; echo "battery_voltage=$BATTERY_VOLTAGE"
+  echo "battery_charge_counter=$BATTERY_CHARGE_COUNTER"; echo "battery_charge_full=$BATTERY_CHARGE_FULL"; echo "battery_charge_full_design=$BATTERY_CHARGE_FULL_DESIGN"; echo "battery_cycle_count=$BATTERY_CYCLE_COUNT"; echo "battery_energy_now=$BATTERY_ENERGY_NOW"
+  echo "power_online=$POWER_ONLINE"; echo "power_present=$POWER_PRESENT"; echo "power_voltage=$POWER_VOLTAGE"; echo "power_current=$POWER_CURRENT"; echo "power_current_max=$POWER_CURRENT_MAX"; echo "power_input_limit=$POWER_INPUT_LIMIT"; echo "power_voltage_max=$POWER_VOLTAGE_MAX"; echo "power_usb_type=$POWER_USB_TYPE"
   echo "fps=$FPS"; echo "fps_source=$FPS_SOURCE"; echo "fps_layer=$FPS_LAYER"
   echo "profile_request_state=$PROFILE_REQUEST_STATE"; echo "profile_request_profile=$PROFILE_REQUEST_PROFILE"
   echo "mem_available_mb=$MEM_MB"; echo "loadavg=$LOADAVG"; echo "file_logging=$FILE_LOGGING"; echo "file_path=$FILE_PATH"
  } > "$tmp" && mv "$tmp" "$SNAPSHOT"
  chmod 0644 "$SNAPSHOT" 2>/dev/null
 
- if [ -d "$PUBLIC_DIR" ]; then cp "$SNAPSHOT" "$PUBLIC_SNAPSHOT.tmp" 2>/dev/null&&mv "$PUBLIC_SNAPSHOT.tmp" "$PUBLIC_SNAPSHOT"; chmod 0644 "$PUBLIC_SNAPSHOT" 2>/dev/null; fi
+ if demand_active && [ -d "$PUBLIC_DIR" ]; then
+  cp "$SNAPSHOT" "$PUBLIC_SNAPSHOT.tmp" 2>/dev/null && mv "$PUBLIC_SNAPSHOT.tmp" "$PUBLIC_SNAPSHOT"
+  chmod 0644 "$PUBLIC_SNAPSHOT" 2>/dev/null
+ fi
 
  if [ "$FILE_LOGGING" = 1 ]; then
   echo "$(date '+%H:%M:%S') | $MODE | $PROFILE | FPS $FPS | CPU ${CPU_UTIL}% $CPU_SUMMARY | GPU ${GPU_UTIL}% ${GPU_MHZ}MHz | TEMP ${THERMAL_MAX}C | RAM ${MEM_MB}MB | $PACKAGE" >> "$HISTORY"
@@ -317,8 +358,17 @@ run(){
 
  while true; do
   sample
-  i="$(conf_get interval_seconds 1)"
-  case "$i" in 1|2|3|4|5|6|7|8|9|10) ;; *) i=1;; esac
+
+  if demand_active; then
+   i=1
+  elif [ "$(conf_get file_logging 0)" = 1 ]; then
+   i="$(conf_get interval_seconds 1)"
+   case "$i" in 1|2|3|4|5|6|7|8|9|10) ;; *) i=1;; esac
+  else
+   # Background/minimized with no recording: tiny maintenance cadence only.
+   i=30
+  fi
+
   sleep "$i"
  done
 }
