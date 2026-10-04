@@ -30,6 +30,6 @@ EOC
 
 [ -f "$STATE/games.list" ] || : > "$STATE/games.list"
 
-for f in common.sh service.sh action.sh uninstall.sh game_boost.sh perf_logger.sh kb1001ctl; do
+for f in common.sh service.sh uninstall.sh game_boost.sh perf_logger.sh kb1001ctl; do
     set_perm "$MODPATH/$f" 0 0 0755
 done
