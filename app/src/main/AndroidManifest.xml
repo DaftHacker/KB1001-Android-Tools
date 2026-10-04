@@ -42,6 +42,16 @@
                 android:value="User-enabled in-game KB1001 performance telemetry overlay" />
         </service>
 
+        <service
+            android:name=".FpsOverlayService"
+            android:exported="true"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-enabled minimal in-game FPS counter" />
+        </service>
+
         <activity android:name=".GamePickerActivity" android:exported="false" />
         <activity android:name=".GpuActivity" android:exported="false" />
         <activity android:name=".CpuActivity" android:exported="false" />
