@@ -42,8 +42,7 @@ public final class UpdateManager {
     }
 
     public static ReleaseInfo check(Context c) throws Exception {
-        String token = getToken(c);
-        JSONObject release = getJson(RELEASE_API, token);
+        JSONObject release = getJson(RELEASE_API);
         JSONArray assets = release.getJSONArray("assets");
         JSONObject manifestAsset = null;
         for (int i = 0; i < assets.length(); i++) {
@@ -113,8 +112,7 @@ public final class UpdateManager {
         if (dir == null) dir = new File(c.getFilesDir(), "updates");
         if (!dir.exists() && !dir.mkdirs()) throw new IOException("Could not create update directory");
         File dst = new File(dir, asset.name);
-        String token = getToken(c);
-        downloadBytes(asset.apiUrl, token, true, new FileSink(dst, progress, asset.size));
+        downloadBytes(asset.apiUrl, true, new FileSink(dst, progress, asset.size));
         String actual = sha256(dst);
         if (!actual.equalsIgnoreCase(asset.sha256)) {
             dst.delete();
@@ -139,7 +137,6 @@ public final class UpdateManager {
         c.setRequestProperty("User-Agent", "KB1001-Performance-Manager");
         c.setRequestProperty("Accept", apiAsset ? "application/octet-stream" : "application/vnd.github+json");
         c.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
-        if (token != null && !token.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + token);
         c.setInstanceFollowRedirects(true);
 
         int code = c.getResponseCode();
@@ -176,7 +173,6 @@ public final class UpdateManager {
         c.setRequestProperty("User-Agent", "KB1001-Performance-Manager");
         c.setRequestProperty("Accept", "application/vnd.github+json");
         c.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
-        if (token != null && !token.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + token);
         int code = c.getResponseCode();
         if (code < 200 || code >= 300) {
             throw new IOException("GitHub HTTP " + code +
