@@ -86,9 +86,11 @@ stream(){
 
   if [ -z "$next_pkg" ]; then
    discover_tick=$((discover_tick+1))
-   if [ "$discover_tick" -ge 4 ]; then
+   if [ "$discover_tick" -ge 4 ] || [ -z "$pkg_cached" ]; then
     next_pkg="$(foreground_package)"
     discover_tick=0
+   else
+    next_pkg="$pkg_cached"
    fi
   else
    discover_tick=0
