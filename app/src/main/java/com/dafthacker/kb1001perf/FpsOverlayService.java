@@ -52,6 +52,11 @@ public final class FpsOverlayService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent,int flags,int startId){
+        running=true;
+        getSharedPreferences("fps_hud",MODE_PRIVATE).edit().putBoolean("runtime_running",true).apply();
+        if(intent!=null && "kb1001.refresh_fps_appearance".equals(intent.getAction())){
+            applyAppearance();
+        }
         return START_STICKY;
     }
 
@@ -119,6 +124,20 @@ public final class FpsOverlayService extends Service {
         wm.addView(fpsText,params);
     }
 
+    private void applyAppearance(){
+        if(fpsText==null)return;
+        android.content.SharedPreferences prefs=getSharedPreferences("fps_hud",MODE_PRIVATE);
+        float scale=prefs.getFloat("scale",1f);
+        int textColor=prefs.getInt("color",Color.WHITE);
+        fpsText.setTextColor(textColor);
+        fpsText.setTextSize(18f*scale);
+        fpsText.setShadowLayer(3f,0f,0f,Color.BLACK);
+        fpsText.setPadding(dp(7),dp(3),dp(7),dp(3));
+        if(wm!=null&&params!=null){
+            try{wm.updateViewLayout(fpsText,params);}catch(Exception ignored){}
+        }
+    }
+
     private void applySavedPosition(){
         android.content.SharedPreferences p=getSharedPreferences("fps_hud",MODE_PRIVATE);
         String position=p.getString("position","top_right");
@@ -152,6 +171,7 @@ public final class FpsOverlayService extends Service {
 
     private void startSampler(){
         reader.execute(()->{
+            int lastGoodFps=-1;
             while(running && !Thread.currentThread().isInterrupted()){
                 try{
                     sampler=new ProcessBuilder(
@@ -165,16 +185,21 @@ public final class FpsOverlayService extends Service {
 
                     String line;
                     while((line=in.readLine())!=null && running){
-                        final int fps=parseFps(line);
+                        int parsed=parseFps(line);
+                        if(parsed<0){
+                            // A transient sampler miss is not a new FPS value. Keep the most
+                            // recent valid reading instead of flashing the placeholder.
+                            continue;
+                        }
+                        lastGoodFps=parsed;
+                        final int fps=lastGoodFps;
                         handler.post(()->{
-                            if(fpsText==null)return;
-                            fpsText.setText(fps>=0?fps+" FPS":"— FPS");
+                            if(fpsText!=null)fpsText.setText(fps+" FPS");
                         });
                     }
                 }catch(Exception ignored){
-                    handler.post(()->{
-                        if(fpsText!=null)fpsText.setText("— FPS");
-                    });
+                    // Preserve the last valid reading while the sampler is restarted.
+                }
                 }finally{
                     try{if(sampler!=null)sampler.destroy();}catch(Exception ignored){}
                     sampler=null;
