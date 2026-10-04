@@ -151,5 +151,5 @@ case "$cmd" in
    esac ;;
  foreground) "$MODDIR/game_boost.sh" foreground ;;
  cpu) "$MODDIR/cpu_control.sh" "$@" ;;
- *) echo "kb1001ctl status|profile|apply|persist|auto|overlay|logger|game|foreground|cpu" ;;
+ *) echo "kb1001ctl status|profile|apply|persist|auto|overlay|logger|game|foreground|fps|cpu" ;;
 esac
