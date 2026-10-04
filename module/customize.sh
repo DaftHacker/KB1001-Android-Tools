@@ -20,6 +20,8 @@ game_profile=performance744
 idle_profile=dynamic744
 poll_seconds=2
 overlay_auto=0
+metrics_overlay_auto=0
+fps_overlay_auto=0
 EOC
 
 [ -f "$STATE/logger.conf" ] || cat > "$STATE/logger.conf" <<EOC
@@ -31,6 +33,6 @@ EOC
 [ -f "$STATE/games.list" ] || : > "$STATE/games.list"
 [ -f "$STATE/overlay_disabled.list" ] || : > "$STATE/overlay_disabled.list"
 
-for f in common.sh service.sh uninstall.sh game_boost.sh perf_logger.sh cpu_control.sh profile_switch.sh kb1001ctl; do
+for f in common.sh service.sh uninstall.sh game_boost.sh perf_logger.sh fps_sampler.sh cpu_control.sh profile_switch.sh kb1001ctl; do
     set_perm "$MODPATH/$f" 0 0 0755
 done
