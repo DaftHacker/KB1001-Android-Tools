@@ -70,6 +70,8 @@ public class GpuActivity extends Activity {
 
         Button back = smallButton("← Back", v -> finish());
         back.setTextSize(12);
+        back.setTextColor(Color.rgb(35,18,6));
+        back.setBackground(tintedCard(ORANGE,190));
         top.addView(back,new LinearLayout.LayoutParams(dp(86),dp(44)));
 
         LinearLayout titles = new LinearLayout(this);
