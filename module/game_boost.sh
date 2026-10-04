@@ -131,6 +131,10 @@ run_daemon() {
                 [ -n "$active_profile" ] || active_profile=dynamic744
             fi
 
+            # Publish the target before starting overlays so the dedicated FPS
+            # sampler can resolve the correct SurfaceFlinger layer immediately.
+            write_state game "$pkg" "$active_profile"
+
             if overlay_allowed "$pkg"; then
                 if [ "$metrics_enabled" = 1 ]; then
                     if [ "$auto_metrics_visible" != 1 ] || [ "$last_pkg" != "$pkg" ]; then
@@ -162,7 +166,6 @@ run_daemon() {
                 fi
             fi
 
-            write_state game "$pkg" "$active_profile"
             last_mode=game
             last_pkg="$pkg"
         else
