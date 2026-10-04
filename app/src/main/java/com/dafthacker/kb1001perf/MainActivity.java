@@ -428,9 +428,9 @@ public class MainActivity extends Activity {
 
         page.addView(overlayScaleCard(),full());
 
-        section("DIAGNOSTICS","Bounded CPU, GPU and combined stress testing with live graphs and thermal safety.");
+        section("DIAGNOSTICS","Repeatable CPU, GPU and system benchmark scores with live utilization, clocks and thermal safety.");
 
-        Button stress = stressButton("Stress Test",SESSION_COLOR);
+        Button stress = stressButton("System Stress & Test",SESSION_COLOR);
         page.addView(stress,full());
 
         section("SOFTWARE","One update operation handles the app and persistent backend together.");
