@@ -29,7 +29,6 @@ public class MainActivity extends Activity {
     private TextView updateStatus;
     private Button appUpdateButton;
     private Button moduleUpdateButton;
-    private EditText tokenField;
     private UpdateManager.ReleaseInfo releaseInfo;
     private int tab;
     private boolean active;
@@ -186,28 +185,6 @@ public class MainActivity extends Activity {
         moduleUpdateButton.setEnabled(false);
         page.addView(card(moduleUpdateButton), full());
 
-        section("PRIVATE GITHUB REPO", "This repo is private. A fine-grained token with read-only access to this repository lets the app query/download releases. Leave blank if releases are moved to a public repo.");
-        tokenField = new EditText(this);
-        tokenField.setText(UpdateManager.getToken(this));
-        tokenField.setHint("github_pat_…");
-        tokenField.setTextColor(Color.WHITE);
-        tokenField.setHintTextColor(Color.rgb(110,125,145));
-        tokenField.setSingleLine(true);
-        tokenField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        page.addView(card(tokenField), full());
-
-        LinearLayout tokenRow = row();
-        tokenRow.addView(button("SAVE TOKEN", false, v -> {
-            UpdateManager.saveToken(this, tokenField.getText().toString());
-            Toast.makeText(this, "Update token saved", Toast.LENGTH_SHORT).show();
-        }), weight());
-        tokenRow.addView(button("CLEAR TOKEN", false, v -> {
-            tokenField.setText("");
-            UpdateManager.saveToken(this, "");
-            Toast.makeText(this, "Update token cleared", Toast.LENGTH_SHORT).show();
-        }), weight());
-        page.addView(card(tokenRow), full());
-
         TextView note = mono(
                 "APK updates: SHA-256 verify → Android installer\n" +
                 "Module updates: SHA-256 verify → magisk --install-module\n" +
@@ -253,7 +230,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if (updateStatus != null) {
                         updateStatus.setText("Update check failed:\n" + e.getMessage() +
-                                "\n\nIf the repository remains private, save a read-only GitHub token below.");
+                                "");
                     }
                 });
             }
