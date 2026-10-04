@@ -83,7 +83,10 @@ public class OverlayService extends Service {
                 stopSelf();
                 return START_NOT_STICKY;
             }
-            if("kb1001.dynamic744".equals(action)){
+            if("kb1001.refresh_metrics_appearance".equals(action)){
+                float scale=getSharedPreferences("hud",MODE_PRIVATE).getFloat("scale",1f);
+                setOverlayScale(scale);
+            }else if("kb1001.dynamic744".equals(action)){
                 requestProfile("persist","dynamic744");
             }else if("kb1001.performance744".equals(action)){
                 requestProfile("persist","performance744");
