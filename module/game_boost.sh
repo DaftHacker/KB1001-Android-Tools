@@ -85,7 +85,7 @@ run_daemon() {
     retry_target=""
     auto_metrics_visible=0
     auto_fps_visible=0
-    log "Game detection daemon started (pid=$)."
+    log "Game detection daemon started."
 
     while true; do
         boost_enabled="$(conf_get enabled 0)"
