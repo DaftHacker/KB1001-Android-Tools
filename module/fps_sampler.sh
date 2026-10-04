@@ -117,6 +117,35 @@ query_layer(){
  printf '%s|%s|%s\n' "-1" "0" "$current_layer"
 }
 
+gfxinfo_fps(){
+ target="$1"
+ [ -n "$target" ] || { echo -1; return; }
+
+ fps="$(dumpsys gfxinfo "$target" framestats 2>/dev/null | awk -F, '
+  /^Flags,IntendedVsync/ {
+   completed=0
+   for(i=1;i<=NF;i++) if($i=="FrameCompleted") completed=i
+   next
+  }
+  completed>0 && $completed ~ /^[0-9]+$/ && $completed>0 { t[++n]=$completed }
+  END {
+   if(n<2){print -1;exit}
+   last=t[n]
+   start=n-1
+   while(start>1 && (last-t[start-1])<=1000000000) start--
+   frames=n-start
+   span=last-t[start]
+   if(span<=0 || frames<=0){print 0;exit}
+   fps=int((frames*1000000000.0/span)+0.5)
+   if(fps<0)fps=0
+   if(fps>240)fps=240
+   print fps
+  }')"
+
+ case "$fps" in ''|*[!0-9-]*) fps=-1;; esac
+ echo "$fps"
+}
+
 stream(){
  trap 'exit 0' HUP INT TERM PIPE
 
@@ -125,6 +154,7 @@ stream(){
  last_present=0
  bad_layer_count=0
  discover_tick=0
+ gfx_tick=0
  last_good_fps=-1
  hold_ticks=0
 
@@ -191,6 +221,26 @@ stream(){
     last_present=0
     bad_layer_count=0
    fi
+  fi
+
+  # If layer latency is unavailable, use gfxinfo only once per second.
+  # This keeps normal SurfaceFlinger sampling cheap while making the counter
+  # useful on launcher/system apps that do not expose usable layer latency.
+  if [ "$fps" -lt 0 ] 2>/dev/null && [ -n "$pkg_cached" ]; then
+   gfx_tick=$((gfx_tick+1))
+   if [ "$gfx_tick" -ge 2 ]; then
+    gfx_fps="$(gfxinfo_fps "$pkg_cached")"
+    case "$gfx_fps" in ''|*[!0-9-]*) gfx_fps=-1;; esac
+    if [ "$gfx_fps" -ge 0 ] 2>/dev/null; then
+     fps="$gfx_fps"
+     [ "$fps" -gt 0 ] 2>/dev/null && last_good_fps="$fps"
+    fi
+    gfx_tick=0
+   elif [ "$last_good_fps" -ge 0 ] 2>/dev/null; then
+    fps="$last_good_fps"
+   fi
+  else
+   gfx_tick=0
   fi
 
   printf '%s\n' "$fps" || exit 0
