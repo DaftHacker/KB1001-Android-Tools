@@ -23,6 +23,8 @@ game_profile=performance744
 idle_profile=dynamic744
 poll_seconds=2
 overlay_auto=0
+metrics_overlay_auto=0
+fps_overlay_auto=0
 EOC
  [ -f "$LOGGER_CONF" ] || cat > "$LOGGER_CONF" <<EOC
 interval_seconds=1
@@ -31,6 +33,13 @@ file_path=
 EOC
  [ -f "$GAMES" ] || : > "$GAMES"
  [ -f "$OVERLAY_DISABLED" ] || : > "$OVERLAY_DISABLED"
+
+ if ! grep -q '^metrics_overlay_auto=' "$AUTO_CONF" 2>/dev/null; then
+  legacy="$(grep -m1 '^overlay_auto=' "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
+  case "$legacy" in 1) ;; *) legacy=0;; esac
+  echo "metrics_overlay_auto=$legacy" >> "$AUTO_CONF"
+ fi
+ grep -q '^fps_overlay_auto=' "$AUTO_CONF" 2>/dev/null || echo "fps_overlay_auto=0" >> "$AUTO_CONF"
 }
 
 set_conf(){ file="$1"; key="$2"; value="$3"; tmp="$file.tmp.$$"; grep -v "^${key}=" "$file" 2>/dev/null > "$tmp"; echo "${key}=${value}" >> "$tmp"; mv "$tmp" "$file"; }
@@ -75,6 +84,46 @@ telemetry_active(){
  [ -e "$UI_DEMAND" ] || [ -e "$HUD_DEMAND" ] || [ "$(get_conf "$LOGGER_CONF" file_logging 0)" = 1 ]
 }
 
+overlay_feature_enabled(){
+ [ "$(get_conf "$AUTO_CONF" enabled 0)" = 1 ] ||
+ [ "$(get_conf "$AUTO_CONF" metrics_overlay_auto 0)" = 1 ] ||
+ [ "$(get_conf "$AUTO_CONF" fps_overlay_auto 0)" = 1 ]
+}
+
+start_metrics_overlay(){
+ am start-foreground-service -a kb1001.auto_metrics -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 ||
+  am startservice -a kb1001.auto_metrics -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || true
+}
+
+stop_metrics_overlay(){
+ am stopservice -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || true
+}
+
+start_fps_overlay(){
+ am start-foreground-service -a kb1001.auto_fps -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1 ||
+  am startservice -a kb1001.auto_fps -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1 || true
+}
+
+stop_fps_overlay(){
+ am stopservice -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1 || true
+}
+
+sync_current_game_overlays(){
+ target="$1"
+ mode="$(grep -m1 '^mode=' /data/local/tmp/kb1001_game_boost.state 2>/dev/null | cut -d= -f2-)"
+ current="$(grep -m1 '^package=' /data/local/tmp/kb1001_game_boost.state 2>/dev/null | cut -d= -f2-)"
+ [ "$mode" = game ] && [ "$current" = "$target" ] || return 0
+
+ if grep -Fxq "$target" "$OVERLAY_DISABLED" 2>/dev/null; then
+  stop_metrics_overlay
+  stop_fps_overlay
+  return 0
+ fi
+
+ [ "$(get_conf "$AUTO_CONF" metrics_overlay_auto 0)" = 1 ] && start_metrics_overlay
+ [ "$(get_conf "$AUTO_CONF" fps_overlay_auto 0)" = 1 ] && start_fps_overlay
+}
+
 status(){
  echo "KB1001 Performance Manager v1.3"
  echo "Persistent profile: $(cat "$CONFIG" 2>/dev/null)"
@@ -84,7 +133,9 @@ status(){
  echo "Auto boost: $(get_conf "$AUTO_CONF" enabled 0)"
  echo "Game profile: $(get_conf "$AUTO_CONF" game_profile performance744)"
  echo "Idle profile: $(get_conf "$AUTO_CONF" idle_profile dynamic744)"
- echo "Overlay auto: $(get_conf "$AUTO_CONF" overlay_auto 0)"
+ echo "Overlay auto: $(get_conf "$AUTO_CONF" metrics_overlay_auto 0)"
+ echo "Metrics overlay auto: $(get_conf "$AUTO_CONF" metrics_overlay_auto 0)"
+ echo "FPS overlay auto: $(get_conf "$AUTO_CONF" fps_overlay_auto 0)"
  echo "Logger interval: $(get_conf "$LOGGER_CONF" interval_seconds 1)s"
  echo "Logger PID: $(cat "$LOGGER_PID" 2>/dev/null)"
  echo "UI telemetry demand: $([ -e "$UI_DEMAND" ] && echo 1 || echo 0)"
@@ -132,7 +183,8 @@ case "$cmd" in
      enable) set_conf "$AUTO_CONF" enabled 1; start_auto ;;
      disable)
        set_conf "$AUTO_CONF" enabled 0
-       [ "$(get_conf "$AUTO_CONF" overlay_auto 0)" = 1 ] || stop_auto
+       [ "$(get_conf "$AUTO_CONF" metrics_overlay_auto 0)" = 1 ] ||
+       [ "$(get_conf "$AUTO_CONF" fps_overlay_auto 0)" = 1 ] || stop_auto
        ;;
      profile)
        case "$value" in
@@ -150,18 +202,31 @@ case "$cmd" in
    esac ;;
  overlay)
    case "$1" in
-     auto)
+     auto|metrics-auto)
        case "$2" in
-         enable) set_conf "$AUTO_CONF" overlay_auto 1; start_auto ;;
+         enable) set_conf "$AUTO_CONF" metrics_overlay_auto 1; set_conf "$AUTO_CONF" overlay_auto 1; start_auto ;;
          disable)
+           set_conf "$AUTO_CONF" metrics_overlay_auto 0
            set_conf "$AUTO_CONF" overlay_auto 0
-           [ "$(get_conf "$AUTO_CONF" enabled 0)" = 1 ] || stop_auto
+           overlay_feature_enabled || stop_auto
            ;;
          *) exit 2 ;;
        esac
        ;;
-     show) am start-foreground-service -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || am startservice -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 ;;
-     hide) am stopservice -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 ;;
+     fps-auto)
+       case "$2" in
+         enable) set_conf "$AUTO_CONF" fps_overlay_auto 1; start_auto ;;
+         disable)
+           set_conf "$AUTO_CONF" fps_overlay_auto 0
+           overlay_feature_enabled || stop_auto
+           ;;
+         *) exit 2 ;;
+       esac
+       ;;
+     show|metrics-show) start_metrics_overlay ;;
+     hide|metrics-hide) stop_metrics_overlay ;;
+     fps-show) start_fps_overlay ;;
+     fps-hide) stop_fps_overlay ;;
      *) exit 2 ;;
    esac ;;
  logger)
@@ -222,17 +287,24 @@ case "$cmd" in
        ;;
      overlay-enable)
        valid_package "$pkg" || exit 2
-       grep -Fvx "$pkg" "$OVERLAY_DISABLED" 2>/dev/null > "$OVERLAY_DISABLED.tmp.$$" || true
-       mv "$OVERLAY_DISABLED.tmp.$$" "$OVERLAY_DISABLED"
+       grep -Fvx "$pkg" "$OVERLAY_DISABLED" 2>/dev/null > "$OVERLAY_DISABLED.tmp.$" || true
+       mv "$OVERLAY_DISABLED.tmp.$" "$OVERLAY_DISABLED"
+       sync_current_game_overlays "$pkg"
        ;;
      overlay-disable)
        valid_package "$pkg" || exit 2
        grep -Fxq "$pkg" "$GAMES" 2>/dev/null || exit 3
        grep -Fxq "$pkg" "$OVERLAY_DISABLED" 2>/dev/null || echo "$pkg" >> "$OVERLAY_DISABLED"
+       sync_current_game_overlays "$pkg"
        ;;
      *) exit 2 ;;
    esac ;;
  foreground) "$MODDIR/game_boost.sh" foreground ;;
+ fps)
+   case "$1" in
+     stream) exec "$MODDIR/fps_sampler.sh" stream ;;
+     *) exit 2 ;;
+   esac ;;
  cpu) "$MODDIR/cpu_control.sh" "$@" ;;
  *) echo "kb1001ctl status|profile|apply|persist|auto|overlay|logger|game|foreground|fps|cpu" ;;
 esac
