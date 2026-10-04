@@ -44,8 +44,6 @@ public class MainActivity extends Activity {
     private Switch hudSwitch;
     private Switch fpsHudSwitch;
     private Switch autoBoostSwitch;
-    private Switch autoHudSwitch;
-    private Switch autoFpsHudSwitch;
     private Switch loggingSwitch;
 
     private MetricUi ramMetric;
@@ -59,7 +57,8 @@ public class MainActivity extends Activity {
 
     private LinearLayout gamesContainer;
     private final Set<String> selectedGames = new LinkedHashSet<>();
-    private final Set<String> overlayDisabledGames = new LinkedHashSet<>();
+    private final Set<String> metricsEnabledGames = new LinkedHashSet<>();
+    private final Set<String> fpsEnabledGames = new LinkedHashSet<>();
     private final List<LauncherApp> launcherApps = new ArrayList<>();
 
     private final Map<String,RadioButton> profileButtons = new LinkedHashMap<>();
@@ -122,7 +121,7 @@ public class MainActivity extends Activity {
         tabShell.setBackground(tabShellBackground());
 
         tabShell.addView(tabButton("Dashboard",0),tabWeight());
-        tabShell.addView(tabButton("Games",1),tabWeight());
+        tabShell.addView(tabButton("Overlay",1),tabWeight());
         tabShell.addView(tabButton("Settings",2),tabWeight());
 
         root.addView(tabShell,new LinearLayout.LayoutParams(-1,dp(54)));
@@ -145,8 +144,6 @@ public class MainActivity extends Activity {
         hudSwitch = null;
         fpsHudSwitch = null;
         autoBoostSwitch = null;
-        autoHudSwitch = null;
-        autoFpsHudSwitch = null;
         loggingSwitch = null;
         ramMetric = cpuMetric = gpuMetric = thermalMetric = batteryMetric = null;
         loggerPath = null;
@@ -158,7 +155,7 @@ public class MainActivity extends Activity {
         updateTabStyles();
 
         if (index == 0) dashboardPage();
-        else if (index == 1) gamesPage();
+        else if (index == 1) overlayPage();
         else settingsPage();
 
         refreshTelemetry();
@@ -214,38 +211,66 @@ public class MainActivity extends Activity {
         startActivity(new Intent(this,BatteryActivity.class));
     }
 
-    private void gamesPage() {
-        LinearLayout heading = row();
-        LinearLayout labels = new LinearLayout(this);
+    private void overlayPage() {
+        LinearLayout heading=row();
+        LinearLayout labels=new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
-        labels.addView(text("Game Library",22,Color.rgb(231,240,238),true));
-        labels.addView(text("Detected games and apps that can trigger AutoBoost and automatic overlays.",11,MUTED,false));
+        labels.addView(text("Overlay Manager",22,Color.rgb(231,240,238),true));
+        labels.addView(text("Manual overlay controls, appearance, and per-game automation.",11,MUTED,false));
         heading.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+        page.addView(heading);
 
-        Button refresh = button("↻",true,v -> refreshDetectedGames());
+        section("OVERLAYS","Manual controls. Per-game automatic behavior is configured below.");
+
+        hudSwitch = toggleCard(
+                "Metrics overlay",
+                "CPU, GPU, RAM, thermal and battery metrics. No FPS polling is performed by this overlay.",
+                checked -> {
+                    if (checked) showHud();
+                    else stopService(new Intent(this,OverlayService.class));
+                });
+        page.addView((View)hudSwitch.getParent());
+
+        fpsHudSwitch = toggleCard(
+                "FPS counter",
+                "Minimal FPS-only overlay. Drag it anywhere on screen.",
+                checked -> {
+                    if (checked) showFpsHud();
+                    else stopService(new Intent(this,FpsOverlayService.class));
+                });
+        page.addView((View)fpsHudSwitch.getParent());
+
+        page.addView(overlayScaleCard(),full());
+        page.addView(fpsOverlayAppearanceCard(),full());
+
+        section("PER-GAME OVERLAYS",
+                "Newly detected games start with both overlays off. Saved choices are preserved when you refresh.");
+
+        LinearLayout libraryHeading=row();
+        LinearLayout libraryLabels=new LinearLayout(this);
+        libraryLabels.setOrientation(LinearLayout.VERTICAL);
+        libraryLabels.addView(text("Game Library",18,Color.rgb(231,240,238),true));
+        libraryLabels.addView(text("Enable Metrics and FPS independently for each game.",10,MUTED,false));
+        libraryHeading.addView(libraryLabels,new LinearLayout.LayoutParams(0,-2,1));
+
+        Button refresh=button("↻",true,v -> refreshDetectedGames());
         refresh.setTextSize(19);
         refresh.setContentDescription("Refresh detected games");
         LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(52),dp(48));
         rp.setMargins(0,0,dp(6),0);
-        heading.addView(refresh,rp);
+        libraryHeading.addView(refresh,rp);
 
-        Button add = button("+",true,v -> showAddGamePicker());
+        Button add=button("+",true,v -> showAddGamePicker());
         add.setTextSize(20);
         add.setContentDescription("Add app");
-        heading.addView(add,new LinearLayout.LayoutParams(dp(52),dp(48)));
-        page.addView(heading);
+        libraryHeading.addView(add,new LinearLayout.LayoutParams(dp(52),dp(48)));
+        page.addView(libraryHeading,full());
 
-        TextView hint=text(
-                "Use ↻ to re-detect installed games. GAME HUDS controls both automatic Metrics and FPS overlays without removing the app from AutoBoost.",
-                10,MUTED,false);
-        hint.setPadding(dp(2),dp(5),0,dp(8));
-        page.addView(hint);
-
-        gamesContainer = new LinearLayout(this);
+        gamesContainer=new LinearLayout(this);
         gamesContainer.setOrientation(LinearLayout.VERTICAL);
         page.addView(gamesContainer,new LinearLayout.LayoutParams(-1,-2));
 
-        TextView tip = text("Long-press a game to remove it from the library.",11,MUTED,false);
+        TextView tip=text("Long-press a game to remove it from the library.",11,MUTED,false);
         tip.setPadding(dp(2),dp(6),0,dp(8));
         page.addView(tip);
 
@@ -260,23 +285,32 @@ public class MainActivity extends Activity {
         gamesContainer.addView(loading);
 
         io.execute(() -> {
-            RootBridge.Result r = RootBridge.get().ctl("game list");
-            RootBridge.Result disabled = RootBridge.get().ctl("game overlay-list");
+            RootBridge.Result games=RootBridge.get().ctl("game list");
+            RootBridge.Result metrics=RootBridge.get().ctl("game metrics-list");
+            RootBridge.Result fps=RootBridge.get().ctl("game fps-list");
 
             selectedGames.clear();
-            overlayDisabledGames.clear();
+            metricsEnabledGames.clear();
+            fpsEnabledGames.clear();
 
-            if (r.ok()) {
-                for (String line : r.output.split("\\R")) {
-                    String pkg = line.trim();
-                    if (!pkg.isEmpty()) selectedGames.add(pkg);
+            if(games.ok()){
+                for(String line:games.output.split("\\R")){
+                    String pkg=line.trim();
+                    if(!pkg.isEmpty())selectedGames.add(pkg);
                 }
             }
 
-            if (disabled.ok()) {
-                for (String line : disabled.output.split("\\R")) {
-                    String pkg = line.trim();
-                    if (!pkg.isEmpty()) overlayDisabledGames.add(pkg);
+            if(metrics.ok()){
+                for(String line:metrics.output.split("\\R")){
+                    String pkg=line.trim();
+                    if(!pkg.isEmpty())metricsEnabledGames.add(pkg);
+                }
+            }
+
+            if(fps.ok()){
+                for(String line:fps.output.split("\\R")){
+                    String pkg=line.trim();
+                    if(!pkg.isEmpty())fpsEnabledGames.add(pkg);
                 }
             }
 
@@ -308,71 +342,89 @@ public class MainActivity extends Activity {
     }
 
     private View gameRow(String name,String pkg,Drawable icon,boolean detected) {
-        LinearLayout row = new LinearLayout(this);
+        LinearLayout row=new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12),dp(10),dp(12),dp(10));
+        row.setPadding(dp(12),dp(10),dp(10),dp(10));
         row.setBackground(metricBackground(GAMES_COLOR));
 
-        ImageView image = new ImageView(this);
+        ImageView image=new ImageView(this);
         image.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        if (icon != null) image.setImageDrawable(icon);
+        if(icon!=null)image.setImageDrawable(icon);
         row.addView(image,new LinearLayout.LayoutParams(dp(46),dp(46)));
 
-        LinearLayout labels = new LinearLayout(this);
+        LinearLayout labels=new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
-        labels.setPadding(dp(12),0,dp(8),0);
+        labels.setPadding(dp(12),0,dp(6),0);
         labels.addView(text(name,15,Color.rgb(231,240,238),true));
-        labels.addView(text((detected ? "Auto-detected • " : "Manual • ") + pkg,10,MUTED,false));
+        labels.addView(text((detected?"Auto-detected • ":"Manual • ")+pkg,9,MUTED,false));
         row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
 
-        LinearLayout control=new LinearLayout(this);
-        control.setOrientation(LinearLayout.VERTICAL);
-        control.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout controls=new LinearLayout(this);
+        controls.setOrientation(LinearLayout.HORIZONTAL);
+        controls.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView hudLabel=text("GAME HUDS",8,MUTED,true);
-        hudLabel.setGravity(Gravity.CENTER);
-        control.addView(hudLabel);
+        controls.addView(gameOverlayControl(
+                "METRICS",pkg,"metrics",metricsEnabledGames.contains(pkg)),
+                new LinearLayout.LayoutParams(dp(78),dp(58)));
 
-        boolean hudEnabled=!overlayDisabledGames.contains(pkg);
-        Button hudButton=new Button(this);
-        hudButton.setAllCaps(false);
-        hudButton.setTextSize(10);
-        hudButton.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-        hudButton.setMinHeight(0);
-        hudButton.setMinimumHeight(0);
-        hudButton.setMinWidth(0);
-        hudButton.setMinimumWidth(0);
-        hudButton.setPadding(dp(10),0,dp(10),0);
-        styleGameHudButton(hudButton,hudEnabled);
-        hudButton.setContentDescription("Auto HUD for "+name);
-        hudButton.setOnClickListener(v -> {
-            boolean current=Boolean.TRUE.equals(hudButton.getTag());
-            boolean next=!current;
-            hudButton.setEnabled(false);
-            hudButton.setText("SAVING…");
-            setGameOverlayEnabled(pkg,next,current,hudButton);
-        });
-        control.addView(hudButton,new LinearLayout.LayoutParams(dp(94),dp(34)));
+        LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(dp(68),dp(58));
+        fp.setMargins(dp(5),0,0,0);
+        controls.addView(gameOverlayControl(
+                "FPS",pkg,"fps",fpsEnabledGames.contains(pkg)),fp);
 
-        row.addView(control);
+        row.addView(controls);
 
         row.setOnLongClickListener(v -> {
             new AlertDialog.Builder(this)
                     .setTitle(name)
                     .setMessage("Remove this app from the game library?")
                     .setNegativeButton("Cancel",null)
-                    .setPositiveButton("Remove",(d,w) -> removeGame(pkg,detected))
+                    .setPositiveButton("Remove",(d,w)->removeGame(pkg,detected))
                     .show();
             return true;
         });
         return row;
     }
 
-    private void styleGameHudButton(Button button,boolean enabled) {
+    private View gameOverlayControl(String label,String pkg,String type,boolean enabled){
+        LinearLayout box=new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+
+        TextView title=text(label,8,MUTED,true);
+        title.setGravity(Gravity.CENTER);
+        box.addView(title,new LinearLayout.LayoutParams(-1,dp(20)));
+
+        Button button=new Button(this);
+        button.setAllCaps(false);
+        button.setTextSize(9);
+        button.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        button.setMinHeight(0);
+        button.setMinimumHeight(0);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setPadding(dp(5),0,dp(5),0);
+        styleGameOverlayButton(button,enabled);
+        button.setContentDescription(label+" overlay for "+pkg);
+
+        button.setOnClickListener(v -> {
+            boolean current=Boolean.TRUE.equals(button.getTag());
+            boolean next=!current;
+            button.setEnabled(false);
+            button.setText("SAVE…");
+            setGameOverlayEnabled(pkg,type,next,current,button);
+        });
+
+        box.addView(button,new LinearLayout.LayoutParams(-1,dp(32)));
+        return box;
+    }
+
+    private void styleGameOverlayButton(Button button,boolean enabled){
         button.setTag(enabled);
-        button.setText(enabled?"ENABLED":"DISABLED");
+        button.setText(enabled?"ON":"OFF");
         button.setTextColor(enabled?Color.rgb(7,28,13):Color.rgb(220,225,224));
+
         GradientDrawable bg=new GradientDrawable();
         bg.setCornerRadius(dp(999));
         bg.setColor(enabled?CPU_COLOR:Color.rgb(48,58,58));
@@ -380,27 +432,30 @@ public class MainActivity extends Activity {
         button.setBackground(bg);
     }
 
-    private void setGameOverlayEnabled(String pkg,boolean enabled,boolean previous,Button button) {
+    private void setGameOverlayEnabled(
+            String pkg,String type,boolean enabled,boolean previous,Button button){
         io.execute(() -> {
-            RootBridge.Result write=RootBridge.get().ctl(
-                    "game "+(enabled ? "overlay-enable " : "overlay-disable ")+pkg);
-            RootBridge.Result readback=RootBridge.get().ctl("game overlay-state "+pkg);
+            String writeCommand="game "+type+"-"+(enabled?"enable ":"disable ")+pkg;
+            RootBridge.Result write=RootBridge.get().ctl(writeCommand);
+            RootBridge.Result readback=RootBridge.get().ctl("game "+type+"-state "+pkg);
 
-            boolean verified=write.ok() && readback.ok() &&
-                    (enabled ? "enabled".equals(readback.output.trim())
-                            : "disabled".equals(readback.output.trim()));
+            boolean verified=write.ok()&&readback.ok()&&
+                    (enabled?"enabled".equals(readback.output.trim())
+                            :"disabled".equals(readback.output.trim()));
 
             if(verified){
-                if(enabled)overlayDisabledGames.remove(pkg);
-                else overlayDisabledGames.add(pkg);
+                Set<String> set="metrics".equals(type)?metricsEnabledGames:fpsEnabledGames;
+                if(enabled)set.add(pkg); else set.remove(pkg);
             }
 
             runOnUiThread(() -> {
                 if(verified){
-                    styleGameHudButton(button,enabled);
+                    styleGameOverlayButton(button,enabled);
                 }else{
-                    styleGameHudButton(button,previous);
-                    Toast.makeText(this,"Could not verify saved game HUD setting.",Toast.LENGTH_SHORT).show();
+                    styleGameOverlayButton(button,previous);
+                    Toast.makeText(this,
+                            "Could not verify saved "+type.toUpperCase(Locale.US)+" overlay setting.",
+                            Toast.LENGTH_SHORT).show();
                 }
                 button.setEnabled(true);
             });
@@ -512,70 +567,35 @@ public class MainActivity extends Activity {
     }
 
     private void settingsPage() {
-        section("GAME AUTOMATION","Choose which overlays are allowed to appear automatically in listed games.");
+        section("GAME PERFORMANCE","Automatic GPU profile behavior for apps in the Overlay game library.");
 
-        autoHudSwitch = toggleCard(
-                "Auto-show Metrics overlay",
-                "Show the CPU/GPU/RAM/thermal metrics overlay in allowed games.",
-                checked -> ctl("overlay metrics-auto " + (checked ? "enable" : "disable")));
-        page.addView((View)autoHudSwitch.getParent());
-
-        autoFpsHudSwitch = toggleCard(
-                "Auto-show FPS counter",
-                "Show only the minimal FPS text overlay in allowed games.",
-                checked -> ctl("overlay fps-auto " + (checked ? "enable" : "disable")));
-        page.addView((View)autoFpsHudSwitch.getParent());
-
-        autoBoostSwitch = toggleCard(
+        autoBoostSwitch=toggleCard(
                 "Boost profile in listed games",
                 "Temporarily apply the selected game GPU profile, then restore the outside-game profile.",
-                checked -> ctl("auto " + (checked ? "enable" : "disable")));
+                checked -> ctl("auto "+(checked?"enable":"disable")));
         page.addView((View)autoBoostSwitch.getParent());
-
-        section("OVERLAYS","Metrics and FPS are separate so the FPS counter can stay extremely lightweight.");
-
-        hudSwitch = toggleCard(
-                "Metrics overlay",
-                "CPU, GPU, RAM, thermal and battery metrics. No FPS polling is performed by this overlay.",
-                checked -> {
-                    if (checked) showHud();
-                    else stopService(new Intent(this,OverlayService.class));
-                });
-        page.addView((View)hudSwitch.getParent());
-
-        fpsHudSwitch = toggleCard(
-                "FPS counter",
-                "A dedicated one-text FPS overlay using cached SurfaceFlinger presentation timestamps.",
-                checked -> {
-                    if (checked) showFpsHud();
-                    else stopService(new Intent(this,FpsOverlayService.class));
-                });
-        page.addView((View)fpsHudSwitch.getParent());
-
-        page.addView(overlayScaleCard(),full());
-        page.addView(fpsOverlayAppearanceCard(),full());
 
         section("DIAGNOSTICS","Repeatable CPU, GPU and system benchmark scores with live utilization, clocks and thermal safety.");
 
-        Button stress = stressButton("System Stress & Test",SESSION_COLOR);
+        Button stress=stressButton("System Stress & Test",SESSION_COLOR);
         page.addView(stress,full());
 
         section("SOFTWARE","One update operation handles the app and persistent backend together.");
 
-        Button check = button("Check for Update",true,v -> checkForUpdate(false));
+        Button check=button("Check for Update",true,v -> checkForUpdate(false));
         check.setTextSize(14);
         check.setTextColor(Color.rgb(6,28,12));
         check.setBackground(tabBackground(CPU_COLOR,true));
         page.addView(card(check),full());
 
-        TextView versions = text(
-                "App " + BuildConfig.VERSION_NAME + "\nBackend version is checked automatically.",
+        TextView versions=text(
+                "App "+BuildConfig.VERSION_NAME+"\nBackend version is checked automatically.",
                 11,MUTED,false);
         page.addView(card(versions),full());
 
         section("BACKEND","The Android app owns the experience; the module currently provides boot-persistent privileged execution.");
-        TextView info = text(
-                "Metrics telemetry, FPS sampling and game detection are separated so each feature can run only when it is actually needed.",
+        TextView info=text(
+                "Metrics telemetry, FPS sampling and game detection are separated so each feature only runs when needed.",
                 11,Color.rgb(190,205,202),false);
         page.addView(card(info),full());
     }
@@ -809,8 +829,6 @@ public class MainActivity extends Activity {
                 suppressSwitchCallbacks = true;
 
                 if (autoBoostSwitch != null) autoBoostSwitch.setChecked("1".equals(status.get("Auto boost")));
-                if (autoHudSwitch != null) autoHudSwitch.setChecked("1".equals(status.get("Metrics overlay auto")));
-                if (autoFpsHudSwitch != null) autoFpsHudSwitch.setChecked("1".equals(status.get("FPS overlay auto")));
                 if (loggingSwitch != null) loggingSwitch.setChecked("1".equals(status.get("File logging")));
                 boolean metricsRunning=OverlayService.isRunning() ||
                         isOwnServiceRunning(OverlayService.class);
