@@ -2,6 +2,9 @@ plugins {
     id 'com.android.application'
 }
 
+def ciCode = System.getenv("APP_VERSION_CODE")
+def ciName = System.getenv("APP_VERSION_NAME")
+
 android {
     namespace 'com.dafthacker.kb1001perf'
     compileSdk 35
@@ -10,8 +13,8 @@ android {
         applicationId 'com.dafthacker.kb1001perf'
         minSdk 29
         targetSdk 35
-        versionCode 2
-        versionName '0.2-alpha'
+        versionCode ciCode ? ciCode.toInteger() : 3
+        versionName ciName ?: '0.3-alpha'
     }
 
     buildTypes {
