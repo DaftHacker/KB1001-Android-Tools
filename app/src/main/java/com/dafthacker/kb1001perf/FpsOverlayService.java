@@ -26,7 +26,7 @@ public final class FpsOverlayService extends Service {
     private WindowManager wm;
     private WindowManager.LayoutParams params;
     private TextView fpsText;
-    private Process sampler;
+    private java.lang.Process sampler;
 
     private float downX,downY;
     private int startX,startY;
