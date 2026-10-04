@@ -29,6 +29,7 @@ file_path=
 EOC
 
 [ -f "$STATE/games.list" ] || : > "$STATE/games.list"
+[ -f "$STATE/overlay_disabled.list" ] || : > "$STATE/overlay_disabled.list"
 
 for f in common.sh service.sh uninstall.sh game_boost.sh perf_logger.sh cpu_control.sh profile_switch.sh kb1001ctl; do
     set_perm "$MODPATH/$f" 0 0 0755
