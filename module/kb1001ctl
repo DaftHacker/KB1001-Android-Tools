@@ -140,5 +140,6 @@ case "$cmd" in
      *) exit 2 ;;
    esac ;;
  foreground) "$MODDIR/game_boost.sh" foreground ;;
- *) echo "kb1001ctl status|apply|persist|auto|overlay|logger|game|foreground" ;;
+ cpu) "$MODDIR/cpu_control.sh" "$@" ;;
+ *) echo "kb1001ctl status|apply|persist|auto|overlay|logger|game|foreground|cpu" ;;
 esac
