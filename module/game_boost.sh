@@ -31,7 +31,19 @@ get_foreground_package() {
 }
 
 is_registered_game(){ [ -n "$1" ] && grep -Ev '^[[:space:]]*(#|$)' "$GAMES" 2>/dev/null | sed 's/[[:space:]]*$//' | grep -Fxq "$1"; }
-write_state(){ { echo "mode=$1"; echo "package=$2"; echo "profile=$3"; echo "updated=$(date '+%Y-%m-%d %H:%M:%S')"; } > "$AUTO_STATE"; }
+write_state(){
+    new_mode="$1"; new_pkg="$2"; new_profile="$3"
+    old_mode="$(grep -m1 '^mode=' "$AUTO_STATE" 2>/dev/null | cut -d= -f2-)"
+    old_pkg="$(grep -m1 '^package=' "$AUTO_STATE" 2>/dev/null | cut -d= -f2-)"
+    old_profile="$(grep -m1 '^profile=' "$AUTO_STATE" 2>/dev/null | cut -d= -f2-)"
+    [ "$new_mode" = "$old_mode" ] && [ "$new_pkg" = "$old_pkg" ] && [ "$new_profile" = "$old_profile" ] && return 0
+    {
+        echo "mode=$new_mode"
+        echo "package=$new_pkg"
+        echo "profile=$new_profile"
+        echo "updated=$(date '+%Y-%m-%d %H:%M:%S')"
+    } > "$AUTO_STATE"
+}
 
 overlay_show() {
     [ "$(conf_get overlay_auto 0)" = 1 ] || return 0
