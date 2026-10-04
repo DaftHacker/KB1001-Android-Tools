@@ -97,8 +97,7 @@ public class MainActivity extends Activity {
         LinearLayout tabs = row();
         tabs.addView(tabButton("DASHBOARD",0),tabWeight());
         tabs.addView(tabButton("GAMES",1),tabWeight());
-        tabs.addView(tabButton("LOGGER",2),tabWeight());
-        tabs.addView(tabButton("SETTINGS",3),tabWeight());
+        tabs.addView(tabButton("SETTINGS",2),tabWeight());
         tabScroll.addView(tabs);
         root.addView(tabScroll,new LinearLayout.LayoutParams(-1,-2));
 
@@ -128,7 +127,6 @@ public class MainActivity extends Activity {
 
         if (index == 0) dashboardPage();
         else if (index == 1) gamesPage();
-        else if (index == 2) loggerPage();
         else settingsPage();
 
         refreshTelemetry();
@@ -161,6 +159,25 @@ public class MainActivity extends Activity {
         hero.addView(stats);
         page.addView(hero,full());
 
+        section("LIVE PERFORMANCE","Tap a graph for controls and deeper information.");
+
+        cpuMetric = metricCard("CPU");
+        cpuMetric.root.setOnClickListener(v -> showCpuMenu());
+        page.addView(cpuMetric.root,full());
+
+        gpuMetric = metricCard("GPU");
+        gpuMetric.root.setOnClickListener(v -> showGpuMenu());
+        page.addView(gpuMetric.root,full());
+
+        ramMetric = metricCard("RAM");
+        page.addView(ramMetric.root,full());
+
+        thermalMetric = metricCard("THERMAL");
+        page.addView(thermalMetric.root,full());
+
+        batteryMetric = metricCard("BATTERY");
+        page.addView(batteryMetric.root,full());
+
         section("AUTOMATION","Persistent game detection and HUD behavior.");
 
         autoBoostSwitch = toggleCard(
@@ -184,19 +201,65 @@ public class MainActivity extends Activity {
                 });
         page.addView((View)hudSwitch.getParent());
 
-        section("GPU PROFILE","Persistent default. AutoBoost can temporarily override it.");
+        section("SESSION","Optional performance recording for profile comparisons.");
 
-        RadioGroup group = new RadioGroup(this);
-        group.setOrientation(RadioGroup.VERTICAL);
-        group.setBackgroundResource(R.drawable.bg_card);
-        group.setPadding(dp(12),dp(8),dp(12),dp(8));
+        loggingSwitch = toggleCard(
+                "Record performance session",
+                "Save telemetry to Documents/KB1001Performance/logs.",
+                checked -> ctl("logger file " + (checked ? "on" : "off")));
+        page.addView((View)loggingSwitch.getParent());
 
-        addProfile(group,"Stock 696 MHz","stock","Factory DVFS range");
-        addProfile(group,"Dynamic 744 MHz","dynamic744","744 MHz ceiling with DVFS");
-        addProfile(group,"Performance 744 MHz","performance744","Pinned 744 MHz");
-        addProfile(group,"Experimental 792 MHz","experimental792","Session only • never used by AutoBoost");
+        LinearLayout rate = row();
+        rate.addView(button("1 sec",true,v -> ctl("logger interval 1")),weight());
+        rate.addView(button("2 sec",false,v -> ctl("logger interval 2")),weight());
+        rate.addView(button("5 sec",false,v -> ctl("logger interval 5")),weight());
+        page.addView(card(rate),full());
 
-        page.addView(group,full());
+        loggerPath = text("No active recording.",10,MUTED,false);
+        loggerPath.setTextIsSelectable(true);
+        page.addView(card(loggerPath),full());
+    }
+
+    private void showGpuMenu() {
+        io.execute(() -> {
+            RootBridge.Result r = RootBridge.get().ctl("status");
+            Map<String,String> state = r.ok() ? parseStatus(r.output) : new HashMap<>();
+            String current = state.get("Persistent profile");
+            String[] labels = {
+                    "Stock 696 MHz",
+                    "Dynamic 744 MHz",
+                    "Performance 744 MHz",
+                    "Experimental 792 MHz (session only)"
+            };
+            String[] values = {"stock","dynamic744","performance744","experimental792"};
+            int selected = 1;
+            for (int i=0;i<values.length;i++) {
+                if (values[i].equals(current)) selected=i;
+            }
+            final int checked = selected;
+            runOnUiThread(() ->
+                    new AlertDialog.Builder(this)
+                            .setTitle("Mali-G57 GPU")
+                            .setSingleChoiceItems(labels,checked,(d,which) -> {
+                                d.dismiss();
+                                if ("experimental792".equals(values[which])) experimental();
+                                else ctl("persist " + values[which]);
+                            })
+                            .setNegativeButton("Cancel",null)
+                            .show());
+        });
+    }
+
+    private void showCpuMenu() {
+        Map<String,String> m = TelemetryStore.read(this);
+        CpuPolicies cpu = parseCpuPolicies(TelemetryStore.get(m,"cpu_policies",""));
+        new AlertDialog.Builder(this)
+                .setTitle("A333 CPU")
+                .setMessage(
+                        (cpu.summary.isEmpty() ? "CPU policy data is not available yet." : cpu.summary) +
+                        "\n\nCPU controls are intentionally read-only until we validate the A333 cluster limits and governors on this tablet.")
+                .setPositiveButton("OK",null)
+                .show();
     }
 
     private void addProfile(RadioGroup group,String title,String key,String subtitle) {
@@ -446,40 +509,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void loggerPage() {
-        section("LIVE PERFORMANCE","A clean device view rather than a raw log dump.");
-
-        ramMetric = metricCard("RAM");
-        cpuMetric = metricCard("CPU Policies");
-        gpuMetric = metricCard("GPU Clock");
-        thermalMetric = metricCard("Thermal");
-        batteryMetric = metricCard("Battery");
-
-        page.addView(ramMetric.root,full());
-        page.addView(cpuMetric.root,full());
-        page.addView(gpuMetric.root,full());
-        page.addView(thermalMetric.root,full());
-        page.addView(batteryMetric.root,full());
-
-        section("SESSION RECORDING","Record the same telemetry to CSV for profile comparisons.");
-
-        loggingSwitch = toggleCard(
-                "Save session to file",
-                "Documents/KB1001Performance/logs",
-                checked -> ctl("logger file " + (checked ? "on" : "off")));
-        page.addView((View)loggingSwitch.getParent());
-
-        LinearLayout rate = row();
-        rate.addView(button("1 sec",true,v -> ctl("logger interval 1")),weight());
-        rate.addView(button("2 sec",false,v -> ctl("logger interval 2")),weight());
-        rate.addView(button("5 sec",false,v -> ctl("logger interval 5")),weight());
-        page.addView(card(rate),full());
-
-        loggerPath = text("No active file.",10,MUTED,false);
-        loggerPath.setTextIsSelectable(true);
-        page.addView(card(loggerPath),full());
-    }
-
     private void settingsPage() {
         section("SOFTWARE","One update operation handles the app and persistent backend together.");
 
@@ -602,7 +631,7 @@ public class MainActivity extends Activity {
         if (heroGpu != null) heroGpu.setText(gpu + " MHz");
         if (heroTemp != null) heroTemp.setText(temp + "°C");
 
-        if (tab != 2 || ramMetric == null) return;
+        if (tab != 0 || ramMetric == null) return;
 
         ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
         ((ActivityManager)getSystemService(ACTIVITY_SERVICE)).getMemoryInfo(mi);
@@ -857,26 +886,27 @@ public class MainActivity extends Activity {
     private MetricUi metricCard(String name) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(13),dp(11),dp(13),dp(11));
+        root.setPadding(dp(13),dp(12),dp(13),dp(12));
         root.setBackgroundResource(R.drawable.bg_card);
+        root.setClickable(true);
+        root.setFocusable(true);
 
         LinearLayout head = row();
         TextView title = text(name,12,MUTED,true);
-        TextView value = text("—",18,Color.rgb(231,240,238),true);
+        TextView value = text("—",20,Color.rgb(231,240,238),true);
         head.addView(title,new LinearLayout.LayoutParams(0,-2,1));
         head.addView(value);
         root.addView(head);
 
-        ProgressBar bar = new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
-        bar.setMax(100);
-        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1,dp(6));
-        bp.setMargins(0,dp(8),0,dp(6));
-        root.addView(bar,bp);
+        SparklineView graph = new SparklineView(this);
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1,dp(72));
+        gp.setMargins(0,dp(8),0,dp(5));
+        root.addView(graph,gp);
 
-        TextView detail = text("Waiting for telemetry…",10,MUTED,false);
+        TextView detail = text("Collecting telemetry…",10,MUTED,false);
         root.addView(detail);
 
-        return new MetricUi(root,value,detail,bar);
+        return new MetricUi(root,value,detail,graph);
     }
 
     private void section(String title,String subtitle) {
@@ -987,19 +1017,19 @@ public class MainActivity extends Activity {
         final LinearLayout root;
         final TextView value;
         final TextView detail;
-        final ProgressBar bar;
+        final SparklineView graph;
 
-        MetricUi(LinearLayout root,TextView value,TextView detail,ProgressBar bar) {
+        MetricUi(LinearLayout root,TextView value,TextView detail,SparklineView graph) {
             this.root=root;
             this.value=value;
             this.detail=detail;
-            this.bar=bar;
+            this.graph=graph;
         }
 
-        void set(String main,String sub,int percent) {
+        void set(String main,String sub,int valueForGraph) {
             value.setText(main);
             detail.setText(sub);
-            bar.setProgress(Math.max(0,Math.min(100,percent)));
+            graph.addValue(Math.max(0,Math.min(100,valueForGraph)));
         }
     }
 
