@@ -384,19 +384,11 @@ public class MainActivity extends Activity {
         io.execute(() -> {
             RootBridge.Result write=RootBridge.get().ctl(
                     "game "+(enabled ? "overlay-enable " : "overlay-disable ")+pkg);
-            RootBridge.Result readback=RootBridge.get().ctl("game overlay-list");
+            RootBridge.Result readback=RootBridge.get().ctl("game overlay-state "+pkg);
 
-            boolean disabled=false;
-            if(readback.ok()){
-                for(String line:readback.output.split("\\R")){
-                    if(pkg.equals(line.trim())){
-                        disabled=true;
-                        break;
-                    }
-                }
-            }
-
-            boolean verified=write.ok() && readback.ok() && (enabled ? !disabled : disabled);
+            boolean verified=write.ok() && readback.ok() &&
+                    (enabled ? "enabled".equals(readback.output.trim())
+                            : "disabled".equals(readback.output.trim()));
 
             if(verified){
                 if(enabled)overlayDisabledGames.remove(pkg);
