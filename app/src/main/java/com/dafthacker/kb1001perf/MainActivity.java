@@ -52,6 +52,8 @@ public class MainActivity extends Activity {
     private MetricUi thermalMetric;
     private MetricUi batteryMetric;
     private TextView loggerPath;
+    private TextView limitValue;
+    private TextView limitDetail;
 
     private LinearLayout gamesContainer;
     private final Set<String> selectedGames = new LinkedHashSet<>();
@@ -143,6 +145,8 @@ public class MainActivity extends Activity {
         loggingSwitch = null;
         ramMetric = cpuMetric = gpuMetric = thermalMetric = batteryMetric = null;
         loggerPath = null;
+        limitValue = null;
+        limitDetail = null;
         gamesContainer = null;
         profileButtons.clear();
 
@@ -175,6 +179,9 @@ public class MainActivity extends Activity {
 
         batteryMetric = metricCard("BATTERY",BATTERY_GOOD);
         page.addView(batteryMetric.root,full());
+
+        section("PERFORMANCE LIMIT","Live estimate based on CPU/GPU utilization, thermal cooling state and power state.");
+        page.addView(performanceLimitCard(),full());
 
         section("SESSION","Capture a full performance session for later comparison.");
 
@@ -607,17 +614,20 @@ public class MainActivity extends Activity {
         ramMetric.set(used + " / " + total + " MB",ramPct + "% used",ramPct);
 
         CpuPolicies cpu = parseCpuPolicies(TelemetryStore.get(m,"cpu_policies",""));
+        int cpuUtil = Math.max(0,Math.min(100,parseInt(TelemetryStore.get(m,"cpu_util_pct","0"))));
+        String coreUtil = TelemetryStore.get(m,"cpu_core_util","");
         cpuMetric.set(
-                cpu.peakCurrent + " MHz",
-                cpu.summary.isEmpty() ? "CPU policy data unavailable" : cpu.summary,
-                cpu.percent);
+                cpuUtil + "% • " + cpu.peakCurrent + " MHz",
+                (cpu.summary.isEmpty() ? "CPU policy data unavailable" : cpu.summary) +
+                        (coreUtil.isEmpty() ? "" : " • cores " + coreUtil.replace(';',' ')),
+                cpuUtil);
 
         int gpuMhz = parseInt(TelemetryStore.get(m,"gpu_clock_mhz","0"));
-        int gpuPct = Math.max(0,Math.min(100,Math.round(gpuMhz*100f/792f)));
+        int gpuUtil = Math.max(0,Math.min(100,parseInt(TelemetryStore.get(m,"gpu_util_pct","0"))));
         gpuMetric.set(
-                gpuMhz > 0 ? gpuMhz + " MHz" : "Waiting…",
-                "Current devfreq clock • experimental ceiling 792 MHz",
-                gpuPct);
+                gpuUtil + "% • " + (gpuMhz > 0 ? gpuMhz + " MHz" : "Waiting…"),
+                "Real Mali utilization • current devfreq clock",
+                gpuUtil);
 
         float thermal = parseFloat(TelemetryStore.get(m,"thermal_max_c","0"));
         int thermalPct = Math.max(0,Math.min(100,Math.round(thermal/85f*100)));
@@ -628,6 +638,39 @@ public class MainActivity extends Activity {
                 thermal < 55f ? "Cool • highest reported thermal zone" :
                         (thermal < 70f ? "Warm • highest reported thermal zone" : "Hot • highest reported thermal zone"),
                 thermalPct);
+
+        if(limitValue != null && limitDetail != null){
+            boolean throttling = "1".equals(TelemetryStore.get(m,"thermal_throttling","0"));
+            boolean plugged = "1".equals(TelemetryStore.get(m,"power_online","0"));
+            int fps = parseInt(TelemetryStore.get(m,"fps","0"));
+            String label;
+            String detail;
+            int color;
+            if(throttling){
+                label="THERMAL LIMITED";
+                detail="A kernel cooling device is actively limiting performance.";
+                color=THERMAL_HOT;
+            }else if(cpuUtil>=88 && gpuUtil<85){
+                label="CPU LIMITED";
+                detail="CPU "+cpuUtil+"% • GPU "+gpuUtil+"% • GPU still has headroom" + (fps>0?" • "+fps+" FPS":"");
+                color=CPU_COLOR;
+            }else if(gpuUtil>=90 && cpuUtil<90){
+                label="GPU LIMITED";
+                detail="GPU "+gpuUtil+"% • CPU "+cpuUtil+"%" + (fps>0?" • "+fps+" FPS":"");
+                color=GPU_COLOR;
+            }else if(cpuUtil>=88 && gpuUtil>=88){
+                label="SYSTEM SATURATED";
+                detail="CPU and GPU are both heavily loaded" + (fps>0?" • "+fps+" FPS":"");
+                color=SESSION_COLOR;
+            }else{
+                label="HEADROOM";
+                detail="CPU "+cpuUtil+"% • GPU "+gpuUtil+"% • "+(plugged?"USB power":"battery power");
+                color=ACCENT;
+            }
+            limitValue.setText(label);
+            limitValue.setTextColor(color);
+            limitDetail.setText(detail);
+        }
 
         BatteryManager bm = (BatteryManager)getSystemService(BATTERY_SERVICE);
         int batt = bm == null ? -1 : bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
@@ -851,6 +894,19 @@ public class MainActivity extends Activity {
                 refreshBackendState();
             });
         });
+    }
+
+    private View performanceLimitCard() {
+        LinearLayout root=new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(14),dp(12),dp(14),dp(12));
+        root.setBackground(metricBackground(ACCENT));
+        limitValue=text("COLLECTING…",18,ACCENT,true);
+        limitDetail=text("Waiting for utilization telemetry.",10,MUTED,false);
+        limitDetail.setPadding(0,dp(3),0,0);
+        root.addView(limitValue);
+        root.addView(limitDetail);
+        return root;
     }
 
     private MetricUi metricCard(String name,int accent) {
