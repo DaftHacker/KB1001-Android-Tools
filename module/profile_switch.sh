@@ -32,19 +32,28 @@ worker(){
 
   if [ -z "$seq" ] || [ "$seq" = "$last_seq" ]; then
    idle_loops=$((idle_loops+1))
-   [ "$idle_loops" -ge 20 ] && exit 0
-   sleep 1
+   [ "$idle_loops" -ge 40 ] && exit 0
+   sleep 0.25
    continue
   fi
 
   idle_loops=0
   valid_profile "$profile" || {
-   echo "state=error" > "$STATE"
-   echo "profile=$profile" >> "$STATE"
-   echo "message=invalid profile" >> "$STATE"
+   {
+    echo "state=error"
+    echo "seq=$seq"
+    echo "profile=$profile"
+    echo "message=invalid profile"
+   } > "$STATE"
    last_seq="$seq"
    continue
   }
+
+  # Give rapid UI taps a tiny debounce window, then re-read the request.
+  sleep 0.15
+  latest_line="$(cat "$REQ" 2>/dev/null)"
+  latest_seq="$(printf '%s' "$latest_line" | cut -d'|' -f1)"
+  [ "$latest_seq" = "$seq" ] || continue
 
   {
    echo "state=applying"
@@ -52,14 +61,13 @@ worker(){
    echo "profile=$profile"
   } > "$STATE"
 
-  apply_profile "$profile" 2
+  # Timeout 0 means never sit inside a long suspend wait. If a rebuild is
+  # needed, return "waiting" and retry only while this is still the latest request.
+  apply_profile "$profile" 0
   rc=$?
 
-  latest="$(cut -d'|' -f1 "$REQ" 2>/dev/null)"
-  if [ "$latest" != "$seq" ]; then
-   last_seq="$seq"
-   continue
-  fi
+  newest="$(cut -d'|' -f1 "$REQ" 2>/dev/null)"
+  [ "$newest" = "$seq" ] || continue
 
   if [ $rc -eq 0 ]; then
    case "$mode" in
@@ -82,7 +90,7 @@ worker(){
     echo "profile=$profile"
     echo "message=waiting for safe GPU idle window"
    } > "$STATE"
-   sleep 1
+   sleep 0.25
   else
    {
     echo "state=error"
