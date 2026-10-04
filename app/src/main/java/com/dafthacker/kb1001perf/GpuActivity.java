@@ -114,13 +114,13 @@ public class GpuActivity extends Activity {
                 "Extreme 792 • Dynamic",
                 "Adds the 792 MHz OPP but keeps DVFS active so the GPU can clock down.",
                 "APPLY DYNAMIC 792",
-                () -> confirmExtreme("Dynamic 792","apply extreme792_dynamic")),full());
+                () -> confirmExtreme("Dynamic 792","extreme792_dynamic")),full());
 
         content.addView(actionCard(
                 "Extreme 792 • Full Throttle",
                 "Pins the GPU at 792 MHz. Thermal protection remains enabled.",
                 "APPLY FULL THROTTLE",
-                () -> confirmExtreme("Full Throttle 792","apply extreme792_full")),full());
+                () -> confirmExtreme("Full Throttle 792","extreme792_full")),full());
 
         section("GAME AUTOMATION","These profiles are used only when game profile switching is enabled.",Color.rgb(192,112,255));
 
@@ -205,10 +205,7 @@ public class GpuActivity extends Activity {
         TextView arrow=text("›",25,ORANGE,true);
         row.addView(arrow);
 
-        row.setOnClickListener(v -> {
-            if(persistent) ctl("persist "+key);
-            else ctl("apply "+key);
-        });
+        row.setOnClickListener(v -> requestProfile(persistent ? "persist" : "apply", key));
         return row;
     }
 
@@ -294,13 +291,31 @@ public class GpuActivity extends Activity {
         return -1;
     }
 
-    private void confirmExtreme(String name,String command){
+    private void confirmExtreme(String name,String profile){
         new AlertDialog.Builder(this)
                 .setTitle("Experimental "+name)
                 .setMessage("This 792 MHz mode is session-only and has not yet been validated as a safe long-run profile on this tablet. Thermal protection stays enabled and reboot fallback remains Dynamic 744.")
                 .setNegativeButton("Cancel",null)
-                .setPositiveButton("Apply",(d,w)->ctl(command))
+                .setPositiveButton("Apply",(d,w)->requestProfile("apply",profile))
                 .show();
+    }
+
+    private void requestProfile(String mode,String profile){
+        String display=displayProfile(profile);
+        if(runtimeValue!=null) runtimeValue.setText(display+" • switching");
+        if("persist".equals(mode) && defaultValue!=null) defaultValue.setText(display+" • requested");
+
+        io.execute(()->{
+            RootBridge.Result r=RootBridge.get().ctl("profile request "+mode+" "+profile);
+            if(r.ok()) RootBridge.get().ctl("logger refresh");
+            runOnUiThread(()->{
+                if(!r.ok()){
+                    Toast.makeText(this,"GPU profile request failed",Toast.LENGTH_LONG).show();
+                }
+                refreshStatus();
+                handler.postDelayed(this::refreshStatus,250);
+            });
+        });
     }
 
     private void ctl(String command){
@@ -368,9 +383,18 @@ public class GpuActivity extends Activity {
                 if(governorValue!=null) governorValue.setText(TelemetryStore.get(telemetry,"gpu_governor","—"));
                 if(dvfsValue!=null) dvfsValue.setText("0".equals(TelemetryStore.get(telemetry,"gpu_dvfs",""))?"Pinned":"Dynamic");
                 if(runtimeValue!=null){
+                    String requestState=status.get("Profile request state");
+                    String requested=status.get("Requested profile");
                     String runtime=status.get("Runtime profile");
                     if(runtime==null||runtime.isEmpty()) runtime=TelemetryStore.get(telemetry,"profile","—");
-                    runtimeValue.setText(displayProfile(runtime));
+
+                    if(("waiting".equals(requestState)||"applying".equals(requestState)) &&
+                            requested!=null && !requested.isEmpty()){
+                        runtimeValue.setText(displayProfile(requested)+
+                                ("waiting".equals(requestState) ? " • waiting for GPU idle" : " • applying"));
+                    }else{
+                        runtimeValue.setText(displayProfile(runtime));
+                    }
                 }
             });
         });
