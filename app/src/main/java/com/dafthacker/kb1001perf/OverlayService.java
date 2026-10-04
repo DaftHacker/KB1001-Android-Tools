@@ -57,6 +57,7 @@ public class OverlayService extends Service {
         super.onCreate();
         uiScale=getSharedPreferences("hud",MODE_PRIVATE).getFloat("scale",1f);
         running=true;
+        getSharedPreferences("hud",MODE_PRIVATE).edit().putBoolean("runtime_running",true).apply();
         TelemetryDemand.hud(true);
         TelemetryStore.ensureSnapshot(this);
         createChannel();
@@ -73,6 +74,8 @@ public class OverlayService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent,int flags,int startId){
+        running=true;
+        getSharedPreferences("hud",MODE_PRIVATE).edit().putBoolean("runtime_running",true).apply();
         if(intent!=null&&intent.getAction()!=null){
             String action=intent.getAction();
             if("kb1001.stop_hud".equals(action)){
@@ -494,6 +497,7 @@ public class OverlayService extends Service {
 
     @Override public void onDestroy(){
         running=false;
+        getSharedPreferences("hud",MODE_PRIVATE).edit().putBoolean("runtime_running",false).apply();
         TelemetryDemand.hud(false);
         handler.removeCallbacks(updateLoop);
         if(overlay!=null&&wm!=null){
