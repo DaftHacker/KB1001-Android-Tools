@@ -31,6 +31,8 @@ public final class BatteryActivity extends Activity {
     private TextView tempValue;
     private TextView voltageValue;
     private TextView currentValue;
+    private TextView currentAvgValue;
+    private TextView energyValue;
 
     private TextView sourceValue;
     private TextView usbTypeValue;
@@ -116,6 +118,8 @@ public final class BatteryActivity extends Activity {
 
         section("BATTERY HEALTH","Capacity and lifetime information exposed by the battery driver.",GREEN);
         healthValue=settingRow("Health","—",GREEN);
+        currentAvgValue=settingRow("Average battery current","—",GREEN);
+        energyValue=settingRow("Energy now","—",GREEN);
         techValue=settingRow("Technology","—",GREEN);
         cycleValue=settingRow("Cycle count","—",GREEN);
         chargeCounterValue=settingRow("Charge counter","—",GREEN);
@@ -221,6 +225,7 @@ public final class BatteryActivity extends Activity {
         float temp=parseFloat(TelemetryStore.get(m,"battery_temp_c","0"));
         long voltage=parseLong(TelemetryStore.get(m,"battery_voltage","0"));
         long current=parseLong(TelemetryStore.get(m,"battery_current","0"));
+        long currentAvg=parseLong(TelemetryStore.get(m,"battery_current_avg","0"));
 
         percentValue.setText(capacity+"%");
         statusValue.setText(status+(plugged?" • plugged in":" • battery"));
@@ -239,6 +244,8 @@ public final class BatteryActivity extends Activity {
         voltageMaxValue.setText(formatLimitVoltage(TelemetryStore.get(m,"power_voltage_max","")));
 
         healthValue.setText(TelemetryStore.get(m,"battery_health","—"));
+        currentAvgValue.setText(formatCurrent(currentAvg));
+        energyValue.setText(formatEnergy(TelemetryStore.get(m,"battery_energy_now","")));
         techValue.setText(TelemetryStore.get(m,"battery_technology","—"));
         cycleValue.setText(orDash(TelemetryStore.get(m,"battery_cycle_count","")));
 
@@ -260,13 +267,19 @@ public final class BatteryActivity extends Activity {
         if(Build.VERSION.SDK_INT>=28 && bm!=null){
             try{chargeMs=bm.computeChargeTimeRemaining();}catch(Exception ignored){}
         }
+        long currentAbs=Math.abs(current);
         if(chargeMs>0 && plugged){
-            timeToFullValue.setText(formatDuration(chargeMs));
+            timeToFullValue.setText(formatDuration(chargeMs)+" • Android");
+        }else if(plugged && full>counter && counter>0 && currentAbs>=1000){
+            double hours=(double)(full-counter)/(double)currentAbs;
+            timeToFullValue.setText(hours>0&&hours<48
+                    ? formatDuration((long)(hours*3600000.0))+" • rough"
+                    : "Not reported by Android");
         }else{
             timeToFullValue.setText(plugged?"Not reported by Android":"Not charging");
         }
 
-        long currentAbs=Math.abs(current);
+
         if(!plugged && counter>0 && currentAbs>=1000){
             // Linux power_supply normally exposes charge_counter in uAh and
             // current_now in uA, so their ratio is hours.
@@ -317,6 +330,15 @@ public final class BatteryActivity extends Activity {
         long a=Math.abs(v);
         if(a>=100000)return String.format(Locale.US,"%.3f V • raw %d",v/1000000.0,v);
         if(a>=1000)return String.format(Locale.US,"%.3f V • raw %d",v/1000.0,v);
+        return raw+" raw";
+    }
+
+    private String formatEnergy(String raw){
+        if(raw==null||raw.isEmpty())return "—";
+        long v=parseLong(raw);
+        if(v==0)return raw+" raw";
+        long a=Math.abs(v);
+        if(a>=1000000)return String.format(Locale.US,"%.2f Wh • raw %d",v/1000000.0,v);
         return raw+" raw";
     }
 
