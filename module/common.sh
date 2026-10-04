@@ -157,6 +157,41 @@ ensure_792_table() {
     set_dynamic_policy 792000000
 }
 
+apply_custom_mhz() {
+    mhz="$1"
+    timeout="${2:-2}"
+
+    case "$mhz" in
+        200|300|400|600|696|744|792) ;;
+        *)
+            log "Unsupported custom GPU frequency: ${mhz}MHz."
+            return 3
+            ;;
+    esac
+
+    hz=$((mhz * 1000000))
+
+    if ! available_has "$hz"; then
+        case "$mhz" in
+            792) ensure_792_table "$timeout" || return $? ;;
+            744) ensure_744_table "$timeout" || return $? ;;
+            *) ensure_stock_table "$timeout" || return $? ;;
+        esac
+    fi
+
+    echo "$mhz" > "$FREQ" 2>>"$LOG" || return 1
+
+    if [ "$mhz" = 792 ]; then
+        touch "$SESSION_EXTREME"
+    else
+        rm -f "$SESSION_EXTREME"
+    fi
+
+    echo "custom_$mhz" > "$RUNTIME_PROFILE"
+    log "Applied SESSION-ONLY custom GPU clock: ${mhz}MHz pinned."
+    return 0
+}
+
 apply_profile() {
     profile="$1"
     timeout="${2:-120}"
@@ -204,6 +239,10 @@ apply_profile() {
             echo extreme792_full > "$RUNTIME_PROFILE"
             log "Applied SESSION-ONLY Extreme 792 Full Throttle profile (792 MHz pinned)."
             return 0
+            ;;
+        custom_*)
+            apply_custom_mhz "${profile#custom_}" "$timeout"
+            return $?
             ;;
         *)
             log "Unknown profile '$profile'; falling back to Dynamic 744."
