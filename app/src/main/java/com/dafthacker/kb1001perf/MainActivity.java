@@ -689,10 +689,11 @@ public class MainActivity extends Activity {
         CpuPolicies cpu = parseCpuPolicies(TelemetryStore.get(m,"cpu_policies",""));
         int cpuUtil = Math.max(0,Math.min(100,parseInt(TelemetryStore.get(m,"cpu_util_pct","0"))));
         String coreUtil = TelemetryStore.get(m,"cpu_core_util","");
+        int primeUtil = coreUtilValue(coreUtil,4);
         cpuMetric.set(
-                cpuUtil + "% • " + cpu.peakCurrent + " MHz",
+                cpuUtil + "% • Prime " + primeUtil + "%",
                 (cpu.summary.isEmpty() ? "CPU policy data unavailable" : cpu.summary) +
-                        (coreUtil.isEmpty() ? "" : " • cores " + coreUtil.replace(';',' ')),
+                        " • A73 CPU4 " + primeUtil + "%",
                 cpuUtil);
 
         int gpuMhz = parseInt(TelemetryStore.get(m,"gpu_clock_mhz","0"));
@@ -723,21 +724,29 @@ public class MainActivity extends Activity {
                 label="THERMAL LIMITED";
                 detail="A kernel cooling device is actively limiting performance.";
                 color=THERMAL_HOT;
+            }else if(primeUtil>=90 && gpuUtil<85){
+                label="PRIME CPU LIMITED";
+                detail="A73 CPU4 "+primeUtil+"% • total CPU "+cpuUtil+"% • GPU "+gpuUtil+"%"+
+                        (fps>0?" • "+fps+" FPS":"");
+                color=CPU_COLOR;
             }else if(cpuUtil>=88 && gpuUtil<85){
                 label="CPU LIMITED";
-                detail="CPU "+cpuUtil+"% • GPU "+gpuUtil+"% • GPU still has headroom" + (fps>0?" • "+fps+" FPS":"");
+                detail="Total CPU "+cpuUtil+"% • GPU "+gpuUtil+"% • GPU still has headroom"+
+                        (fps>0?" • "+fps+" FPS":"");
                 color=CPU_COLOR;
             }else if(gpuUtil>=90 && cpuUtil<90){
                 label="GPU LIMITED";
-                detail="GPU "+gpuUtil+"% • CPU "+cpuUtil+"%" + (fps>0?" • "+fps+" FPS":"");
+                detail="GPU "+gpuUtil+"% • total CPU "+cpuUtil+"% • A73 "+primeUtil+"%"+
+                        (fps>0?" • "+fps+" FPS":"");
                 color=GPU_COLOR;
             }else if(cpuUtil>=88 && gpuUtil>=88){
                 label="SYSTEM SATURATED";
-                detail="CPU and GPU are both heavily loaded" + (fps>0?" • "+fps+" FPS":"");
+                detail="CPU and GPU are both heavily loaded"+(fps>0?" • "+fps+" FPS":"");
                 color=SESSION_COLOR;
             }else{
                 label="HEADROOM";
-                detail="CPU "+cpuUtil+"% • GPU "+gpuUtil+"% • "+(plugged?"USB power":"battery power");
+                detail="CPU "+cpuUtil+"% • A73 "+primeUtil+"% • GPU "+gpuUtil+"% • "+
+                        (plugged?"USB power":"battery power");
                 color=ACCENT;
             }
             limitValue.setText(label);
@@ -769,6 +778,17 @@ public class MainActivity extends Activity {
             String path = TelemetryStore.get(m,"file_path","");
             loggerPath.setText(path.isEmpty() ? "No active file." : path);
         }
+    }
+
+    private int coreUtilValue(String raw,int core) {
+        if(raw==null)return 0;
+        String key="cpu"+core+":";
+        for(String item:raw.split(";")){
+            if(!item.startsWith(key))continue;
+            try{return Math.max(0,Math.min(100,Integer.parseInt(item.substring(key.length()).trim())));}
+            catch(Exception ignored){return 0;}
+        }
+        return 0;
     }
 
     private String displayProfile(String p) {
