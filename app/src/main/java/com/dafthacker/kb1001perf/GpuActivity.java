@@ -66,9 +66,9 @@ public class GpuActivity extends Activity {
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
 
-        Button back = smallButton("‹", v -> finish());
-        back.setTextSize(26);
-        top.addView(back,new LinearLayout.LayoutParams(dp(48),dp(44)));
+        Button back = smallButton("← Back", v -> finish());
+        back.setTextSize(12);
+        top.addView(back,new LinearLayout.LayoutParams(dp(86),dp(44)));
 
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
@@ -93,7 +93,7 @@ public class GpuActivity extends Activity {
 
         liveCard();
 
-        section("PROFILE","Choose the persistent GPU behavior used outside temporary session modes.",ORANGE);
+        section("PROFILES","Choose a GPU behavior. Extreme modes are session-only unless selected for game automation.",ORANGE);
         content.addView(profileChoice(
                 "Stock 696 MHz",
                 "Factory frequency table and DVFS behavior.",
@@ -110,6 +110,18 @@ public class GpuActivity extends Activity {
                 "performance744",
                 true),full());
 
+        content.addView(actionCard(
+                "Extreme 792 • Dynamic",
+                "Adds the 792 MHz OPP but keeps DVFS active so the GPU can clock down.",
+                "APPLY DYNAMIC 792",
+                () -> confirmExtreme("Dynamic 792","apply extreme792_dynamic")),full());
+
+        content.addView(actionCard(
+                "Extreme 792 • Full Throttle",
+                "Pins the GPU at 792 MHz. Thermal protection remains enabled.",
+                "APPLY FULL THROTTLE",
+                () -> confirmExtreme("Full Throttle 792","apply extreme792_full")),full());
+
         section("GAME AUTOMATION","These profiles are used only when game profile switching is enabled.",Color.rgb(192,112,255));
 
         gameValue = settingValueRow(
@@ -124,20 +136,6 @@ public class GpuActivity extends Activity {
                 v -> chooseOutsideProfile());
         content.addView((View)outsideValue.getParent(),full());
 
-        section("EXTREME 792","Experimental session-only modes. Reboot fallback remains Dynamic 744.",RED);
-
-        content.addView(actionCard(
-                "Extreme 792 • Dynamic",
-                "Adds the 792 MHz OPP but keeps DVFS active so the GPU can clock down.",
-                "APPLY DYNAMIC 792",
-                () -> confirmExtreme("Dynamic 792","apply extreme792_dynamic")),full());
-
-        content.addView(actionCard(
-                "Extreme 792 • Full Throttle",
-                "Pins the GPU at 792 MHz. Thermal protection remains enabled.",
-                "APPLY FULL THROTTLE",
-                () -> confirmExtreme("Full Throttle 792","apply extreme792_full")),full());
-
         return root;
     }
 
@@ -145,7 +143,7 @@ public class GpuActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(15),dp(13),dp(15),dp(13));
-        card.setBackground(tintedCard(ORANGE,110));
+        card.setBackground(blackAccentCard(ORANGE));
 
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
@@ -254,8 +252,18 @@ public class GpuActivity extends Activity {
     }
 
     private void chooseGameProfile(){
-        String[] labels={"Dynamic 744 MHz","Performance 744 MHz"};
-        String[] values={"dynamic744","performance744"};
+        String[] labels={
+                "Dynamic 744 MHz",
+                "Performance 744 MHz",
+                "Extreme 792 Dynamic",
+                "Extreme 792 Full Throttle"
+        };
+        String[] values={
+                "dynamic744",
+                "performance744",
+                "extreme792_dynamic",
+                "extreme792_full"
+        };
         new AlertDialog.Builder(this)
                 .setTitle("Game GPU profile")
                 .setSingleChoiceItems(labels,currentIndex(gameValue.getText().toString(),labels), (d,which)->{
@@ -296,13 +304,32 @@ public class GpuActivity extends Activity {
     }
 
     private void ctl(String command){
+        String selectedProfile = profileFromCommand(command);
+        if(selectedProfile != null && runtimeValue != null){
+            runtimeValue.setText(displayProfile(selectedProfile));
+        }
+
         io.execute(() -> {
             RootBridge.Result r=RootBridge.get().ctl(command);
+            if(r.ok()){
+                RootBridge.get().ctl("logger refresh");
+            }
             runOnUiThread(() -> {
-                if(!r.ok()) Toast.makeText(this,"GPU command failed",Toast.LENGTH_LONG).show();
+                if(!r.ok()){
+                    Toast.makeText(this,"GPU command failed",Toast.LENGTH_LONG).show();
+                }
                 refreshStatus();
+                handler.postDelayed(this::refreshStatus,350);
             });
         });
+    }
+
+    private String profileFromCommand(String command){
+        if(command == null) return null;
+        String[] p=command.trim().split("\\s+");
+        if(p.length<2) return null;
+        if("persist".equals(p[0]) || "apply".equals(p[0])) return p[1];
+        return null;
     }
 
     private void refreshStatus(){
@@ -321,7 +348,11 @@ public class GpuActivity extends Activity {
                 if(graph!=null) graph.addValue(Math.max(0,Math.min(100,Math.round(mhz*100f/792f))));
                 if(governorValue!=null) governorValue.setText(TelemetryStore.get(telemetry,"gpu_governor","—"));
                 if(dvfsValue!=null) dvfsValue.setText("0".equals(TelemetryStore.get(telemetry,"gpu_dvfs",""))?"Pinned":"Dynamic");
-                if(runtimeValue!=null) runtimeValue.setText(displayProfile(TelemetryStore.get(telemetry,"profile","—")));
+                if(runtimeValue!=null){
+                    String runtime=status.get("Runtime profile");
+                    if(runtime==null||runtime.isEmpty()) runtime=TelemetryStore.get(telemetry,"profile","—");
+                    runtimeValue.setText(displayProfile(runtime));
+                }
             });
         });
     }
@@ -352,6 +383,14 @@ public class GpuActivity extends Activity {
         TextView s=text(subtitle,10,MUTED,false);
         s.setPadding(dp(2),0,0,dp(7));
         content.addView(s);
+    }
+
+    private GradientDrawable blackAccentCard(int accent){
+        GradientDrawable bg=new GradientDrawable();
+        bg.setColor(Color.rgb(8,12,13));
+        bg.setCornerRadius(dp(16));
+        bg.setStroke(dp(1),Color.argb(165,Color.red(accent),Color.green(accent),Color.blue(accent)));
+        return bg;
     }
 
     private GradientDrawable tintedCard(int accent,int alpha){
