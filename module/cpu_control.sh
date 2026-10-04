@@ -15,7 +15,6 @@ save_stock(){
   return 0
  fi
  rm -f "$CPU_STATE"
- tmp="$CPU_STATE.tmp.$"
  tmp="$CPU_STATE.tmp.$$"
  : > "$tmp"
  for p in /sys/devices/system/cpu/cpufreq/policy*; do
