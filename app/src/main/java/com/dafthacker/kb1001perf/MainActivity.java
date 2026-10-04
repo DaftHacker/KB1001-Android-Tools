@@ -7,6 +7,7 @@ import android.content.pm.*;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.*;
 import android.provider.Settings;
@@ -20,12 +21,20 @@ import java.util.concurrent.*;
 public class MainActivity extends Activity {
     private static final int ACCENT = Color.rgb(158,218,226);
     private static final int MUTED = Color.rgb(155,174,171);
+    private static final int CPU_COLOR = Color.rgb(77,210,126);
+    private static final int GPU_COLOR = Color.rgb(255,151,61);
+    private static final int RAM_COLOR = Color.rgb(255,211,64);
+    private static final int THERMAL_COOL = Color.rgb(91,205,223);
+    private static final int THERMAL_WARM = Color.rgb(255,175,59);
+    private static final int THERMAL_HOT = Color.rgb(255,83,79);
+    private static final int BATTERY_GOOD = Color.rgb(83,205,109);
+    private static final int BATTERY_WARN = Color.rgb(255,207,69);
+    private static final int BATTERY_LOW = Color.rgb(255,92,82);
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private LinearLayout page;
-    private TextView headerState;
 
     private Switch hudSwitch;
     private Switch autoBoostSwitch;
@@ -39,10 +48,8 @@ public class MainActivity extends Activity {
     private MetricUi batteryMetric;
     private TextView loggerPath;
 
-    private TextView heroMode;
-    private TextView heroProfile;
-    private TextView heroGpu;
-    private TextView heroTemp;
+    private TextView gameProfileValue;
+    private TextView idleProfileValue;
 
     private LinearLayout gamesContainer;
     private final Set<String> selectedGames = new LinkedHashSet<>();
@@ -78,19 +85,13 @@ public class MainActivity extends Activity {
     private View buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16),dp(16),dp(16),dp(10));
+        root.setPadding(dp(12),dp(12),dp(12),dp(10));
         root.setBackgroundResource(R.drawable.bg_app);
 
-        TextView eyebrow = text("KB1001",11,ACCENT,true);
-        eyebrow.setLetterSpacing(.18f);
-        root.addView(eyebrow);
-
-        root.addView(text("Performance Manager",29,Color.rgb(231,240,238),true));
-
-        headerState = text("Connecting to performance backend…",12,MUTED,false);
-        headerState.setPadding(0,dp(3),0,dp(9));
-        root.addView(headerState);
-
+        PerformanceHeaderView header = new PerformanceHeaderView(this);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1,dp(126));
+        hp.setMargins(0,0,0,dp(8));
+        root.addView(header,hp);
 
         HorizontalScrollView tabScroll = new HorizontalScrollView(this);
         tabScroll.setHorizontalScrollBarEnabled(false);
@@ -121,7 +122,8 @@ public class MainActivity extends Activity {
         loggingSwitch = null;
         ramMetric = cpuMetric = gpuMetric = thermalMetric = batteryMetric = null;
         loggerPath = null;
-        heroMode = heroProfile = heroGpu = heroTemp = null;
+        gameProfileValue = null;
+        idleProfileValue = null;
         gamesContainer = null;
         profileButtons.clear();
 
@@ -134,74 +136,26 @@ public class MainActivity extends Activity {
     }
 
     private void dashboardPage() {
-        LinearLayout hero = new LinearLayout(this);
-        hero.setOrientation(LinearLayout.VERTICAL);
-        hero.setPadding(dp(16),dp(15),dp(16),dp(15));
-        hero.setBackgroundResource(R.drawable.bg_hero);
+        section("LIVE PERFORMANCE","Tap CPU or GPU for deeper controls and details.");
 
-        LinearLayout titleRow = row();
-        LinearLayout titleText = new LinearLayout(this);
-        titleText.setOrientation(LinearLayout.VERTICAL);
-        titleText.addView(text("ALLWINNER A333",18,Color.rgb(231,240,238),true));
-        titleText.addView(text("KB1001 • Mali-G57",12,Color.rgb(190,215,214),false));
-        titleRow.addView(titleText,new LinearLayout.LayoutParams(0,-2,1));
-        heroMode = text("STANDBY",12,ACCENT,true);
-        titleRow.addView(heroMode);
-        hero.addView(titleRow);
-
-        LinearLayout stats = row();
-        heroProfile = heroStat("PROFILE","—");
-        heroGpu = heroStat("GPU","—");
-        heroTemp = heroStat("THERMAL","—");
-        stats.addView((View)heroProfile.getParent(),weight());
-        stats.addView((View)heroGpu.getParent(),weight());
-        stats.addView((View)heroTemp.getParent(),weight());
-        hero.addView(stats);
-        page.addView(hero,full());
-
-        section("LIVE PERFORMANCE","Tap a graph for controls and deeper information.");
-
-        cpuMetric = metricCard("CPU");
+        cpuMetric = metricCard("CPU",CPU_COLOR);
         cpuMetric.root.setOnClickListener(v -> showCpuMenu());
         page.addView(cpuMetric.root,full());
 
-        gpuMetric = metricCard("GPU");
+        gpuMetric = metricCard("GPU",GPU_COLOR);
         gpuMetric.root.setOnClickListener(v -> showGpuMenu());
         page.addView(gpuMetric.root,full());
 
-        ramMetric = metricCard("RAM");
+        ramMetric = metricCard("RAM",RAM_COLOR);
         page.addView(ramMetric.root,full());
 
-        thermalMetric = metricCard("THERMAL");
+        thermalMetric = metricCard("THERMAL",THERMAL_COOL);
         page.addView(thermalMetric.root,full());
 
-        batteryMetric = metricCard("BATTERY");
+        batteryMetric = metricCard("BATTERY",BATTERY_GOOD);
         page.addView(batteryMetric.root,full());
 
-        section("AUTOMATION","Persistent game detection and HUD behavior.");
-
-        autoBoostSwitch = toggleCard(
-                "AutoBoost",
-                "Switch to the configured game profile when a selected title is foreground.",
-                checked -> ctl("auto " + (checked ? "enable" : "disable")));
-        page.addView((View)autoBoostSwitch.getParent());
-
-        autoHudSwitch = toggleCard(
-                "Auto-show HUD in games",
-                "Show the performance HUD when a selected game becomes active.",
-                checked -> ctl("overlay auto " + (checked ? "enable" : "disable")));
-        page.addView((View)autoHudSwitch.getParent());
-
-        hudSwitch = toggleCard(
-                "Performance HUD",
-                "The HUD remains active when this window is closed.",
-                checked -> {
-                    if (checked) showHud();
-                    else stopService(new Intent(this,OverlayService.class));
-                });
-        page.addView((View)hudSwitch.getParent());
-
-        section("SESSION","Optional performance recording for profile comparisons.");
+        section("SESSION","Capture a full performance session for later comparison.");
 
         loggingSwitch = toggleCard(
                 "Record performance session",
@@ -311,7 +265,7 @@ public class MainActivity extends Activity {
         LinearLayout labels = new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
         labels.addView(text("Game Library",22,Color.rgb(231,240,238),true));
-        labels.addView(text("Auto-detected and manually selected AutoBoost targets.",11,MUTED,false));
+        labels.addView(text("Apps that trigger your game HUD and optional performance profile.",11,MUTED,false));
         heading.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
 
         Button add = button("+",true,v -> showAddGameDialog());
@@ -323,16 +277,9 @@ public class MainActivity extends Activity {
         gamesContainer.setOrientation(LinearLayout.VERTICAL);
         page.addView(gamesContainer,new LinearLayout.LayoutParams(-1,-2));
 
-        TextView tip = text("Long-press a game to remove it from AutoBoost.",11,MUTED,false);
+        TextView tip = text("Long-press a game to remove it from the game list.",11,MUTED,false);
         tip.setPadding(dp(2),dp(6),0,dp(8));
         page.addView(tip);
-
-        section("DETECTION INTERVAL","Foreground polling stays in the persistent backend.");
-        LinearLayout rates = row();
-        rates.addView(button("1 sec",false,v -> ctl("auto poll 1")),weight());
-        rates.addView(button("2 sec",true,v -> ctl("auto poll 2")),weight());
-        rates.addView(button("5 sec",false,v -> ctl("auto poll 5")),weight());
-        page.addView(card(rates),full());
 
         loadGamesInline();
     }
@@ -404,7 +351,7 @@ public class MainActivity extends Activity {
         row.setOnLongClickListener(v -> {
             new AlertDialog.Builder(this)
                     .setTitle(name)
-                    .setMessage("Remove this app from AutoBoost?")
+                    .setMessage("Remove this app from the game list?")
                     .setNegativeButton("Cancel",null)
                     .setPositiveButton("Remove",(d,w) -> removeGame(pkg,detected))
                     .show();
@@ -510,6 +457,51 @@ public class MainActivity extends Activity {
     }
 
     private void settingsPage() {
+        section("GAME AUTOMATION","Game detection is independent from GPU profile switching.");
+
+        autoHudSwitch = toggleCard(
+                "Auto-show HUD in listed games",
+                "Show the overlay whenever a listed game is foreground, even if profile boosting is off.",
+                checked -> ctl("overlay auto " + (checked ? "enable" : "disable")));
+        page.addView((View)autoHudSwitch.getParent());
+
+        autoBoostSwitch = toggleCard(
+                "Boost profile in listed games",
+                "Temporarily apply the selected game GPU profile, then restore the outside-game profile.",
+                checked -> ctl("auto " + (checked ? "enable" : "disable")));
+        page.addView((View)autoBoostSwitch.getParent());
+
+        LinearLayout gameProfileCard = settingRow(
+                "Game GPU profile",
+                "Profile used while a listed game is foreground.",
+                v -> chooseGameProfile());
+        gameProfileValue = (TextView)gameProfileCard.getTag();
+        page.addView(gameProfileCard,full());
+
+        LinearLayout idleProfileCard = settingRow(
+                "Outside-game GPU profile",
+                "Profile restored after leaving a listed game.",
+                v -> chooseIdleProfile());
+        idleProfileValue = (TextView)idleProfileCard.getTag();
+        page.addView(idleProfileCard,full());
+
+        section("HUD","Manual overlay and game-detection responsiveness.");
+
+        hudSwitch = toggleCard(
+                "Performance HUD",
+                "Start or stop the same colored live-performance view as the dashboard.",
+                checked -> {
+                    if (checked) showHud();
+                    else stopService(new Intent(this,OverlayService.class));
+                });
+        page.addView((View)hudSwitch.getParent());
+
+        LinearLayout rates = row();
+        rates.addView(button("Detect 1 sec",false,v -> ctl("auto poll 1")),weight());
+        rates.addView(button("Detect 2 sec",true,v -> ctl("auto poll 2")),weight());
+        rates.addView(button("Detect 5 sec",false,v -> ctl("auto poll 5")),weight());
+        page.addView(card(rates),full());
+
         section("SOFTWARE","One update operation handles the app and persistent backend together.");
 
         Button check = button("Check for Update",true,v -> checkForUpdate(false));
@@ -517,17 +509,56 @@ public class MainActivity extends Activity {
         page.addView(card(check),full());
 
         TextView versions = text(
-                "App " + BuildConfig.VERSION_NAME + "\nModule version is checked automatically.",
+                "App " + BuildConfig.VERSION_NAME + "\nBackend version is checked automatically.",
                 11,MUTED,false);
         page.addView(card(versions),full());
 
-        section("ARCHITECTURE","App-first with an optional persistence backend.");
+        section("BACKEND","The Android app owns the experience; the module currently provides boot-persistent privileged execution.");
         TextView info = text(
-                "The HUD is an Android foreground service and can remain active after this window closes. " +
-                "The Magisk module currently provides boot persistence, game detection and privileged telemetry. " +
-                "We can migrate those pieces into the app and make the module optional after the foreground-service path proves reliable on this tablet.",
-                12,Color.rgb(190,205,202),false);
+                "The HUD can stay alive after this window closes. The service/module abstraction is being kept so the persistent module backend can eventually become optional without changing the UI API.",
+                11,Color.rgb(190,205,202),false);
         page.addView(card(info),full());
+    }
+
+    private LinearLayout settingRow(String title,String subtitle,View.OnClickListener listener) {
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.HORIZONTAL);
+        wrapper.setGravity(Gravity.CENTER_VERTICAL);
+        wrapper.setPadding(dp(13),dp(11),dp(13),dp(11));
+        wrapper.setBackgroundResource(R.drawable.bg_card);
+
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.addView(text(title,14,Color.rgb(231,240,238),true));
+        labels.addView(text(subtitle,10,MUTED,false));
+        wrapper.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+
+        TextView value = text("—",12,ACCENT,true);
+        value.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+        wrapper.addView(value,new LinearLayout.LayoutParams(dp(138),-2));
+        wrapper.setTag(value);
+        wrapper.setOnClickListener(listener);
+        return wrapper;
+    }
+
+    private void chooseGameProfile() {
+        String[] labels = {"Dynamic 744 MHz","Performance 744 MHz"};
+        String[] values = {"dynamic744","performance744"};
+        new AlertDialog.Builder(this)
+                .setTitle("Game GPU profile")
+                .setItems(labels,(d,which) -> ctl("auto profile " + values[which]))
+                .setNegativeButton("Cancel",null)
+                .show();
+    }
+
+    private void chooseIdleProfile() {
+        String[] labels = {"Stock 696 MHz","Dynamic 744 MHz","Performance 744 MHz"};
+        String[] values = {"stock","dynamic744","performance744"};
+        new AlertDialog.Builder(this)
+                .setTitle("Outside-game GPU profile")
+                .setItems(labels,(d,which) -> ctl("auto idle " + values[which]))
+                .setNegativeButton("Cancel",null)
+                .show();
     }
 
     private Switch toggleCard(String title,String subtitle,ToggleAction action) {
@@ -592,6 +623,8 @@ public class MainActivity extends Activity {
                 if (autoHudSwitch != null) autoHudSwitch.setChecked("1".equals(status.get("Overlay auto")));
                 if (loggingSwitch != null) loggingSwitch.setChecked("1".equals(status.get("File logging")));
                 if (hudSwitch != null) hudSwitch.setChecked(OverlayService.isRunning());
+                if (gameProfileValue != null) gameProfileValue.setText(displayProfile(status.get("Game profile")));
+                if (idleProfileValue != null) idleProfileValue.setText(displayProfile(status.get("Idle profile")));
 
                 String persistent = status.get("Persistent profile");
                 if (persistent != null) {
@@ -619,18 +652,7 @@ public class MainActivity extends Activity {
     private void refreshTelemetry() {
         Map<String,String> m = TelemetryStore.read(this);
 
-        String mode = TelemetryStore.get(m,"mode","waiting");
         String profile = TelemetryStore.get(m,"profile","—");
-        String gpu = TelemetryStore.get(m,"gpu_clock_mhz","—");
-        String temp = TelemetryStore.get(m,"thermal_max_c","—");
-
-        headerState.setText(mode.toUpperCase(Locale.US) + "  •  " + profile + "  •  GPU " + gpu + " MHz");
-
-        if (heroMode != null) heroMode.setText(mode.toUpperCase(Locale.US));
-        if (heroProfile != null) heroProfile.setText(displayProfile(profile));
-        if (heroGpu != null) heroGpu.setText(gpu + " MHz");
-        if (heroTemp != null) heroTemp.setText(temp + "°C");
-
         if (tab != 0 || ramMetric == null) return;
 
         ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
@@ -656,17 +678,22 @@ public class MainActivity extends Activity {
 
         float thermal = parseFloat(TelemetryStore.get(m,"thermal_max_c","0"));
         int thermalPct = Math.max(0,Math.min(100,Math.round(thermal/85f*100)));
+        int thermalColor = thermal >= 70f ? THERMAL_HOT : (thermal >= 55f ? THERMAL_WARM : THERMAL_COOL);
+        thermalMetric.setAccent(thermalColor);
         thermalMetric.set(
                 String.format(Locale.US,"%.1f °C",thermal),
-                "Highest reported thermal zone",
+                thermal < 55f ? "Cool • highest reported thermal zone" :
+                        (thermal < 70f ? "Warm • highest reported thermal zone" : "Hot • highest reported thermal zone"),
                 thermalPct);
 
         BatteryManager bm = (BatteryManager)getSystemService(BATTERY_SERVICE);
         int batt = bm == null ? -1 : bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
         float battTemp = parseFloat(TelemetryStore.get(m,"battery_temp_c","0"));
+        int batteryColor = batt >= 50 ? BATTERY_GOOD : (batt >= 20 ? BATTERY_WARN : BATTERY_LOW);
+        batteryMetric.setAccent(batteryColor);
         batteryMetric.set(
                 batt < 0 ? "—" : batt + "%",
-                String.format(Locale.US,"%.1f °C",battTemp),
+                String.format(Locale.US,"%.1f °C battery",battTemp),
                 Math.max(0,batt));
 
         if (loggingSwitch != null) {
@@ -883,22 +910,23 @@ public class MainActivity extends Activity {
         });
     }
 
-    private MetricUi metricCard(String name) {
+    private MetricUi metricCard(String name,int accent) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(13),dp(12),dp(13),dp(12));
-        root.setBackgroundResource(R.drawable.bg_card);
+        root.setBackground(metricBackground(accent));
         root.setClickable(true);
         root.setFocusable(true);
 
         LinearLayout head = row();
-        TextView title = text(name,12,MUTED,true);
+        TextView title = text(name,12,accent,true);
         TextView value = text("—",20,Color.rgb(231,240,238),true);
         head.addView(title,new LinearLayout.LayoutParams(0,-2,1));
         head.addView(value);
         root.addView(head);
 
         SparklineView graph = new SparklineView(this);
+        graph.setAccentColor(accent);
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1,dp(72));
         gp.setMargins(0,dp(8),0,dp(5));
         root.addView(graph,gp);
@@ -906,7 +934,15 @@ public class MainActivity extends Activity {
         TextView detail = text("Collecting telemetry…",10,MUTED,false);
         root.addView(detail);
 
-        return new MetricUi(root,value,detail,graph);
+        return new MetricUi(root,value,detail,graph,title);
+    }
+
+    private GradientDrawable metricBackground(int accent) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.rgb(13,23,22));
+        bg.setCornerRadius(dp(16));
+        bg.setStroke(dp(1),Color.argb(95,Color.red(accent),Color.green(accent),Color.blue(accent)));
+        return bg;
     }
 
     private void section(String title,String subtitle) {
@@ -1018,18 +1054,32 @@ public class MainActivity extends Activity {
         final TextView value;
         final TextView detail;
         final SparklineView graph;
+        final TextView title;
 
-        MetricUi(LinearLayout root,TextView value,TextView detail,SparklineView graph) {
+        MetricUi(LinearLayout root,TextView value,TextView detail,SparklineView graph,TextView title) {
             this.root=root;
             this.value=value;
             this.detail=detail;
             this.graph=graph;
+            this.title=title;
         }
 
         void set(String main,String sub,int valueForGraph) {
             value.setText(main);
             detail.setText(sub);
             graph.addValue(Math.max(0,Math.min(100,valueForGraph)));
+        }
+
+        void setAccent(int color) {
+            graph.setAccentColor(color);
+            title.setTextColor(color);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(Color.rgb(13,23,22));
+            bg.setCornerRadius(16f * root.getResources().getDisplayMetrics().density);
+            bg.setStroke(
+                    Math.max(1,(int)root.getResources().getDisplayMetrics().density),
+                    Color.argb(95,Color.red(color),Color.green(color),Color.blue(color)));
+            root.setBackground(bg);
         }
     }
 
