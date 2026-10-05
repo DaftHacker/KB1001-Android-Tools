@@ -78,6 +78,11 @@ public final class AppStateCache {
         statusValues.clear();
         statusValues.putAll(status);
 
+        boolean oldManualMetrics=manualMetrics;
+        boolean oldManualFps=manualFps;
+        boolean oldAutoBoost=autoBoost;
+        boolean oldFileLogging=fileLogging;
+
         long now=System.currentTimeMillis();
         if(status.containsKey("Manual Metrics overlay")){
             boolean backend="1".equals(status.get("Manual Metrics overlay"));
@@ -111,14 +116,20 @@ public final class AppStateCache {
         if(status.containsKey("File logging")){
             fileLogging="1".equals(status.get("File logging"));
         }
-        statusUpdatedAt=System.currentTimeMillis();
-        prefs(context).edit()
-                .putBoolean(KEY_MANUAL_METRICS,manualMetrics)
-                .putBoolean(KEY_MANUAL_FPS,manualFps)
-                .putBoolean(KEY_AUTO_BOOST,autoBoost)
-                .putBoolean(KEY_FILE_LOGGING,fileLogging)
-                .putLong(KEY_STATUS_TS,statusUpdatedAt)
-                .apply();
+
+        statusUpdatedAt=now;
+
+        if(oldManualMetrics!=manualMetrics ||
+                oldManualFps!=manualFps ||
+                oldAutoBoost!=autoBoost ||
+                oldFileLogging!=fileLogging){
+            prefs(context).edit()
+                    .putBoolean(KEY_MANUAL_METRICS,manualMetrics)
+                    .putBoolean(KEY_MANUAL_FPS,manualFps)
+                    .putBoolean(KEY_AUTO_BOOST,autoBoost)
+                    .putBoolean(KEY_FILE_LOGGING,fileLogging)
+                    .apply();
+        }
     }
 
     public static synchronized void setManualMetrics(Context context,boolean value){
@@ -195,15 +206,29 @@ public final class AppStateCache {
     public static synchronized void updateGameSnapshot(
             Context context,Set<String> selected,Set<String> metrics,Set<String> fps){
         initialize(context);
+
+        LinkedHashSet<String> newGames=new LinkedHashSet<>();
+        LinkedHashSet<String> newMetrics=new LinkedHashSet<>();
+        LinkedHashSet<String> newFps=new LinkedHashSet<>();
+        if(selected!=null)newGames.addAll(selected);
+        if(metrics!=null)newMetrics.addAll(metrics);
+        if(fps!=null)newFps.addAll(fps);
+
+        boolean changed=!games.equals(newGames) ||
+                !metricsGames.equals(newMetrics) ||
+                !fpsGames.equals(newFps) ||
+                !gamesLoaded;
+
         games.clear();
-        if(selected!=null)games.addAll(selected);
+        games.addAll(newGames);
         metricsGames.clear();
-        if(metrics!=null)metricsGames.addAll(metrics);
+        metricsGames.addAll(newMetrics);
         fpsGames.clear();
-        if(fps!=null)fpsGames.addAll(fps);
+        fpsGames.addAll(newFps);
         gamesLoaded=true;
         gamesUpdatedAt=System.currentTimeMillis();
-        persistGames(context);
+
+        if(changed)persistGames(context);
     }
 
     public static synchronized void addGame(Context context,String pkg){
