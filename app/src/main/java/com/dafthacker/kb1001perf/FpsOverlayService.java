@@ -35,7 +35,7 @@ public final class FpsOverlayService extends Service {
     private WindowManager wm;
     private WindowManager.LayoutParams params;
     private TextView fpsText;
-    private java.lang.Process sampler;
+    private PerfettoFpsCollector sampler;
 
     private float downX,downY;
     private int startX,startY;
@@ -47,7 +47,6 @@ public final class FpsOverlayService extends Service {
     private long averageSum;
     private String averageSource="";
     private boolean averageHasLiveSample;
-    private volatile boolean samplerRestartRequested;
     private BufferedWriter validationWriter;
     private File validationFile;
     private int validationRowsSinceFlush;
@@ -109,8 +108,9 @@ public final class FpsOverlayService extends Service {
         if(intent!=null && "kb1001.refresh_fps_appearance".equals(intent.getAction())){
             applyAppearance();
         }else if(intent!=null && "kb1001.refresh_fps_sampling".equals(intent.getAction())){
-            samplerRestartRequested=true;
-            try{if(sampler!=null)sampler.destroy();}catch(Exception ignored){}
+            synchronized(this){
+                resetAverage(averageSource);
+            }
         }
         return START_STICKY;
     }
@@ -257,99 +257,75 @@ public final class FpsOverlayService extends Service {
     }
 
     private void startSampler(){
-        reader.execute(()->{
-            RootBridge.Result ready=BackendManager.ensureInstalled(this);
-            if(!ready.ok()){
+        if(!running || sampler!=null)return;
+
+        String targetCommand="sh "+RootBridge.shellQuote(FPS_SAMPLER)+" target-stream 250";
+        sampler=new PerfettoFpsCollector(targetCommand,this::handlePerfettoSample);
+        sampler.start();
+    }
+
+    private void handlePerfettoSample(PerfettoFpsCollector.Sample raw){
+        if(!running || raw==null)return;
+
+        FpsSample sample=new FpsSample(
+                raw.fps,
+                raw.packageName,
+                raw.kind,
+                raw.layer,
+                raw.newFrames,
+                raw.candidateCount,
+                raw.cycleMs);
+
+        synchronized(this){
+            boolean sourceChanged=!sample.source.isEmpty() &&
+                    !sample.source.equals(averageSource);
+            if(sourceChanged){
+                resetAverage(sample.source);
+                displayedFps=Integer.MIN_VALUE;
+                displayedAverageFps=Integer.MIN_VALUE;
                 handler.post(()->{
-                    if(fpsText!=null)fpsText.setText("Current FPS: —\nAverage FPS: —");
+                    if(fpsText!=null)fpsText.setText("FPS: —");
                 });
+            }
+
+            // Diagnostics remain available, but are deliberately outside the
+            // live measurement path. The FPS value now comes only from the
+            // persistent Perfetto SurfaceFlinger FrameTimeline session.
+            syncValidationLogger(sample.source);
+            captureValidatorResolverSnapshot(sample.source);
+            captureValidatorArchitectureRecon(sample.source);
+
+            final int publishMs=100;
+            final int windowMs=getAverageWindowMs();
+
+            if(sample.fps<0){
+                logValidationSample(sample,-1,publishMs,windowMs);
                 return;
             }
 
-            while(running && !Thread.currentThread().isInterrupted()){
-                try{
-                    android.content.SharedPreferences prefs=getSharedPreferences("fps_hud",MODE_PRIVATE);
-                    int pollMs=clamp(
-                            prefs.getInt("poll_ms",DEFAULT_POLL_MS),
-                            MIN_POLL_MS,
-                            MAX_POLL_MS);
+            final int fps=sample.fps;
+            final long now=SystemClock.elapsedRealtime();
 
-                    samplerRestartRequested=false;
-                    sampler=new ProcessBuilder(
-                            "su","-c",
-                            FPS_SAMPLER+" stream "+pollMs)
-                            .redirectErrorStream(true)
-                            .start();
-
-                    BufferedReader in=new BufferedReader(
-                            new InputStreamReader(sampler.getInputStream(), StandardCharsets.UTF_8));
-
-                    String line;
-                    while((line=in.readLine())!=null && running){
-                        FpsSample sample=parseFps(line);
-
-                        boolean sourceChanged=!sample.source.isEmpty() &&
-                                !sample.source.equals(averageSource);
-                        if(sourceChanged){
-                            resetAverage(sample.source);
-                        }
-
-                        // Validation/recon is driven by the foreground source,
-                        // not by successful FPS measurement. This must run even
-                        // while the HUD is unresolved so diagnostics cannot
-                        // deadlock behind "FPS: —".
-                        syncValidationLogger(sample.source);
-                        captureValidatorResolverSnapshot(sample.source);
-                        captureValidatorArchitectureRecon(sample.source);
-
-                        if(sample.fps<0){
-                            logValidationSample(sample,-1,pollMs,getAverageWindowMs());
-                            continue;
-                        }
-
-                        final int fps=sample.fps;
-                        final long now=SystemClock.elapsedRealtime();
-                        final int windowMs=getAverageWindowMs();
-
-                        // Only primary SurfaceFlinger presentation samples and
-                        // confirmed sustained stalls advance Average FPS.
-                        final int avg;
-                        if("live".equals(sample.kind)){
-                            averageHasLiveSample=true;
-                            avg=addAverageSample(fps,now,windowMs);
-                        }else if("stall".equals(sample.kind) && averageHasLiveSample){
-                            avg=addAverageSample(fps,now,windowMs);
-                        }else{
-                            avg=averageHasLiveSample?currentAverage(now,windowMs):-1;
-                        }
-
-                        logValidationSample(sample,avg,pollMs,windowMs);
-
-                        if(fps==displayedFps && avg==displayedAverageFps)continue;
-                        displayedFps=fps;
-                        displayedAverageFps=avg;
-
-                        handler.post(()->{
-                            if(fpsText==null)return;
-                            fpsText.setText("FPS: "+fps);
-                        });
-                    }
-                }catch(Exception ignored){
-                    // Preserve the last valid reading while the sampler is restarted.
-                }finally{
-                    try{if(sampler!=null)sampler.destroy();}catch(Exception ignored){}
-                    sampler=null;
-                }
-
-                if(!running)break;
-                long delay=samplerRestartRequested?75L:1000L;
-                samplerRestartRequested=false;
-                try{Thread.sleep(delay);}catch(InterruptedException e){
-                    Thread.currentThread().interrupt();
-                    break;
-                }
+            final int avg;
+            if("live".equals(sample.kind)){
+                averageHasLiveSample=true;
+                avg=addAverageSample(fps,now,windowMs);
+            }else if("stall".equals(sample.kind) && averageHasLiveSample){
+                avg=addAverageSample(fps,now,windowMs);
+            }else{
+                avg=averageHasLiveSample?currentAverage(now,windowMs):-1;
             }
-        });
+
+            logValidationSample(sample,avg,publishMs,windowMs);
+
+            if(fps==displayedFps && avg==displayedAverageFps)return;
+            displayedFps=fps;
+            displayedAverageFps=avg;
+
+            handler.post(()->{
+                if(fpsText!=null)fpsText.setText("FPS: "+fps);
+            });
+        }
     }
 
     private FpsSample parseFps(String line){
@@ -663,8 +639,8 @@ public final class FpsOverlayService extends Service {
 
         try{
             if(sampler!=null){
-                sampler.destroy();
-                if(Build.VERSION.SDK_INT>=26) sampler.destroyForcibly();
+                sampler.close();
+                sampler=null;
             }
         }catch(Exception ignored){}
 
