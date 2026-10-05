@@ -377,7 +377,9 @@ public final class FpsOverlayService extends Service {
 
             syncValidationLogger(sample.source);
             captureValidatorResolverSnapshot(sample.source);
-            captureValidatorArchitectureRecon(sample.source);
+            // Full architecture recon is now explicit-only. Running it during
+            // every validator session adds dozens of blocking system probes and
+            // can distort the FPS source we are trying to validate.
 
             final int windowMs=getAverageWindowMs();
 
