@@ -6,7 +6,7 @@ The Android application is intentionally a controller, not the owner of the long
 
 It provides:
 
-- manual Stock 696, Dynamic 744, Performance 744 and guarded Extreme 792 controls;
+- validated Stock/Performance 696 controls plus guarded session-only 744/792 runtime OPP controls;
 - AutoBoost enable/disable;
 - game and idle profile selection;
 - foreground-detection interval selection;
