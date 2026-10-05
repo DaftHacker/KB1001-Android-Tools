@@ -15,6 +15,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <time.h>
 
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "KB1001FpsValidator", __VA_ARGS__)
 
@@ -51,8 +52,9 @@ struct PendingFrame {
 };
 
 int64_t monoNs() {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
+    timespec ts{};
+    clock_gettime(CLOCK_BOOTTIME, &ts);
+    return static_cast<int64_t>(ts.tv_sec) * 1000000000LL + ts.tv_nsec;
 }
 
 void sleepUntilNs(int64_t targetNs) {
