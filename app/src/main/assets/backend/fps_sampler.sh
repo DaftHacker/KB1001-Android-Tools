@@ -306,33 +306,21 @@ gfxinfo_fps(){
  echo "$fps"
 }
 
+
 stream(){
  trap 'exit 0' HUP INT TERM PIPE
 
  pkg_cached=""
  layer=""
- last_present=0
  bad_layer_count=0
  zero_fps_count=0
  discover_tick=0
- gfx_tick=0
- frame_counter_tick=0
- last_good_fps=-1
- hold_ticks=0
- no_present_since_ms=0
- last_layer_frame_count=-1
- last_sample_ms="$(monotonic_ms)"
+ fallback_tick=0
 
  while true; do
   read_state_package
-  game_state=0
-  [ -n "$pkg" ] && game_state=1
   next_pkg="$pkg"
 
-  # When automatic game state is unavailable/stale (for example a manually
-  # enabled FPS counter), rediscover the foreground package at only 0.5 Hz.
-  # The fast path below samples the already-resolved layer at ~10 Hz without
-  # increasing expensive foreground discovery work.
   if [ -z "$next_pkg" ]; then
    discover_tick=$((discover_tick+1))
    if [ "$discover_tick" -ge 20 ] || [ -z "$pkg_cached" ]; then
@@ -349,147 +337,70 @@ stream(){
   if [ "$next_pkg" != "$pkg_cached" ]; then
    pkg_cached="$next_pkg"
    layer=""
-   last_present=0
    bad_layer_count=0
    zero_fps_count=0
-   frame_counter_tick=0
-   last_good_fps=-1
-   hold_ticks=0
-   no_present_since_ms=0
-   last_layer_frame_count=-1
-   last_sample_ms="$(monotonic_ms)"
+   fallback_tick=0
   fi
 
   if [ -n "$pkg_cached" ] && [ -z "$layer" ]; then
    layer="$(discover_layer "$pkg_cached")"
-   last_present=0
-   zero_fps_count=0
-   last_layer_frame_count=-1
   fi
 
-  fps=-1
+  current=-1
+  avg=-1
+
   if [ -n "$layer" ]; then
-   previous_present="$last_present"
-   result="$(query_layer "$layer" "$previous_present")"
-   fps="${result%%|*}"
+   result="$(query_layer "$layer")"
+   current="${result%%|*}"
    rest="${result#*|}"
+   avg="${rest%%|*}"
+   rest="${rest#*|}"
    last_present="${rest%%|*}"
    resolved_layer="${rest#*|}"
    [ -n "$resolved_layer" ] && layer="$resolved_layer"
 
-   sample_now_ms="$(monotonic_ms)"
-   case "$sample_now_ms" in ''|*[!0-9]*) sample_now_ms=0;; esac
+   case "$current" in ''|*[!0-9-]*) current=-1;; esac
+   case "$avg" in ''|*[!0-9-]*) avg=-1;; esac
 
-   if [ "$last_present" != "0" ] && [ "$last_present" != "$previous_present" ]; then
-    no_present_since_ms="$sample_now_ms"
-   elif [ "$last_present" != "0" ] && [ "$sample_now_ms" -gt 0 ] 2>/dev/null; then
-    if [ "$no_present_since_ms" -le 0 ] 2>/dev/null; then
-     no_present_since_ms="$sample_now_ms"
-    elif [ $((sample_now_ms-no_present_since_ms)) -ge 250 ]; then
-     fps=0
-    fi
-   fi
-
-   case "$fps" in ''|*[!0-9-]*) fps=-1;; esac
-
-   frame_counter_tick=$((frame_counter_tick+1))
-   counter_fps=-1
-
-   # Full SurfaceFlinger dumps are expensive. Use the frame counter only as a
-   # slow fallback/cross-check, not on the 10 Hz latency fast path.
-   if [ "$fps" -lt 0 ] 2>/dev/null || [ "$zero_fps_count" -ge 2 ]; then
-    if [ "$frame_counter_tick" -ge 10 ]; then
-     current_count="$(layer_frame_count "$layer")"
-     case "$current_count" in ''|*[!0-9]*) current_count=-1;; esac
-
-     sample_elapsed_ms=0
-     if [ "$sample_now_ms" -gt 0 ] 2>/dev/null && [ "$last_sample_ms" -gt 0 ] 2>/dev/null; then
-      sample_elapsed_ms=$((sample_now_ms-last_sample_ms))
-     fi
-
-     if [ "$current_count" -ge 0 ] 2>/dev/null && [ "$last_layer_frame_count" -ge 0 ] 2>/dev/null &&
-        [ "$sample_elapsed_ms" -gt 0 ] 2>/dev/null; then
-      delta_frames=$((current_count-last_layer_frame_count))
-      [ "$delta_frames" -lt 0 ] && delta_frames=0
-      counter_fps=$(((delta_frames*1000 + sample_elapsed_ms/2)/sample_elapsed_ms))
-     fi
-
-     [ "$current_count" -ge 0 ] 2>/dev/null && last_layer_frame_count="$current_count"
-     [ "$sample_now_ms" -gt 0 ] 2>/dev/null && last_sample_ms="$sample_now_ms"
-     frame_counter_tick=0
-    fi
-   else
-    [ "$sample_now_ms" -gt 0 ] 2>/dev/null && last_sample_ms="$sample_now_ms"
-   fi
-
-   if [ "$fps" -lt 0 ] 2>/dev/null && [ "$counter_fps" -ge 0 ] 2>/dev/null; then
-    fps="$counter_fps"
-   fi
-
-   if [ "$fps" -lt 0 ] 2>/dev/null; then
+   if [ "$current" -lt 0 ] 2>/dev/null; then
     bad_layer_count=$((bad_layer_count+1))
    else
     bad_layer_count=0
-    if [ "$fps" -eq 0 ] 2>/dev/null; then
+    if [ "$current" -eq 0 ] 2>/dev/null; then
      zero_fps_count=$((zero_fps_count+1))
     else
      zero_fps_count=0
-     last_good_fps="$fps"
-     hold_ticks=0
     fi
    fi
 
-   # A valid-but-zero latency result often means the selected SurfaceFlinger
-   # layer is stale/inactive. Re-resolve it just like dedicated FPS tools do.
    if [ "$bad_layer_count" -ge 2 ] || [ "$zero_fps_count" -ge 3 ]; then
     layer=""
-    last_present=0
-    last_layer_frame_count=-1
     bad_layer_count=0
     zero_fps_count=0
-    frame_counter_tick=0
    fi
   fi
 
-  # If layer latency is unavailable, use gfxinfo only once per second.
-  # This keeps normal SurfaceFlinger sampling cheap while making the counter
-  # useful on launcher/system apps that do not expose usable layer latency.
-  if [ "$fps" -lt 0 ] 2>/dev/null; then
-   gfx_tick=$((gfx_tick+1))
-   if [ "$gfx_tick" -ge 10 ]; then
-    gfx_fps=-1
-    if [ -n "$pkg_cached" ]; then
-     gfx_fps="$(gfxinfo_fps "$pkg_cached")"
-     case "$gfx_fps" in ''|*[!0-9-]*) gfx_fps=-1;; esac
+  if [ "$current" -lt 0 ] 2>/dev/null; then
+   fallback_tick=$((fallback_tick+1))
+   if [ "$fallback_tick" -ge 10 ]; then
+    current="$(gfxinfo_fps "$pkg_cached")"
+    case "$current" in ''|*[!0-9-]*) current=-1;; esac
+
+    if [ "$current" -lt 0 ] 2>/dev/null; then
+     current="$(target_frametimeline_fps "$pkg_cached")"
+     case "$current" in ''|*[!0-9-]*) current=-1;; esac
     fi
 
-    if [ "$gfx_fps" -ge 0 ] 2>/dev/null; then
-     fps="$gfx_fps"
-    else
-     timeline_fps="$(target_frametimeline_fps "$pkg_cached")"
-     case "$timeline_fps" in ''|*[!0-9-]*) timeline_fps=-1;; esac
-
-     if [ "$timeline_fps" -ge 0 ] 2>/dev/null; then
-      fps="$timeline_fps"
-     elif [ "$game_state" != 1 ]; then
-      # For launcher/System UI, display-wide FrameTimeline FPS is still useful.
-      # Never substitute display refresh for an attributed game's FPS.
-      timeline_fps="$(frametimeline_fps "")"
-      case "$timeline_fps" in ''|*[!0-9-]*) timeline_fps=-1;; esac
-      [ "$timeline_fps" -ge 0 ] 2>/dev/null && fps="$timeline_fps"
-     fi
+    if [ "$current" -ge 0 ] 2>/dev/null; then
+     avg="$current"
     fi
-
-    [ "$fps" -gt 0 ] 2>/dev/null && last_good_fps="$fps"
-    gfx_tick=0
-   elif [ "$last_good_fps" -ge 0 ] 2>/dev/null; then
-    fps="$last_good_fps"
+    fallback_tick=0
    fi
   else
-   gfx_tick=0
+   fallback_tick=0
   fi
 
-  printf '%s\n' "$fps" || exit 0
+  printf '%s|%s\n' "$current" "$avg" || exit 0
   sleep 0.10
  done
 }
