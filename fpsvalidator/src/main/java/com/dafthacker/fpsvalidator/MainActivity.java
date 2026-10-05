@@ -1,10 +1,7 @@
 package com.dafthacker.fpsvalidator;
 
 import android.app.Activity;
-import android.content.ComponentName;
-import android.content.Intent;
 import android.graphics.Color;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -28,9 +25,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private static final int MODE_AUTO = 5;
-    private static final String PERF_PACKAGE="com.dafthacker.kb1001perf";
-    private static final String PERF_FPS_SERVICE="com.dafthacker.kb1001perf.FpsOverlayService";
-
     private final Handler handler=new Handler(Looper.getMainLooper());
     private SurfaceView surfaceView;
     private Surface surface;
@@ -39,7 +33,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     private TextView logPath;
     private boolean rendering;
     private boolean autoStarted;
-    private boolean monitorRequested;
 
     private native boolean nativeStart(Surface surface,String csvPath,int mode,float targetFps);
     private native void nativeStop();
@@ -59,7 +52,6 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
                 if(!nativeIsRunning()){
                     rendering=false;
-                    stopPerformanceMonitorValidation();
                     progress.setText("Validation complete. Both CSV logs are ready for comparison.");
                 }
             }
@@ -79,9 +71,9 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         root.addView(text("KB1001 GPU / FPS Validation Harness",20,Color.WHITE,true));
 
         TextView help=text(
-                "One-launch validation. The app automatically starts Performance Manager's normal FPS "+
-                        "overlay/logger, runs the complete native OpenGL ES timing suite, then stops the "+
-                        "validation session. The validator never sends expected FPS values to the monitor.",
+                "One-launch validation. Performance Manager's normal foreground/game hook recognizes this "+
+                        "validator automatically and starts the regular FPS overlay/logger. This app only "+
+                        "renders the independent truth workload and never sends expected FPS values to the monitor.",
                 11,Color.rgb(170,185,200),false);
         help.setPadding(0,dp(3),0,dp(8));
         root.addView(help);
@@ -134,48 +126,18 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         String stamp=new SimpleDateFormat("yyyyMMdd-HHmmss",Locale.US).format(new Date());
         File csv=new File(dir,"validator-"+stamp+"-automatic.csv");
 
-        startPerformanceMonitorValidation();
-
         rendering=nativeStart(surface,csv.getAbsolutePath(),MODE_AUTO,0f);
         if(rendering){
             logPath.setText("Truth log: "+csv.getAbsolutePath());
             progress.setText("Automatic suite starting…");
         }else{
-            stopPerformanceMonitorValidation();
             status.setText("Native renderer failed to start.");
         }
-    }
-
-    private void startPerformanceMonitorValidation(){
-        try{
-            Intent i=new Intent();
-            i.setComponent(new ComponentName(PERF_PACKAGE,PERF_FPS_SERVICE));
-            i.setAction("kb1001.validation.start");
-            if(Build.VERSION.SDK_INT>=26)startForegroundService(i);
-            else startService(i);
-            monitorRequested=true;
-        }catch(Exception e){
-            monitorRequested=false;
-            status.setText("Performance Manager FPS service could not be started automatically.");
-        }
-    }
-
-    private void stopPerformanceMonitorValidation(){
-        if(!monitorRequested)return;
-        monitorRequested=false;
-        try{
-            Intent i=new Intent();
-            i.setComponent(new ComponentName(PERF_PACKAGE,PERF_FPS_SERVICE));
-            i.setAction("kb1001.validation.stop");
-            if(Build.VERSION.SDK_INT>=26)startForegroundService(i);
-            else startService(i);
-        }catch(Exception ignored){}
     }
 
     private void stopSession(){
         if(rendering)nativeStop();
         rendering=false;
-        stopPerformanceMonitorValidation();
     }
 
     @Override public void surfaceCreated(SurfaceHolder holder){
