@@ -37,6 +37,9 @@ public final class FpsOverlayService extends Service {
     private int displayedAverageFps=Integer.MIN_VALUE;
     private final java.util.ArrayDeque<Integer> averageSamples=new java.util.ArrayDeque<>();
     private long averageSum;
+    private String averageSource="";
+    // Sampler cadence is ~500 ms, so 10 valid samples is an approximately
+    // five-second rolling average. Unresolved samples are never added.
     private static final int AVERAGE_WINDOW_SAMPLES=10;
 
     public static boolean isRunning(){return running;}
@@ -231,14 +234,23 @@ public final class FpsOverlayService extends Service {
 
                     String line;
                     while((line=in.readLine())!=null && running){
-                        int[] parsed=parseFps(line);
-                        final int fps=parsed[0];
+                        FpsSample sample=parseFps(line);
 
-                        if(fps<0)continue;
+                        boolean sourceChanged=!sample.source.isEmpty() &&
+                                !sample.source.equals(averageSource);
+                        if(sourceChanged){
+                            resetAverage(sample.source);
+                        }
 
-                        final int avg=parsed[1]>=0
-                                ? parsed[1]
-                                : addAverageSample(fps);
+                        if(sample.fps<0){
+                            // A resolver miss is not an FPS sample. Keep the last
+                            // rendered values on screen, but never contaminate the
+                            // rolling average with it.
+                            continue;
+                        }
+
+                        final int fps=sample.fps;
+                        final int avg=addAverageSample(fps);
 
                         if(fps==displayedFps && avg==displayedAverageFps)continue;
                         displayedFps=fps;
@@ -267,18 +279,24 @@ public final class FpsOverlayService extends Service {
         });
     }
 
-    private int[] parseFps(String line){
-        int[] out={-1,-1};
-        if(line==null)return out;
+    private FpsSample parseFps(String line){
+        if(line==null)return new FpsSample(-1,"");
 
-        String[] parts=line.trim().split("\\|",-1);
-        for(int i=0;i<Math.min(2,parts.length);i++){
-            try{
-                int v=Integer.parseInt(parts[i].trim());
-                out[i]=Math.max(-1,Math.min(240,v));
-            }catch(Exception ignored){}
-        }
-        return out;
+        String[] parts=line.trim().split("\\|",3);
+        int fps=-1;
+        try{
+            fps=Math.max(-1,Math.min(240,Integer.parseInt(parts[0].trim())));
+        }catch(Exception ignored){}
+
+        String source=parts.length>=2?parts[1].trim():"";
+        return new FpsSample(fps,source);
+    }
+
+    private void resetAverage(String source){
+        averageSamples.clear();
+        averageSum=0;
+        averageSource=source==null?"":source;
+        displayedAverageFps=Integer.MIN_VALUE;
     }
 
     private int addAverageSample(int fps){
@@ -290,6 +308,16 @@ public final class FpsOverlayService extends Service {
         return averageSamples.isEmpty()
                 ? fps
                 : Math.round((float)averageSum/averageSamples.size());
+    }
+
+    private static final class FpsSample{
+        final int fps;
+        final String source;
+
+        FpsSample(int fps,String source){
+            this.fps=fps;
+            this.source=source==null?"":source;
+        }
     }
 
     private int dp(int value){
