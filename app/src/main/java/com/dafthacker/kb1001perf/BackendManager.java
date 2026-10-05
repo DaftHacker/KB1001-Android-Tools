@@ -33,6 +33,7 @@ public final class BackendManager {
             "fps_sampler.sh",
             "renderer_recon.sh",
             "cpu_control.sh",
+            "thermal_control.sh",
             "profile_switch.sh",
             "kb1001ctl"
     };
