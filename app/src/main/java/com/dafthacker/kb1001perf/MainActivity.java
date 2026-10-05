@@ -36,6 +36,7 @@ public class MainActivity extends Activity {
     private static final int SESSION_COLOR = Color.rgb(238,102,190);
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final ExecutorService backendIo = Executors.newSingleThreadExecutor();
     private final ExecutorService scanIo = Executors.newSingleThreadExecutor();
     private final ExecutorService updateIo = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -991,7 +992,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshBackendState() {
-        io.execute(() -> {
+        backendIo.execute(() -> {
             RootBridge.Result r = RootBridge.get().ctl("status");
             if (!r.ok()) return;
             Map<String,String> status = parseStatus(r.output);
@@ -1219,7 +1220,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshBackendHealth(){
-        io.execute(()->{
+        backendIo.execute(()->{
             RootBridge.Result r=BackendManager.backendHealth(this);
             runOnUiThread(()->{
                 if(backendHealthValue==null)return;
@@ -1612,6 +1613,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         io.shutdownNow();
+        backendIo.shutdownNow();
         scanIo.shutdownNow();
         updateIo.shutdownNow();
         super.onDestroy();
