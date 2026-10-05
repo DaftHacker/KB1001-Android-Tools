@@ -53,6 +53,7 @@ public final class FpsOverlayService extends Service {
     private int validationRowsSinceFlush;
     private long validationLastFlushMs;
     private boolean validatorSnapshotCaptured;
+    private boolean rendererReconCaptured;
     private static final String VALIDATOR_PACKAGE="com.dafthacker.fpsvalidator";
     private static final int DEFAULT_POLL_MS=50;
     private static final int MIN_POLL_MS=50;
@@ -293,8 +294,12 @@ public final class FpsOverlayService extends Service {
                             resetAverage(sample.source);
                         }
 
+                        syncValidationLogger(sample.source);
+                        captureValidatorResolverSnapshot(sample.source);
+                        captureRendererRecon(sample.source);
+
                         if(sample.fps<0){
-                            // Resolver misses are not frame-rate measurements.
+                            logValidationSample(sample,-1,pollMs,getAverageWindowMs());
                             continue;
                         }
 
@@ -316,8 +321,6 @@ public final class FpsOverlayService extends Service {
                             avg=averageHasLiveSample?currentAverage(now,windowMs):-1;
                         }
 
-                        syncValidationLogger(sample.source);
-                        captureValidatorResolverSnapshot(sample.source);
                         logValidationSample(sample,avg,pollMs,windowMs);
 
                         if(fps==displayedFps && avg==displayedAverageFps)continue;
@@ -449,6 +452,33 @@ public final class FpsOverlayService extends Service {
             this.candidateCount=candidateCount;
             this.cycleMs=cycleMs;
         }
+    }
+
+    private void captureRendererRecon(String source){
+        if(!VALIDATOR_PACKAGE.equals(source)){
+            rendererReconCaptured=false;
+            return;
+        }
+        if(rendererReconCaptured)return;
+        rendererReconCaptured=true;
+
+        Thread t=new Thread(()->{
+            try{
+                File dir=new File(getExternalFilesDir(null),"fps-validation");
+                if(!dir.exists()&&!dir.mkdirs())return;
+                File report=new File(dir,"renderer-recon-latest.txt");
+
+                Thread.sleep(1200L);
+                RootBridge.get().exec(
+                        "sh "+RootBridge.shellQuote(BackendManager.BACKEND_DIR+"/renderer_recon.sh")+
+                        " "+RootBridge.shellQuote(VALIDATOR_PACKAGE)+
+                        " "+RootBridge.shellQuote(report.getAbsolutePath()));
+                publishToDownloads(
+                        report,"KB1001-Renderer-Recon.txt","text/plain");
+            }catch(Exception ignored){}
+        },"KB1001-renderer-recon");
+        t.setDaemon(true);
+        t.start();
     }
 
     private void captureValidatorResolverSnapshot(String source){
