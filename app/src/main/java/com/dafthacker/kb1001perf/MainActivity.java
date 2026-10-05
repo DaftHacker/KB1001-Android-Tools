@@ -1258,8 +1258,9 @@ public class MainActivity extends Activity {
 
     private String displayProfile(String p) {
         if ("stock".equals(p)) return "Stock 696";
-        if ("dynamic744".equals(p)) return "Dynamic 744";
-        if ("performance744".equals(p)) return "Performance 744";
+        if ("performance696".equals(p)) return "Performance 696";
+        if ("dynamic744".equals(p)) return "Experimental Dynamic 744";
+        if ("performance744".equals(p)) return "Experimental Performance 744";
         if ("extreme792".equals(p) || "experimental792".equals(p)) return "Experimental 792";
         return p;
     }
@@ -1444,7 +1445,7 @@ public class MainActivity extends Activity {
     private void experimental() {
         new AlertDialog.Builder(this)
                 .setTitle("Experimental 792 MHz")
-                .setMessage("Apply 792 MHz for this session? It is not persisted and AutoBoost never selects it.")
+                .setMessage("Apply the 792 MHz runtime OPP for this session? The factory ceiling is 696 MHz; this is not persisted and AutoBoost never selects it.")
                 .setNegativeButton("Cancel",(d,w) -> refreshBackendState())
                 .setPositiveButton("Apply",(d,w) -> ctl("apply experimental792"))
                 .show();
