@@ -11,6 +11,7 @@ MANUAL_METRICS="$STATE_DIR/manual_metrics_overlay"
 MANUAL_FPS="$STATE_DIR/manual_fps_overlay"
 AUTO_PID="/data/local/tmp/kb1001_game_boost.pid"
 AUTO_STATE="/data/local/tmp/kb1001_game_boost.state"
+VALIDATOR_PKG="com.dafthacker.fpsvalidator"
 
 conf_get(){ v="$(grep -m1 "^$1=" "$AUTO_CONF" 2>/dev/null|cut -d= -f2-)"; [ -n "$v" ]&&printf '%s' "$v"||printf '%s' "$2"; }
 sanitize_profile(){ case "$1" in stock|dynamic744|performance744) printf '%s' "$1";; *) printf dynamic744;; esac; }
@@ -35,12 +36,22 @@ get_foreground_package() {
     printf '%s\n' "$pkg"
 }
 
-is_registered_game(){ [ -n "$1" ] && grep -Ev '^[[:space:]]*(#|$)' "$GAMES" 2>/dev/null | sed 's/[[:space:]]*$//' | grep -Fxq "$1"; }
+is_validation_target(){ [ "$1" = "$VALIDATOR_PKG" ]; }
+is_registered_game(){
+ [ -n "$1" ] || return 1
+ is_validation_target "$1" && return 0
+ grep -Ev '^[[:space:]]*(#|$)' "$GAMES" 2>/dev/null | sed 's/[[:space:]]*$//' | grep -Fxq "$1"
+}
 metrics_allowed(){ [ -n "$1" ] && grep -Fxq "$1" "$METRICS_GAMES" 2>/dev/null; }
-fps_allowed(){ [ -n "$1" ] && grep -Fxq "$1" "$FPS_GAMES" 2>/dev/null; }
+fps_allowed(){
+ [ -n "$1" ] || return 1
+ is_validation_target "$1" && return 0
+ grep -Fxq "$1" "$FPS_GAMES" 2>/dev/null
+}
 manual_metrics(){ [ "$(cat "$MANUAL_METRICS" 2>/dev/null)" = 1 ]; }
 manual_fps(){ [ "$(cat "$MANUAL_FPS" 2>/dev/null)" = 1 ]; }
 any_overlay_configured(){
+ pm path "$VALIDATOR_PKG" >/dev/null 2>&1 ||
  grep -q '[^[:space:]#]' "$METRICS_GAMES" 2>/dev/null ||
  grep -q '[^[:space:]#]' "$FPS_GAMES" 2>/dev/null
 }
@@ -126,7 +137,13 @@ run_daemon() {
 
         pkg="$(get_foreground_package)"
         if is_registered_game "$pkg"; then
-            if [ "$boost_enabled" = 1 ]; then
+            if is_validation_target "$pkg"; then
+                # Validation must observe the monitor, not trigger unrelated
+                # AutoBoost profile changes that could perturb the workload.
+                active_profile="$(cat "$CONFIG" 2>/dev/null)"
+                [ -n "$active_profile" ] || active_profile=dynamic744
+                retry_target=""
+            elif [ "$boost_enabled" = 1 ]; then
                 if [ "$last_mode" != game ] || [ "$last_pkg" != "$pkg" ] || [ "$retry_target" = "$game_profile" ]; then
                     if apply_auto_profile "$game_profile" "game=$pkg"; then
                         retry_target=""
