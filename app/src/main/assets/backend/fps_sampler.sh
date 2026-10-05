@@ -52,111 +52,142 @@ clean_sf_layer(){
  esac
 }
 
-discover_layer(){
- target="$1"
- [ -n "$target" ] || return
 
- # Prefer an actively composed Output Layer. This avoids stale package-matched
- # wrappers that can present at a cadence different from the game surface.
- sf_dump="$(dumpsys SurfaceFlinger 2>/dev/null)"
- output_lines="$(printf '%s\n' "$sf_dump" |
-  grep -F "$target" |
-  grep -E 'Output Layer|SurfaceView|BLAST|BBQ' |
-  grep -Ev 'ActivityRecord|InputSink|Background for|Bounds for|Dim layer|Snapshot|Transition|leash')"
-
- line="$(printf '%s\n' "$output_lines" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | tail -1)"
- [ -n "$line" ] || line="$(printf '%s\n' "$output_lines" | grep -E 'SurfaceView' | tail -1)"
- [ -n "$line" ] || line="$(printf '%s\n' "$output_lines" | grep -E 'BLAST|BBQ' | tail -1)"
-
- if [ -n "$line" ]; then
-  candidate="$(printf '%s\n' "$line" | sed -n 's/.*(\(.*\)).*/\1/p')"
-  [ -n "$candidate" ] || candidate="$(clean_sf_layer "$line")"
-  [ -n "$candidate" ] && { printf '%s\n' "$candidate"; return; }
- fi
-
- # Fallback to the layer list. Prefer the latest renderable SurfaceView/BLAST.
- layers="$(dumpsys SurfaceFlinger --list 2>/dev/null)"
- matches="$(printf '%s\n' "$layers" |
-  grep -F "$target" |
-  grep -Ev 'ActivityRecord|InputSink|Background for|Bounds for|Dim layer|Snapshot|Transition|leash')"
-
- line="$(printf '%s\n' "$matches" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | tail -1)"
- [ -n "$line" ] || line="$(printf '%s\n' "$matches" | grep -E 'SurfaceView' | tail -1)"
- [ -n "$line" ] || line="$(printf '%s\n' "$matches" | grep -E 'BLAST|BBQ' | tail -1)"
- [ -n "$line" ] || line="$(printf '%s\n' "$matches" | tail -1)"
-
- if [ -z "$line" ]; then
-  short="${target##*.}"
-  if [ "${#short}" -ge 4 ]; then
-   matches="$(printf '%s\n' "$layers" |
-    grep -Fi "$short" |
-    grep -Ev 'ActivityRecord|InputSink|Background for|Bounds for|Dim layer|Snapshot|Transition|leash')"
-   line="$(printf '%s\n' "$matches" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | tail -1)"
-   [ -n "$line" ] || line="$(printf '%s\n' "$matches" | grep -E 'SurfaceView|BLAST|BBQ' | tail -1)"
-   [ -n "$line" ] || line="$(printf '%s\n' "$matches" | tail -1)"
-  fi
- fi
-
- [ -n "$line" ] && clean_sf_layer "$line"
-}
-
-surface_fps(){
+layer_last_present(){
  layer="$1"
- previous="$2"
-
- dumpsys SurfaceFlinger --latency "$layer" 2>/dev/null | awk -v previous="$previous" '
+ dumpsys SurfaceFlinger --latency "$layer" 2>/dev/null | awk '
   NR==1 { next }
   NF>=3 {
    v=0
    if($2 ~ /^[0-9]+$/ && $2>0 && $2<9223372036854775807)v=$2
    else if($3 ~ /^[0-9]+$/ && $3>0 && $3<9223372036854775807)v=$3
-   if(v>0){
-    if(n==0 || v!=t[n]) t[++n]=v
-   }
+   if(v>last)last=v
+  }
+  END { print last+0 }'
+}
+
+discover_layer(){
+ target="$1"
+ [ -n "$target" ] || return
+
+ layers="$(dumpsys SurfaceFlinger --list 2>/dev/null)"
+ matches="$(printf '%s\n' "$layers" |
+  grep -F "$target" |
+  grep -Ev 'ActivityRecord|InputSink|Background for|Bounds for|Dim layer|Snapshot|Transition|leash|Task=')"
+
+ if [ -z "$matches" ]; then
+  short="${target##*.}"
+  if [ "${#short}" -ge 4 ]; then
+   matches="$(printf '%s\n' "$layers" |
+    grep -Fi "$short" |
+    grep -Ev 'ActivityRecord|InputSink|Background for|Bounds for|Dim layer|Snapshot|Transition|leash|Task=')"
+  fi
+ fi
+
+ [ -n "$matches" ] || return
+
+ best=""
+ best_present=0
+ fallback=""
+
+ while IFS= read -r raw; do
+  [ -n "$raw" ] || continue
+  candidate="$(clean_sf_layer "$raw")"
+  [ -n "$candidate" ] || continue
+
+  if [ -z "$fallback" ]; then
+   fallback="$candidate"
+  elif printf '%s' "$candidate" | grep -Eq 'SurfaceView.*BLAST|BLAST.*SurfaceView'; then
+   fallback="$candidate"
+  fi
+
+  last="$(layer_last_present "$candidate")"
+  case "$last" in ''|*[!0-9]*) last=0;; esac
+  if [ "$last" -gt "$best_present" ] 2>/dev/null; then
+   best_present="$last"
+   best="$candidate"
+  fi
+ done <<EOF
+$matches
+EOF
+
+ [ -n "$best" ] && printf '%s\n' "$best" || printf '%s\n' "$fallback"
+}
+
+
+surface_fps(){
+ layer="$1"
+
+ dumpsys SurfaceFlinger --latency "$layer" 2>/dev/null | awk '
+  NR==1 { next }
+  NF>=3 {
+   v=0
+   if($2 ~ /^[0-9]+$/ && $2>0 && $2<9223372036854775807)v=$2
+   else if($3 ~ /^[0-9]+$/ && $3>0 && $3<9223372036854775807)v=$3
+   if(v>0 && (n==0 || v!=t[n]))t[++n]=v
   }
   END {
-   if(n<2){print "-1|0";exit}
+   if(n<2){print "-1|-1|0";exit}
 
    last=t[n]
    prior=t[n-1]
    dt=last-prior
-   if(dt<=0){print "-1|" last;exit}
+   if(dt<=0){print "-1|-1|" last;exit}
 
-   # Live counter: newest distinct completed presentation interval only.
-   fps=int((1000000000.0/dt)+0.5)
-   if(fps<0)fps=0
-   if(fps>240)fps=240
-   print fps "|" last
+   current=int((1000000000.0/dt)+0.5)
+
+   cutoff=last-1000000000
+   first=n
+   while(first>1 && t[first-1]>=cutoff)first--
+   frames=n-first
+   span=last-t[first]
+
+   if(frames>0 && span>0)avg=int((frames*1000000000.0/span)+0.5)
+   else avg=current
+
+   if(current<0)current=0
+   if(current>240)current=240
+   if(avg<0)avg=0
+   if(avg>240)avg=240
+
+   print current "|" avg "|" last
   }'
 }
 
+
 query_layer(){
  current_layer="$1"
- previous="$2"
 
- pair="$(surface_fps "$current_layer" "$previous")"
- fps="${pair%%|*}"
- present="${pair#*|}"
+ metrics="$(surface_fps "$current_layer")"
+ current="${metrics%%|*}"
+ rest="${metrics#*|}"
+ avg="${rest%%|*}"
+ last="${rest#*|}"
 
- case "$fps" in ''|*[!0-9-]*) fps=-1;; esac
- if [ "$fps" -ge 0 ] 2>/dev/null; then
-  printf '%s|%s|%s\n' "$fps" "$present" "$current_layer"
+ case "$current" in ''|*[!0-9-]*) current=-1;; esac
+ case "$avg" in ''|*[!0-9-]*) avg=-1;; esac
+
+ if [ "$current" -ge 0 ] 2>/dev/null; then
+  printf '%s|%s|%s|%s\n' "$current" "$avg" "$last" "$current_layer"
   return
  fi
 
  noid="$(printf '%s' "$current_layer" | sed 's/#[0-9][0-9]*$//')"
  if [ "$noid" != "$current_layer" ]; then
-  pair="$(surface_fps "$noid" "$previous")"
-  fps="${pair%%|*}"
-  present="${pair#*|}"
-  case "$fps" in ''|*[!0-9-]*) fps=-1;; esac
-  if [ "$fps" -ge 0 ] 2>/dev/null; then
-   printf '%s|%s|%s\n' "$fps" "$present" "$noid"
+  metrics="$(surface_fps "$noid")"
+  current="${metrics%%|*}"
+  rest="${metrics#*|}"
+  avg="${rest%%|*}"
+  last="${rest#*|}"
+  case "$current" in ''|*[!0-9-]*) current=-1;; esac
+  case "$avg" in ''|*[!0-9-]*) avg=-1;; esac
+  if [ "$current" -ge 0 ] 2>/dev/null; then
+   printf '%s|%s|%s|%s\n' "$current" "$avg" "$last" "$noid"
    return
   fi
  fi
 
- printf '%s|%s|%s\n' "-1" "0" "$current_layer"
+ printf '%s|%s|%s|%s\n' "-1" "-1" "0" "$current_layer"
 }
 
 
