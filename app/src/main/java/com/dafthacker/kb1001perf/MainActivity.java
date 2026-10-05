@@ -756,6 +756,8 @@ public class MainActivity extends Activity {
 
     private void setManualOverlay(String type,boolean enabled,Switch control){
         if(control==null)return;
+        if("metrics".equals(type))AppStateCache.setManualMetrics(this,enabled);
+        else AppStateCache.setManualFps(this,enabled);
         control.setEnabled(false);
         io.execute(()->{
             String command="overlay "+type+"-manual-"+(enabled?"on":"off");
@@ -767,6 +769,8 @@ public class MainActivity extends Activity {
                 suppressSwitchCallbacks=false;
                 control.setEnabled(true);
                 if(!saved){
+                    if("metrics".equals(type))AppStateCache.setManualMetrics(this,!enabled);
+                    else AppStateCache.setManualFps(this,!enabled);
                     Toast.makeText(this,"Could not verify manual "+type.toUpperCase(Locale.US)+" overlay state.",Toast.LENGTH_SHORT).show();
                     refreshBackendState();
                 }
@@ -867,12 +871,13 @@ public class MainActivity extends Activity {
             RootBridge.Result r = RootBridge.get().ctl("status");
             if (!r.ok()) return;
             Map<String,String> status = parseStatus(r.output);
+            AppStateCache.updateStatus(this,status);
 
             runOnUiThread(() -> {
                 suppressSwitchCallbacks = true;
 
-                if (autoBoostSwitch != null) autoBoostSwitch.setChecked("1".equals(status.get("Auto boost")));
-                if (loggingSwitch != null) loggingSwitch.setChecked("1".equals(status.get("File logging")));
+                if (autoBoostSwitch != null) autoBoostSwitch.setChecked(AppStateCache.autoBoost(this));
+                if (loggingSwitch != null) loggingSwitch.setChecked(AppStateCache.fileLogging(this));
                 boolean metricsRunning=OverlayService.isRunning() ||
                         isOwnServiceRunning(OverlayService.class);
                 boolean fpsRunning=FpsOverlayService.isRunning() ||
@@ -883,8 +888,8 @@ public class MainActivity extends Activity {
                 getSharedPreferences("fps_hud",MODE_PRIVATE).edit()
                         .putBoolean("runtime_running",fpsRunning).apply();
 
-                if (hudSwitch != null) hudSwitch.setChecked("1".equals(status.get("Manual Metrics overlay")));
-                if (fpsHudSwitch != null) fpsHudSwitch.setChecked("1".equals(status.get("Manual FPS overlay")));
+                if (hudSwitch != null) hudSwitch.setChecked(AppStateCache.manualMetrics(this));
+                if (fpsHudSwitch != null) fpsHudSwitch.setChecked(AppStateCache.manualFps(this));
 
                 String persistent = status.get("Persistent profile");
                 if (persistent != null) {
@@ -1021,9 +1026,9 @@ public class MainActivity extends Activity {
                 Math.max(0,batt));
 
         if (loggingSwitch != null) {
-            suppressSwitchCallbacks = true;
-            loggingSwitch.setChecked("1".equals(TelemetryStore.get(m,"file_logging","0")));
-            suppressSwitchCallbacks = false;
+            boolean recording="1".equals(TelemetryStore.get(m,"file_logging","0"));
+            AppStateCache.setFileLogging(this,recording);
+            setSwitchImmediately(loggingSwitch,recording);
         }
 
         if (loggerPath != null) {
@@ -1431,8 +1436,8 @@ public class MainActivity extends Activity {
         active = true;
         handler.removeCallbacks(ticker);
         handler.post(ticker);
-        refreshBackendState();
-        if (tab == 1) loadGamesInline();
+        if(!AppStateCache.statusFresh(this,1500)) refreshBackendState();
+        if (tab == 1 && !AppStateCache.gamesFresh(this,2000)) loadGamesInline();
     }
 
     @Override protected void onPause() {
