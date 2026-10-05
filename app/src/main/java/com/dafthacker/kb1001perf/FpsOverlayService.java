@@ -110,7 +110,7 @@ public final class FpsOverlayService extends Service {
 
         applySavedPosition();
 
-        overlay.setOnTouchListener((v,e)->{
+        fpsText.setOnTouchListener((v,e)->{
             switch(e.getActionMasked()){
                 case MotionEvent.ACTION_DOWN:
                     downX=e.getRawX();
@@ -163,7 +163,7 @@ public final class FpsOverlayService extends Service {
         fpsText.setShadowLayer(3f,0f,0f,Color.BLACK);
         fpsText.setPadding(dp(7),dp(3),dp(7),dp(3));
         if(wm!=null&&params!=null){
-            try{wm.updateViewLayout(fpsText,params);}catch(Exception ignored){}
+            try{wm.updateViewLayout(overlay,params);}catch(Exception ignored){}
         }
     }
 
