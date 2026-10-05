@@ -8,6 +8,9 @@ import android.graphics.PixelFormat;
 import android.graphics.drawable.GradientDrawable;
 import android.os.*;
 import android.provider.Settings;
+import android.provider.MediaStore;
+import android.content.ContentValues;
+import android.net.Uri;
 import android.view.*;
 import android.widget.TextView;
 
@@ -15,6 +18,8 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
+import java.io.FileInputStream;
+import java.io.OutputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.*;
@@ -448,10 +453,7 @@ public final class FpsOverlayService extends Service {
         try{
             File dir=new File(getExternalFilesDir(null),"fps-validation");
             if(!dir.exists()&&!dir.mkdirs())return;
-            String stamp=new java.text.SimpleDateFormat(
-                    "yyyyMMdd-HHmmss",java.util.Locale.US)
-                    .format(new java.util.Date());
-            File snapshot=new File(dir,"resolver-"+stamp+".txt");
+            File snapshot=new File(dir,"resolver-latest.txt");
 
             // Run once on a separate thread so the diagnostic dumpsys calls cannot
             // delay the sampler stream used for the scored validation phases.
@@ -461,6 +463,7 @@ public final class FpsOverlayService extends Service {
                             "sh "+RootBridge.shellQuote(FPS_SAMPLER)+
                             " validator-snapshot "+
                             RootBridge.shellQuote(snapshot.getAbsolutePath()));
+                    publishToDownloads(snapshot,"KB1001-FPS-Resolver.txt","text/plain");
                 }catch(Exception ignored){}
             },"KB1001-fps-resolver-snapshot");
             t.start();
@@ -480,10 +483,7 @@ public final class FpsOverlayService extends Service {
             File dir=new File(getExternalFilesDir(null),"fps-validation");
             if(!dir.exists()&&!dir.mkdirs())return;
 
-            String stamp=new java.text.SimpleDateFormat(
-                    "yyyyMMdd-HHmmss",java.util.Locale.US)
-                    .format(new java.util.Date());
-            validationFile=new File(dir,"overlay-"+stamp+".csv");
+            validationFile=new File(dir,"overlay-latest.csv");
             validationWriter=new BufferedWriter(new FileWriter(validationFile,false),65536);
             validationWriter.write(
                     "elapsed_realtime_ns,wall_time_ms,current_fps,average_fps,"+
@@ -555,10 +555,42 @@ public final class FpsOverlayService extends Service {
             try{validationWriter.flush();}catch(Exception ignored){}
             try{validationWriter.close();}catch(Exception ignored){}
         }
+        File completed=validationFile;
         validationWriter=null;
         validationFile=null;
+        if(completed!=null)publishToDownloads(
+                completed,"KB1001-FPS-Overlay.csv","text/csv");
         validationRowsSinceFlush=0;
         validationLastFlushMs=0;
+    }
+
+    private void publishToDownloads(File source,String name,String mime){
+        if(source==null||!source.isFile())return;
+        try{
+            android.content.ContentResolver cr=getContentResolver();
+            Uri collection=MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+            cr.delete(collection,
+                    MediaStore.MediaColumns.DISPLAY_NAME+"=? AND "+
+                            MediaStore.MediaColumns.RELATIVE_PATH+"=?",
+                    new String[]{name,"Download/"});
+            ContentValues values=new ContentValues();
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME,name);
+            values.put(MediaStore.MediaColumns.MIME_TYPE,mime);
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH,"Download/");
+            values.put(MediaStore.MediaColumns.IS_PENDING,1);
+            Uri uri=cr.insert(collection,values);
+            if(uri==null)return;
+            try(FileInputStream in=new FileInputStream(source);
+                OutputStream out=cr.openOutputStream(uri,"w")){
+                if(out==null)return;
+                byte[] buf=new byte[65536];
+                int n;
+                while((n=in.read(buf))>0)out.write(buf,0,n);
+            }
+            values.clear();
+            values.put(MediaStore.MediaColumns.IS_PENDING,0);
+            cr.update(uri,values,null,null);
+        }catch(Exception ignored){}
     }
 
     private int dp(int value){
