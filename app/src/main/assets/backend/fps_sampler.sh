@@ -238,9 +238,11 @@ stream(){
 
   # When automatic game state is unavailable/stale (for example a manually
   # enabled FPS counter), rediscover the foreground package at only 0.5 Hz.
+  # The fast path below samples the already-resolved layer more often without
+  # increasing expensive foreground discovery work.
   if [ -z "$next_pkg" ]; then
    discover_tick=$((discover_tick+1))
-   if [ "$discover_tick" -ge 4 ] || [ -z "$pkg_cached" ]; then
+   if [ "$discover_tick" -ge 8 ] || [ -z "$pkg_cached" ]; then
     candidate="$(foreground_package)"
     [ -n "$candidate" ] && next_pkg="$candidate" || next_pkg="$pkg_cached"
     discover_tick=0
@@ -283,7 +285,7 @@ stream(){
     if [ "$fps" -gt 0 ] 2>/dev/null; then
      last_good_fps="$fps"
      hold_ticks=0
-    elif [ "$last_good_fps" -ge 0 ] 2>/dev/null && [ "$hold_ticks" -lt 3 ]; then
+    elif [ "$last_good_fps" -ge 0 ] 2>/dev/null && [ "$hold_ticks" -lt 6 ]; then
      # Avoid flashing 0 between normal frame-history refreshes.
      fps="$last_good_fps"
      hold_ticks=$((hold_ticks+1))
@@ -302,7 +304,7 @@ stream(){
   # useful on launcher/system apps that do not expose usable layer latency.
   if [ "$fps" -lt 0 ] 2>/dev/null; then
    gfx_tick=$((gfx_tick+1))
-   if [ "$gfx_tick" -ge 2 ]; then
+   if [ "$gfx_tick" -ge 4 ]; then
     gfx_fps=-1
     if [ -n "$pkg_cached" ]; then
      gfx_fps="$(gfxinfo_fps "$pkg_cached")"
@@ -336,7 +338,7 @@ stream(){
   fi
 
   printf '%s\n' "$fps" || exit 0
-  sleep 0.5
+  sleep 0.25
  done
 }
 
