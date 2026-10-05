@@ -26,6 +26,7 @@ public final class FpsOverlayService extends Service {
 
     private WindowManager wm;
     private WindowManager.LayoutParams params;
+    private android.widget.LinearLayout overlay;
     private TextView fpsText;
     private java.lang.Process sampler;
 
@@ -65,6 +66,10 @@ public final class FpsOverlayService extends Service {
         float scale=prefs.getFloat("scale",1f);
         int textColor=prefs.getInt("color",Color.WHITE);
 
+        overlay=new android.widget.LinearLayout(this);
+        overlay.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        overlay.setGravity(Gravity.CENTER_VERTICAL);
+
         fpsText=new TextView(this);
         fpsText.setText("— FPS");
         fpsText.setTextColor(textColor);
@@ -78,7 +83,21 @@ public final class FpsOverlayService extends Service {
         backing.setColor(Color.argb(112,0,0,0));
         backing.setCornerRadius(dp(6));
         backing.setStroke(dp(1),Color.argb(150,0,0,0));
-        fpsText.setBackground(backing);
+        overlay.setBackground(backing);
+        overlay.addView(fpsText,new android.widget.LinearLayout.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT));
+
+        TextView close=new TextView(this);
+        close.setText("×");
+        close.setTextColor(Color.rgb(220,225,224));
+        close.setTextSize(13f*scale);
+        close.setGravity(Gravity.CENTER);
+        close.setPadding(dp(5),0,dp(6),dp(1));
+        close.setOnClickListener(v->closeManualOverlay());
+        overlay.addView(close,new android.widget.LinearLayout.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.MATCH_PARENT));
 
         params=new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -91,7 +110,7 @@ public final class FpsOverlayService extends Service {
 
         applySavedPosition();
 
-        fpsText.setOnTouchListener((v,e)->{
+        overlay.setOnTouchListener((v,e)->{
             switch(e.getActionMasked()){
                 case MotionEvent.ACTION_DOWN:
                     downX=e.getRawX();
@@ -103,11 +122,11 @@ public final class FpsOverlayService extends Service {
                 case MotionEvent.ACTION_MOVE:
                     int desiredX=startX+Math.round(e.getRawX()-downX);
                     int desiredY=startY+Math.round(e.getRawY()-downY);
-                    int maxX=Math.max(0,getResources().getDisplayMetrics().widthPixels-Math.max(1,fpsText.getWidth()));
-                    int maxY=Math.max(0,getResources().getDisplayMetrics().heightPixels-Math.max(1,fpsText.getHeight()));
+                    int maxX=Math.max(0,getResources().getDisplayMetrics().widthPixels-Math.max(1,overlay.getWidth()));
+                    int maxY=Math.max(0,getResources().getDisplayMetrics().heightPixels-Math.max(1,overlay.getHeight()));
                     params.x=Math.max(0,Math.min(maxX,desiredX));
                     params.y=Math.max(0,Math.min(maxY,desiredY));
-                    try{wm.updateViewLayout(fpsText,params);}catch(Exception ignored){}
+                    try{wm.updateViewLayout(overlay,params);}catch(Exception ignored){}
                     return true;
 
                 case MotionEvent.ACTION_UP:
@@ -121,7 +140,17 @@ public final class FpsOverlayService extends Service {
             return false;
         });
 
-        wm.addView(fpsText,params);
+        wm.addView(overlay,params);
+    }
+
+    private void closeManualOverlay(){
+        AppStateCache.setManualFps(this,false);
+        Thread t=new Thread(
+                ()->RootBridge.get().ctl("overlay fps-manual-off"),
+                "KB1001-fps-close");
+        t.setDaemon(true);
+        t.start();
+        stopSelf();
     }
 
     private void applyAppearance(){
@@ -271,8 +300,9 @@ public final class FpsOverlayService extends Service {
             }
         }catch(Exception ignored){}
 
-        if(fpsText!=null&&wm!=null){
-            try{wm.removeView(fpsText);}catch(Exception ignored){}
+        if(overlay!=null&&wm!=null){
+            try{wm.removeView(overlay);}catch(Exception ignored){}
+            overlay=null;
             fpsText=null;
         }
 
