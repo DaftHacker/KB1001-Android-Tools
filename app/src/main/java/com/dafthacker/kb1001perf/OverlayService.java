@@ -343,7 +343,10 @@ public class OverlayService extends Service {
     private void closeManualOverlay(){
         AppStateCache.setManualMetrics(this,false);
         AppStateCache.notifyManualOverlayState(this,"metrics",false);
-        io.execute(()->RootBridge.get().ctl("overlay metrics-manual-off"));
+        io.execute(()->{
+                    RootBridge.get().ctl("overlay metrics-manual-off");
+                    RootBridge.get().ctl("overlay metrics-hide");
+                });
         stopSelf();
     }
 
