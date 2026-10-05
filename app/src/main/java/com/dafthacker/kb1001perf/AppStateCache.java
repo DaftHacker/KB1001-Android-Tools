@@ -1,6 +1,7 @@
 package com.dafthacker.kb1001perf;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 
 import java.util.Collections;
@@ -16,6 +17,9 @@ import java.util.Set;
  * state every time the user navigates.
  */
 public final class AppStateCache {
+    public static final String ACTION_MANUAL_OVERLAY_CHANGED=
+            "com.dafthacker.kb1001perf.MANUAL_OVERLAY_CHANGED";
+
     private static final String PREFS="app_state_cache";
     private static final String KEY_MANUAL_METRICS="manual_metrics";
     private static final String KEY_MANUAL_FPS="manual_fps";
@@ -36,8 +40,13 @@ public final class AppStateCache {
     private static long statusUpdatedAt;
     private static long gamesUpdatedAt;
     private static boolean gamesLoaded;
+    private static Boolean pendingManualMetrics;
+    private static Boolean pendingManualFps;
+    private static long pendingManualMetricsAt;
+    private static long pendingManualFpsAt;
 
     private static final LinkedHashSet<String> games=new LinkedHashSet<>();
+    private static final LinkedHashMap<String,String> statusValues=new LinkedHashMap<>();
     private static final LinkedHashSet<String> metricsGames=new LinkedHashSet<>();
     private static final LinkedHashSet<String> fpsGames=new LinkedHashSet<>();
 
@@ -65,11 +74,35 @@ public final class AppStateCache {
     public static synchronized void updateStatus(Context context,Map<String,String> status){
         initialize(context);
         if(status==null)return;
+        statusValues.clear();
+        statusValues.putAll(status);
+
+        long now=System.currentTimeMillis();
         if(status.containsKey("Manual Metrics overlay")){
-            manualMetrics="1".equals(status.get("Manual Metrics overlay"));
+            boolean backend="1".equals(status.get("Manual Metrics overlay"));
+            if(pendingManualMetrics!=null){
+                if(backend==pendingManualMetrics){
+                    pendingManualMetrics=null;
+                }else if(now-pendingManualMetricsAt>5000){
+                    pendingManualMetrics=null;
+                    manualMetrics=backend;
+                }
+            }else{
+                manualMetrics=backend;
+            }
         }
         if(status.containsKey("Manual FPS overlay")){
-            manualFps="1".equals(status.get("Manual FPS overlay"));
+            boolean backend="1".equals(status.get("Manual FPS overlay"));
+            if(pendingManualFps!=null){
+                if(backend==pendingManualFps){
+                    pendingManualFps=null;
+                }else if(now-pendingManualFpsAt>5000){
+                    pendingManualFps=null;
+                    manualFps=backend;
+                }
+            }else{
+                manualFps=backend;
+            }
         }
         if(status.containsKey("Auto boost")){
             autoBoost="1".equals(status.get("Auto boost"));
@@ -90,13 +123,30 @@ public final class AppStateCache {
     public static synchronized void setManualMetrics(Context context,boolean value){
         initialize(context);
         manualMetrics=value;
+        pendingManualMetrics=value;
+        pendingManualMetricsAt=System.currentTimeMillis();
         prefs(context).edit().putBoolean(KEY_MANUAL_METRICS,value).apply();
     }
 
     public static synchronized void setManualFps(Context context,boolean value){
         initialize(context);
         manualFps=value;
+        pendingManualFps=value;
+        pendingManualFpsAt=System.currentTimeMillis();
         prefs(context).edit().putBoolean(KEY_MANUAL_FPS,value).apply();
+    }
+
+    public static synchronized Map<String,String> statusSnapshot(Context context){
+        initialize(context);
+        return new LinkedHashMap<>(statusValues);
+    }
+
+    public static void notifyManualOverlayState(Context context,String type,boolean enabled){
+        Intent intent=new Intent(ACTION_MANUAL_OVERLAY_CHANGED);
+        intent.setPackage(context.getPackageName());
+        intent.putExtra("type",type);
+        intent.putExtra("enabled",enabled);
+        context.sendBroadcast(intent);
     }
 
     public static synchronized void setAutoBoost(Context context,boolean value){
