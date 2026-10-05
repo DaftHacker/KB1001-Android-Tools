@@ -35,12 +35,16 @@ public final class FpsOverlayService extends Service {
     private long lastTapUp;
     private int displayedFps=Integer.MIN_VALUE;
     private int displayedAverageFps=Integer.MIN_VALUE;
-    private final java.util.ArrayDeque<Integer> averageSamples=new java.util.ArrayDeque<>();
+    private final java.util.ArrayDeque<AveragePoint> averageSamples=new java.util.ArrayDeque<>();
     private long averageSum;
     private String averageSource="";
-    // Sampler cadence is ~500 ms, so 10 valid samples is an approximately
-    // five-second rolling average. Unresolved samples are never added.
-    private static final int AVERAGE_WINDOW_SAMPLES=10;
+    private volatile boolean samplerRestartRequested;
+    private static final int DEFAULT_POLL_MS=250;
+    private static final int MIN_POLL_MS=100;
+    private static final int MAX_POLL_MS=1000;
+    private static final int DEFAULT_AVERAGE_WINDOW_MS=2000;
+    private static final int MIN_AVERAGE_WINDOW_MS=500;
+    private static final int MAX_AVERAGE_WINDOW_MS=5000;
 
     public static boolean isRunning(){return running;}
 
@@ -66,6 +70,9 @@ public final class FpsOverlayService extends Service {
         getSharedPreferences("fps_hud",MODE_PRIVATE).edit().putBoolean("runtime_running",true).apply();
         if(intent!=null && "kb1001.refresh_fps_appearance".equals(intent.getAction())){
             applyAppearance();
+        }else if(intent!=null && "kb1001.refresh_fps_sampling".equals(intent.getAction())){
+            samplerRestartRequested=true;
+            try{if(sampler!=null)sampler.destroy();}catch(Exception ignored){}
         }
         return START_STICKY;
     }
@@ -216,16 +223,23 @@ public final class FpsOverlayService extends Service {
             RootBridge.Result ready=BackendManager.ensureInstalled(this);
             if(!ready.ok()){
                 handler.post(()->{
-                    if(fpsText!=null)fpsText.setText("— FPS");
+                    if(fpsText!=null)fpsText.setText("Current FPS: —\nAverage FPS: —");
                 });
                 return;
             }
 
             while(running && !Thread.currentThread().isInterrupted()){
                 try{
+                    android.content.SharedPreferences prefs=getSharedPreferences("fps_hud",MODE_PRIVATE);
+                    int pollMs=clamp(
+                            prefs.getInt("poll_ms",DEFAULT_POLL_MS),
+                            MIN_POLL_MS,
+                            MAX_POLL_MS);
+
+                    samplerRestartRequested=false;
                     sampler=new ProcessBuilder(
                             "su","-c",
-                            FPS_SAMPLER+" stream")
+                            FPS_SAMPLER+" stream "+pollMs)
                             .redirectErrorStream(true)
                             .start();
 
@@ -243,14 +257,24 @@ public final class FpsOverlayService extends Service {
                         }
 
                         if(sample.fps<0){
-                            // A resolver miss is not an FPS sample. Keep the last
-                            // rendered values on screen, but never contaminate the
-                            // rolling average with it.
+                            // Resolver misses are not frame-rate measurements.
                             continue;
                         }
 
                         final int fps=sample.fps;
-                        final int avg=addAverageSample(fps);
+                        final long now=SystemClock.elapsedRealtime();
+                        final int windowMs=getAverageWindowMs();
+
+                        // Only primary SurfaceFlinger presentation samples and
+                        // confirmed sustained stalls advance Average FPS.
+                        // A held display value is not a new measurement, and a
+                        // fallback source must not silently mix with the primary.
+                        final int avg;
+                        if("live".equals(sample.kind) || "stall".equals(sample.kind)){
+                            avg=addAverageSample(fps,now,windowMs);
+                        }else{
+                            avg=currentAverage(now,windowMs);
+                        }
 
                         if(fps==displayedFps && avg==displayedAverageFps)continue;
                         displayedFps=fps;
@@ -258,9 +282,10 @@ public final class FpsOverlayService extends Service {
 
                         handler.post(()->{
                             if(fpsText==null)return;
+                            String averageText=avg>=0?Integer.toString(avg):"—";
                             fpsText.setText(
                                     "Current FPS: "+fps+
-                                            "\nAverage FPS: "+avg);
+                                            "\nAverage FPS ("+formatWindow(windowMs)+"): "+averageText);
                         });
                     }
                 }catch(Exception ignored){
@@ -271,7 +296,9 @@ public final class FpsOverlayService extends Service {
                 }
 
                 if(!running)break;
-                try{Thread.sleep(1000);}catch(InterruptedException e){
+                long delay=samplerRestartRequested?75L:1000L;
+                samplerRestartRequested=false;
+                try{Thread.sleep(delay);}catch(InterruptedException e){
                     Thread.currentThread().interrupt();
                     break;
                 }
@@ -280,16 +307,18 @@ public final class FpsOverlayService extends Service {
     }
 
     private FpsSample parseFps(String line){
-        if(line==null)return new FpsSample(-1,"");
+        if(line==null)return new FpsSample(-1,"","");
 
-        String[] parts=line.trim().split("\\|",3);
+        String[] parts=line.trim().split("\\|",4);
         int fps=-1;
         try{
             fps=Math.max(-1,Math.min(240,Integer.parseInt(parts[0].trim())));
         }catch(Exception ignored){}
 
         String source=parts.length>=2?parts[1].trim():"";
-        return new FpsSample(fps,source);
+        String kind=parts.length>=3?parts[2].trim():"";
+        if(kind.isEmpty() && fps>=0)kind="live";
+        return new FpsSample(fps,source,kind);
     }
 
     private void resetAverage(String source){
@@ -299,24 +328,66 @@ public final class FpsOverlayService extends Service {
         displayedAverageFps=Integer.MIN_VALUE;
     }
 
-    private int addAverageSample(int fps){
-        averageSamples.addLast(fps);
+    private int addAverageSample(int fps,long now,int windowMs){
+        pruneAverage(now,windowMs);
+        AveragePoint point=new AveragePoint(now,fps);
+        averageSamples.addLast(point);
         averageSum+=fps;
-        while(averageSamples.size()>AVERAGE_WINDOW_SAMPLES){
-            averageSum-=averageSamples.removeFirst();
-        }
         return averageSamples.isEmpty()
                 ? fps
                 : Math.round((float)averageSum/averageSamples.size());
     }
 
+    private int currentAverage(long now,int windowMs){
+        pruneAverage(now,windowMs);
+        return averageSamples.isEmpty()
+                ? -1
+                : Math.round((float)averageSum/averageSamples.size());
+    }
+
+    private void pruneAverage(long now,int windowMs){
+        long cutoff=now-windowMs;
+        while(!averageSamples.isEmpty() && averageSamples.peekFirst().timeMs<cutoff){
+            averageSum-=averageSamples.removeFirst().fps;
+        }
+    }
+
+    private int getAverageWindowMs(){
+        return clamp(
+                getSharedPreferences("fps_hud",MODE_PRIVATE)
+                        .getInt("average_window_ms",DEFAULT_AVERAGE_WINDOW_MS),
+                MIN_AVERAGE_WINDOW_MS,
+                MAX_AVERAGE_WINDOW_MS);
+    }
+
+    private static int clamp(int value,int min,int max){
+        return Math.max(min,Math.min(max,value));
+    }
+
+    private static String formatWindow(int windowMs){
+        if(windowMs%1000==0)return (windowMs/1000)+"s";
+        return String.format(java.util.Locale.US,"%.1fs",windowMs/1000f);
+    }
+
+    private static final class AveragePoint{
+        final long timeMs;
+        final int fps;
+
+        AveragePoint(long timeMs,int fps){
+            this.timeMs=timeMs;
+            this.fps=fps;
+        }
+    }
+
     private static final class FpsSample{
         final int fps;
         final String source;
+        final String kind;
 
-        FpsSample(int fps,String source){
+        FpsSample(int fps,String source,String kind){
             this.fps=fps;
             this.source=source==null?"":source;
+            this.kind=kind==null?"":kind;
         }
     }
 
