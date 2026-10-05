@@ -24,17 +24,19 @@ public final class DisplaySleepActivity extends Activity {
     private TextView timeoutValue;
     private TextView writeStatus;
     private Switch keepAwakeSwitch;
+    private SeekBar timeoutSlider;
 
     private static final int[] TIMEOUTS={
-            15_000,30_000,60_000,120_000,300_000,600_000,1_800_000
+            60_000,120_000,300_000,600_000,1_800_000
     };
     private static final String[] TIMEOUT_LABELS={
-            "15 sec","30 sec","1 min","2 min","5 min","10 min","30 min"
+            "1 min","2 min","5 min","10 min","30 min"
     };
 
     @Override protected void onCreate(Bundle state){
         super.onCreate(state);
         setContentView(buildUi());
+        if(!Settings.System.canWrite(this))openWriteSettings();
     }
 
     private View buildUi(){
@@ -87,26 +89,30 @@ public final class DisplaySleepActivity extends Activity {
         status.addView(writeStatus);
         content.addView(status,full());
 
-        GridLayout grid=new GridLayout(this);
-        grid.setColumnCount(2);
-        for(int i=0;i<TIMEOUTS.length;i++){
-            final int timeout=TIMEOUTS[i];
-            Button b=button(TIMEOUT_LABELS[i],BLUE,v->setSystemTimeout(timeout));
-            GridLayout.LayoutParams gp=new GridLayout.LayoutParams();
-            gp.columnSpec=GridLayout.spec(i%2,1f);
-            gp.width=0;
-            gp.height=dp(46);
-            gp.setMargins(dp(3),dp(3),dp(3),dp(3));
-            grid.addView(b,gp);
+        timeoutSlider=new SeekBar(this);
+        timeoutSlider.setMax(TIMEOUTS.length-1);
+        timeoutSlider.setKeyProgressIncrement(1);
+        timeoutSlider.setPadding(dp(8),dp(10),dp(8),0);
+        timeoutSlider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            @Override public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
+                int i=Math.max(0,Math.min(TIMEOUT_LABELS.length-1,progress));
+                timeoutValue.setText("Screen timeout: "+TIMEOUT_LABELS[i]);
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar){}
+            @Override public void onStopTrackingTouch(SeekBar bar){
+                int i=Math.max(0,Math.min(TIMEOUTS.length-1,bar.getProgress()));
+                setSystemTimeout(TIMEOUTS[i]);
+            }
+        });
+        content.addView(timeoutSlider,new LinearLayout.LayoutParams(-1,dp(54)));
+
+        LinearLayout ticks=row();
+        for(String label:TIMEOUT_LABELS){
+            TextView tick=text(label,9,MUTED,false);
+            tick.setGravity(Gravity.CENTER);
+            ticks.addView(tick,new LinearLayout.LayoutParams(0,-2,1));
         }
-        content.addView(grid,new LinearLayout.LayoutParams(-1,-2));
-
-        Button permission=button("Allow system display changes",PURPLE,v->openWriteSettings());
-        content.addView(permission,full());
-
-        Button androidDisplay=button("Open Android display settings",PURPLE,
-                v->startActivity(new Intent(Settings.ACTION_DISPLAY_SETTINGS)));
-        content.addView(androidDisplay,full());
+        content.addView(ticks,new LinearLayout.LayoutParams(-1,-2));
 
         section(content,"KB1001 APP",
                 "Controls only this app and does not change the global Android timeout.",GREEN);
@@ -160,7 +166,16 @@ public final class DisplaySleepActivity extends Activity {
                 getContentResolver(),
                 Settings.System.SCREEN_OFF_TIMEOUT,
                 30_000L);
-        timeoutValue.setText("Current timeout: "+formatTimeout(timeout));
+        int nearest=0;
+        long best=Long.MAX_VALUE;
+        for(int i=0;i<TIMEOUTS.length;i++){
+            long d=Math.abs(timeout-TIMEOUTS[i]);
+            if(d<best){best=d;nearest=i;}
+        }
+        timeoutValue.setText("Screen timeout: "+TIMEOUT_LABELS[nearest]);
+        if(timeoutSlider!=null && timeoutSlider.getProgress()!=nearest){
+            timeoutSlider.setProgress(nearest);
+        }
         boolean canWrite=Settings.System.canWrite(this);
         writeStatus.setText(canWrite
                 ? "System timeout control enabled"
