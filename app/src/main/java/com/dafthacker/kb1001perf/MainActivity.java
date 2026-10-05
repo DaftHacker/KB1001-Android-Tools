@@ -74,6 +74,8 @@ public class MainActivity extends Activity {
     private boolean active;
     private boolean suppressSwitchCallbacks;
     private boolean overlayStateReceiverRegistered;
+    private boolean metricsTogglePending;
+    private boolean fpsTogglePending;
 
     private final BroadcastReceiver overlayStateReceiver=new BroadcastReceiver(){
         @Override public void onReceive(Context context,Intent intent){
@@ -81,8 +83,16 @@ public class MainActivity extends Activity {
             String type=intent.getStringExtra("type");
             boolean enabled=intent.getBooleanExtra("enabled",false);
             suppressSwitchCallbacks=true;
-            if("metrics".equals(type) && hudSwitch!=null)hudSwitch.setChecked(enabled);
-            if("fps".equals(type) && fpsHudSwitch!=null)fpsHudSwitch.setChecked(enabled);
+            if("metrics".equals(type) && hudSwitch!=null){
+                metricsTogglePending=false;
+                hudSwitch.setEnabled(true);
+                hudSwitch.setChecked(enabled);
+            }
+            if("fps".equals(type) && fpsHudSwitch!=null){
+                fpsTogglePending=false;
+                fpsHudSwitch.setEnabled(true);
+                fpsHudSwitch.setChecked(enabled);
+            }
             suppressSwitchCallbacks=false;
         }
     };
@@ -816,8 +826,17 @@ public class MainActivity extends Activity {
 
     private void setManualOverlay(String type,boolean enabled,Switch control){
         if(control==null)return;
-        if("metrics".equals(type))AppStateCache.setManualMetrics(this,enabled);
-        else AppStateCache.setManualFps(this,enabled);
+        if("metrics".equals(type)){
+            metricsTogglePending=true;
+            AppStateCache.setManualMetrics(this,enabled);
+        }else{
+            fpsTogglePending=true;
+            AppStateCache.setManualFps(this,enabled);
+        }
+
+        suppressSwitchCallbacks=true;
+        control.setChecked(enabled);
+        suppressSwitchCallbacks=false;
         control.setEnabled(false);
         io.execute(()->{
             String command="overlay "+type+"-manual-"+(enabled?"on":"off");
@@ -827,6 +846,8 @@ public class MainActivity extends Activity {
                 suppressSwitchCallbacks=true;
                 control.setChecked(saved?enabled:!enabled);
                 suppressSwitchCallbacks=false;
+                if("metrics".equals(type))metricsTogglePending=false;
+                else fpsTogglePending=false;
                 control.setEnabled(true);
                 if(!saved){
                     if("metrics".equals(type))AppStateCache.setManualMetrics(this,!enabled);
@@ -946,8 +967,10 @@ public class MainActivity extends Activity {
                 getSharedPreferences("fps_hud",MODE_PRIVATE).edit()
                         .putBoolean("runtime_running",fpsRunning).apply();
 
-                if (hudSwitch != null) hudSwitch.setChecked(AppStateCache.manualMetrics(this));
-                if (fpsHudSwitch != null) fpsHudSwitch.setChecked(AppStateCache.manualFps(this));
+                if (hudSwitch != null && !metricsTogglePending)
+                    hudSwitch.setChecked(AppStateCache.manualMetrics(this));
+                if (fpsHudSwitch != null && !fpsTogglePending)
+                    fpsHudSwitch.setChecked(AppStateCache.manualFps(this));
 
                 String persistent = status.get("Persistent profile");
                 if (persistent != null) {
