@@ -54,8 +54,8 @@ public final class FpsOverlayService extends Service {
     private long validationLastFlushMs;
     private boolean validatorSnapshotCaptured;
     private static final String VALIDATOR_PACKAGE="com.dafthacker.fpsvalidator";
-    private static final int DEFAULT_POLL_MS=250;
-    private static final int MIN_POLL_MS=100;
+    private static final int DEFAULT_POLL_MS=50;
+    private static final int MIN_POLL_MS=50;
     private static final int MAX_POLL_MS=1000;
     private static final int DEFAULT_AVERAGE_WINDOW_MS=2000;
     private static final int MIN_AVERAGE_WINDOW_MS=500;
