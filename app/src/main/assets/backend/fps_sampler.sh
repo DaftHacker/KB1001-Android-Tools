@@ -32,6 +32,11 @@ foreground_package(){
  printf '%s\n' "$out"
 }
 
+
+monotonic_ms(){
+ awk '{printf "%.0f\n", $1*1000.0}' /proc/uptime 2>/dev/null
+}
+
 clean_sf_layer(){
  printf '%s' "$1" | sed   -e 's/^RequestedLayerState{//'   -e 's/ parentId=.*$//'   -e 's/ relativeParentId=.*$//'   -e 's/ z=.*$//'   -e 's/}$//'
 }
@@ -88,11 +93,7 @@ surface_fps(){
  layer="$1"
  previous="$2"
 
- now_ns="$(awk '{printf "%.0f", $1*1000000000.0}' /proc/uptime 2>/dev/null)"
- case "$now_ns" in ''|*[!0-9]*) now_ns=0;; esac
-
- dumpsys SurfaceFlinger --latency "$layer" 2>/dev/null | awk \
-  -v previous="$previous" -v now="$now_ns" '
+ dumpsys SurfaceFlinger --latency "$layer" 2>/dev/null | awk -v previous="$previous" '
   NR==1 { next }
   NF>=3 {
    v=0
@@ -101,44 +102,35 @@ surface_fps(){
    if(v>0)t[++n]=v
   }
   END {
-   if(n<1){print "-1|0";exit}
+   if(n<2){print "-1|0";exit}
 
    last=t[n]
 
-   if(previous=="" || previous=="0" || last<previous){
-    first=n-4
-    if(first<1)first=1
-    if(n-first<1){print "0|" last;exit}
-    span=last-t[first]
-    frames=n-first
-    if(span<=0){print "0|" last;exit}
-    fps=int((frames*1000000000.0/span)+0.5)
-   }else{
-    new_count=0
-    for(i=1;i<=n;i++)if(t[i]>previous)new_count++
+   # Measure only actual completed presents from the most recent 250 ms of
+   # SurfaceFlinger history. No extrapolation or visual smoothing.
+   cutoff=last-250000000
+   first=n
+   while(first>1 && t[first-1]>=cutoff)first--
 
-    if(new_count>0){
-     span=last-previous
-     if(span>0)fps=int((new_count*1000000000.0/span)+0.5)
-     else fps=0
-    }else{
-     age=now-last
-     if(now>0 && age>0)fps=int((1000000000.0/age)+0.5)
-     else fps=0
+   frames=n-first
+   span=last-t[first]
+
+   if(frames<=0 || span<=0){
+    if(n>=2){
+     span=last-t[n-1]
+     frames=1
     }
    }
 
-   age=now-last
-   if(now>0 && age>0){
-    bound=1000000000.0/age
-    if(bound<fps)fps=int(bound+0.5)
-   }
+   if(span<=0 || frames<=0){print "0|" last;exit}
 
+   fps=int((frames*1000000000.0/span)+0.5)
    if(fps<0)fps=0
    if(fps>240)fps=240
    print fps "|" last
   }'
 }
+
 
 query_layer(){
  current_layer="$1"
@@ -281,6 +273,7 @@ stream(){
  gfx_tick=0
  last_good_fps=-1
  hold_ticks=0
+ no_present_since_ms=0
 
  while true; do
   read_state_package
@@ -312,6 +305,7 @@ stream(){
    bad_layer_count=0
    last_good_fps=-1
    hold_ticks=0
+   no_present_since_ms=0
   fi
 
   if [ -n "$pkg_cached" ] && [ -z "$layer" ]; then
@@ -321,12 +315,26 @@ stream(){
 
   fps=-1
   if [ -n "$layer" ]; then
-   result="$(query_layer "$layer" "$last_present")"
+   previous_present="$last_present"
+   result="$(query_layer "$layer" "$previous_present")"
    fps="${result%%|*}"
    rest="${result#*|}"
    last_present="${rest%%|*}"
    resolved_layer="${rest#*|}"
    [ -n "$resolved_layer" ] && layer="$resolved_layer"
+
+   sample_now_ms="$(monotonic_ms)"
+   case "$sample_now_ms" in ''|*[!0-9]*) sample_now_ms=0;; esac
+
+   if [ "$last_present" != "0" ] && [ "$last_present" != "$previous_present" ]; then
+    no_present_since_ms="$sample_now_ms"
+   elif [ "$last_present" != "0" ] && [ "$sample_now_ms" -gt 0 ] 2>/dev/null; then
+    if [ "$no_present_since_ms" -le 0 ] 2>/dev/null; then
+     no_present_since_ms="$sample_now_ms"
+    elif [ $((sample_now_ms-no_present_since_ms)) -ge 250 ]; then
+     fps=0
+    fi
+   fi
 
    case "$fps" in ''|*[!0-9-]*) fps=-1;; esac
 
