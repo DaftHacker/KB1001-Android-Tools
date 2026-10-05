@@ -121,6 +121,11 @@ public final class BatteryActivity extends Activity {
         manufactureDateValue=settingRow("Manufacture date","—",GREEN);
         cycleValue=settingRow("Cycle count","—",GREEN);
 
+        section("DISPLAY & SLEEP","Screen timeout presets and KB1001 wake behavior.",BLUE);
+        Button displaySleep=button("Open Display & Sleep Settings",BLUE,
+                v->startActivity(new Intent(this,DisplaySleepActivity.class)));
+        content.addView(displaySleep,full());
+
         section("TIME ESTIMATES","Android estimate where available; discharge time is calculated only when the driver exposes usable charge/current data.",YELLOW);
         timeToFullValue=settingRow("Time until full","—",YELLOW);
         timeRemainingValue=settingRow("Estimated discharge remaining","—",YELLOW);
@@ -466,6 +471,7 @@ public final class BatteryActivity extends Activity {
 
     @Override protected void onResume(){
         super.onResume();
+        DisplaySleepPolicy.apply(this,false);
         TelemetryDemand.activityResumed();
         active=true;
         handler.removeCallbacks(ticker);
