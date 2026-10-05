@@ -77,6 +77,7 @@ public class MainActivity extends Activity {
     private boolean overlayStateReceiverRegistered;
     private boolean metricsTogglePending;
     private boolean fpsTogglePending;
+    private String pendingOverlayPermissionType;
 
     private final BroadcastReceiver overlayStateReceiver=new BroadcastReceiver(){
         @Override public void onReceive(Context context,Intent intent){
@@ -827,6 +828,18 @@ public class MainActivity extends Activity {
 
     private void setManualOverlay(String type,boolean enabled,Switch control){
         if(control==null)return;
+
+        // A fresh install does not have SYSTEM_ALERT_WINDOW yet. Manual overlay
+        // requests originate from the foreground activity, so handle permission
+        // here instead of asking the root daemon to start a service that cannot
+        // create its window.
+        if(enabled && !Settings.canDrawOverlays(this)){
+            pendingOverlayPermissionType=type;
+            setSwitchStateSilently(control,false);
+            showOverlayPermissionDialog();
+            return;
+        }
+
         if("metrics".equals(type)){
             metricsTogglePending=true;
             AppStateCache.setManualMetrics(this,enabled);
@@ -835,8 +848,6 @@ public class MainActivity extends Activity {
             AppStateCache.setManualFps(this,enabled);
         }
 
-        // The user's tap already put the switch in the requested state.
-        // Lock it there while the backend confirms; do not toggle it again.
         control.setEnabled(false);
 
         io.execute(()->{
@@ -856,6 +867,19 @@ public class MainActivity extends Activity {
                             "Could not verify manual "+type.toUpperCase(Locale.US)+" overlay state.",
                             Toast.LENGTH_SHORT).show();
                     refreshBackendState();
+                    control.setEnabled(true);
+                    return;
+                }
+
+                // Do not depend on the root game daemon for a manual UI action.
+                // Start/stop the Android service directly from this foreground app.
+                if(enabled){
+                    if("metrics".equals(type))showHud();
+                    else showFpsHud();
+                }else{
+                    Intent service=new Intent(this,
+                            "metrics".equals(type)?OverlayService.class:FpsOverlayService.class);
+                    try{stopService(service);}catch(Exception ignored){}
                 }
 
                 control.setEnabled(true);
@@ -1557,6 +1581,19 @@ public class MainActivity extends Activity {
         active = true;
         handler.removeCallbacks(ticker);
         handler.post(ticker);
+
+        if(pendingOverlayPermissionType!=null && Settings.canDrawOverlays(this)){
+            String requested=pendingOverlayPermissionType;
+            pendingOverlayPermissionType=null;
+            if("metrics".equals(requested) && hudSwitch!=null){
+                setSwitchStateSilently(hudSwitch,true);
+                setManualOverlay("metrics",true,hudSwitch);
+            }else if("fps".equals(requested) && fpsHudSwitch!=null){
+                setSwitchStateSilently(fpsHudSwitch,true);
+                setManualOverlay("fps",true,fpsHudSwitch);
+            }
+        }
+
         restoreManualOverlaysIfNeeded();
         if(!AppStateCache.statusFresh(this,5000)) refreshBackendState();
         if (tab == 1) loadGamesInline();
