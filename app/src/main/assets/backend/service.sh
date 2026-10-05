@@ -8,6 +8,7 @@ LOGGER_CONF="$STATE_DIR/logger.conf"
 rm -f "$SESSION_EXTREME"
 rm -f /data/local/tmp/kb1001_telemetry_ui /data/local/tmp/kb1001_telemetry_hud
 sh "$MODDIR/cpu_control.sh" init >/dev/null 2>&1 || log "WARNING: could not capture CPU boot state."
+sh "$MODDIR/thermal_control.sh" init >/dev/null 2>&1 || log "WARNING: could not capture thermal boot state."
 log "KB1001 Performance Manager boot service started."
 
 wait_for_sysfs || { log "ERROR: GPU sysfs controls did not appear."; exit 1; }
