@@ -158,12 +158,16 @@ timestats_layer(){
  target="$1"
  [ -n "$target" ] || { echo "-1|-1|"; return; }
 
- # One package-scoped pass over SurfaceFlinger TimeStats. Prefer a real
- # SurfaceView/BLAST/BBQ render layer when an app has multiple layer records.
+ # Allwinner/A523 leaves packageName blank for these layers, so accept either
+ # an explicit packageName match or the package embedded in layerName.
+ # Prefer the actual SurfaceView/BLAST/BBQ render layer.
  dumpsys SurfaceFlinger --timestats -dump 2>/dev/null | awk -v target="$target" '
   function trim(s){sub(/^[ \t]+/,"",s);sub(/[ \t]+$/,"",s);return s}
+  function belongs(){
+   return pkg==target || index(tolower(layer),tolower(target))>0
+  }
   function finish(){
-   if(pkg!=target || frames<0)return
+   if(!belongs() || frames<0)return
    p=(layer ~ /SurfaceView|BLAST|BBQ/) ? 2 : 1
    if(p>bestp || (p==bestp && frames>bestframes)){
     bestp=p
@@ -188,7 +192,7 @@ timestats_layer(){
    pkg=trim(pkg)
    next
   }
-  /^totalFrames[ \t]*=/ || /^totalFrames=[ \t]*/ {
+  /^totalFrames[ \t]*=/ {
    v=$0
    sub(/^[^=]*=[ \t]*/,"",v)
    if(v ~ /^[0-9]+$/)frames=v+0
@@ -388,7 +392,8 @@ stream(){
     candidate_count=1
     if [ "$ts_last_frames" -ge 0 ] 2>/dev/null &&
        [ "$ts_frames" -ge "$ts_last_frames" ] 2>/dev/null &&
-       [ "$ts_last_ms" -gt 0 ] 2>/dev/null; then
+       [ "$ts_last_ms" -gt 0 ] 2>/dev/null &&
+       [ "$ts_layer" = "$ts_last_layer" ]; then
      dt_ms=$((ts_now_ms-ts_last_ms))
      df=$((ts_frames-ts_last_frames))
      if [ "$dt_ms" -gt 0 ] 2>/dev/null && [ "$df" -gt 0 ] 2>/dev/null; then
