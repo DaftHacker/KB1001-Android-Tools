@@ -1225,8 +1225,16 @@ public class MainActivity extends Activity {
             runOnUiThread(()->{
                 if(backendHealthValue==null)return;
 
-                if(r.ok() && "ready|boot-hook".equals(r.output.trim())){
-                    backendHealthValue.setText("Backend: Ready • Boot hook installed");
+                String output=r.output==null?"":r.output.trim();
+                if(r.ok() && output.startsWith("ready|boot-hook")){
+                    String[] lines=output.split("\\R");
+                    String deployed=lines.length>1?lines[1].trim():"";
+                    String label="Backend: Ready • Boot hook installed";
+                    if(!deployed.isEmpty()){
+                        String[] parts=deployed.split("\\|",-1);
+                        if(parts.length>=2)label+=" • "+parts[1];
+                    }
+                    backendHealthValue.setText(label);
                     backendHealthValue.setTextColor(Color.rgb(77,210,126));
                 }else{
                     backendHealthValue.setText("Backend: Needs attention");
