@@ -6,6 +6,7 @@ on:
     branches: [ main ]
     paths:
       - 'app/**'
+      - 'fpsvalidator/**'
       - '*.gradle'
       - 'gradle.properties'
       - '.github/workflows/build.yml'
