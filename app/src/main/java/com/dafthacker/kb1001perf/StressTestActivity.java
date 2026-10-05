@@ -49,7 +49,6 @@ public final class StressTestActivity extends Activity {
     private String mode="combined";
     private int durationSeconds=60;
     private boolean running;
-    private boolean resultVisible;
     private long startedAt;
     private long endsAt;
     private float renderFps;
@@ -205,7 +204,6 @@ public final class StressTestActivity extends Activity {
         if(running)return;
 
         running=true;
-        resultVisible=false;
         applyKeepAwakePreference(true);
         startedAt=SystemClock.elapsedRealtime();
         endsAt=startedAt+durationSeconds*1000L;
@@ -399,9 +397,9 @@ public final class StressTestActivity extends Activity {
         testButton.setTextColor(TEXT);
         testButton.setBackground(cardBg(CPU,125));
 
+        applyKeepAwakePreference(false);
+
         if(showSummary && !isFinishing()){
-            resultVisible=true;
-            applyKeepAwakePreference(false);
             double n=Math.max(1,samples);
             double sn=Math.max(1,scoreSamples);
             String profile=TelemetryStore.get(TelemetryStore.read(this),"profile","—");
@@ -426,14 +424,7 @@ public final class StressTestActivity extends Activity {
             new AlertDialog.Builder(this)
                     .setTitle("Stress test result")
                     .setMessage(message)
-                    .setPositiveButton("OK",(d,w)->{
-                        resultVisible=false;
-                        applyKeepAwakePreference(false);
-                    })
-                    .setOnCancelListener(d->{
-                        resultVisible=false;
-                        applyKeepAwakePreference(false);
-                    })
+                    .setPositiveButton("OK",null)
                     .show();
         }
     }
@@ -481,12 +472,7 @@ public final class StressTestActivity extends Activity {
 
     private boolean hasCpu(){return "cpu".equals(mode)||"combined".equals(mode);}
     private void applyKeepAwakePreference(boolean runningTest){
-        android.content.SharedPreferences p=getSharedPreferences("display_settings",MODE_PRIVATE);
-        boolean keepInApp=p.getBoolean("keep_awake_in_app",false);
-        boolean keepResult=p.getBoolean("keep_stress_result_awake",true);
-        boolean keep=runningTest || keepInApp || (resultVisible && keepResult);
-        if(keep) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        DisplaySleepPolicy.apply(this,runningTest);
     }
 
     private boolean hasGpu(){return "gpu".equals(mode)||"combined".equals(mode);}
