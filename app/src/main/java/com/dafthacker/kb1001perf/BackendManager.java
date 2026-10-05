@@ -242,8 +242,8 @@ public final class BackendManager {
         bridge.exec(
                 "for f in /data/local/tmp/kb1001_game_boost.pid " +
                         "/data/local/tmp/kb1001_perf_logger.pid; do " +
-                        "p=\$(cat \"\$f\" 2>/dev/null); " +
-                        "case \"\$p\" in ''|*[!0-9]*) ;; *) kill \"\$p\" 2>/dev/null || true ;; esac; " +
+                        "p=$(cat \"$f\" 2>/dev/null); " +
+                        "case \"$p\" in ''|*[!0-9]*) ;; *) kill \"$p\" 2>/dev/null || true ;; esac; " +
                         "done; " +
                         "ps -A -o PID,ARGS 2>/dev/null | " +
                         "grep " + RootBridge.shellQuote(BACKEND_DIR + "/") + " | " +
