@@ -41,7 +41,7 @@ jobs:
         run: |
           SDKMANAGER="/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973" "cmake;3.22.1"
           echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
 
       - name: Set development version
@@ -52,6 +52,8 @@ jobs:
           echo "APP_VERSION_CODE=$APP_CODE" >> "$GITHUB_ENV"
           echo "APP_VERSION_NAME=$APP_NAME" >> "$GITHUB_ENV"
           echo "APP_ASSET=KB1001-Performance-Manager-${APP_NAME}.apk" >> "$GITHUB_ENV"
+          echo "VALIDATOR_VERSION_NAME=0.1-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo "VALIDATOR_ASSET=KB1001-FPS-Validator-0.1-dev.${GITHUB_RUN_NUMBER}.apk" >> "$GITHUB_ENV"
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v6
@@ -95,11 +97,11 @@ jobs:
             echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
             echo "STABLE_SIGNING=1" >> "$GITHUB_ENV"
 
-            gradle :app:assembleRelease --stacktrace
+            gradle :app:assembleRelease :fpsvalidator:assembleRelease --stacktrace
           else
             export STABLE_SIGNING=0
             echo "STABLE_SIGNING=0" >> "$GITHUB_ENV"
-            gradle :app:assembleDebug --stacktrace
+            gradle :app:assembleDebug :fpsvalidator:assembleDebug --stacktrace
           fi
 
       - name: Name APK
@@ -107,8 +109,10 @@ jobs:
         run: |
           if [ "${STABLE_SIGNING:-0}" = "1" ]; then
             cp app/build/outputs/apk/release/app-release.apk "$APP_ASSET"
+            cp fpsvalidator/build/outputs/apk/release/fpsvalidator-release.apk "$VALIDATOR_ASSET"
           else
             cp app/build/outputs/apk/debug/app-debug.apk "$APP_ASSET"
+            cp fpsvalidator/build/outputs/apk/debug/fpsvalidator-debug.apk "$VALIDATOR_ASSET"
           fi
 
       - name: Verify APK signing certificate
@@ -116,6 +120,7 @@ jobs:
         run: |
           APKSIGNER="/usr/local/lib/android/sdk/build-tools/35.0.0/apksigner"
           "$APKSIGNER" verify --verbose --print-certs "$APP_ASSET" | tee apk-signing.txt
+          "$APKSIGNER" verify --verbose --print-certs "$VALIDATOR_ASSET" | tee validator-signing.txt
           CERT_SHA256="$(grep -m1 'Signer #1 certificate SHA-256 digest:' apk-signing.txt | sed 's/.*digest: //')"
           test -n "$CERT_SHA256"
           echo "APK_CERT_SHA256=$CERT_SHA256" >> "$GITHUB_ENV"
@@ -163,6 +168,7 @@ jobs:
 
           gh release upload dev-latest \
             "$APP_ASSET" \
+            "$VALIDATOR_ASSET" \
             update.json \
             --clobber
 
@@ -176,6 +182,7 @@ jobs:
             echo "### Direct download"
             echo
             echo "- [📱 Download APK](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/${APP_ASSET})"
+            echo "- [🧪 Download FPS Validator](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/${VALIDATOR_ASSET})"
             echo "- [📄 Update manifest](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/update.json)"
             echo
             echo "App + bundled root backend: **${APP_VERSION_NAME}** (code ${APP_VERSION_CODE})"
@@ -191,4 +198,5 @@ jobs:
           name: build-verification
           path: |
             ${{ env.APP_ASSET }}
+            ${{ env.VALIDATOR_ASSET }}
             update.json
