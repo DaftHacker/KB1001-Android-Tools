@@ -426,7 +426,14 @@ public final class StressTestActivity extends Activity {
             new AlertDialog.Builder(this)
                     .setTitle("Stress test result")
                     .setMessage(message)
-                    .setPositiveButton("OK",null)
+                    .setPositiveButton("OK",(d,w)->{
+                        resultVisible=false;
+                        applyKeepAwakePreference(false);
+                    })
+                    .setOnCancelListener(d->{
+                        resultVisible=false;
+                        applyKeepAwakePreference(false);
+                    })
                     .show();
         }
     }
