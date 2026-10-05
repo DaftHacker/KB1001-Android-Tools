@@ -472,9 +472,9 @@ public final class FpsOverlayService extends Service {
 
     private static String csv(String value){
         if(value==null)return "";
-        String s=value.replace(""","""");
+        String s=value.replace("\"","\"\"");
         if(s.indexOf(',')>=0||s.indexOf('"')>=0||s.indexOf('\n')>=0){
-            return """+s+""";
+            return "\""+s+"\"";
         }
         return s;
     }
