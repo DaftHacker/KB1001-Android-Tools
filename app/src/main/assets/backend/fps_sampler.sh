@@ -322,8 +322,10 @@ stream(){
   next_pkg="$pkg"
 
   if [ -z "$next_pkg" ]; then
+   # Keep expensive foreground discovery near 0.5 Hz while the validated
+   # SurfaceFlinger latency path samples at ~25 Hz.
    discover_tick=$((discover_tick+1))
-   if [ "$discover_tick" -ge 20 ] || [ -z "$pkg_cached" ]; then
+   if [ "$discover_tick" -ge 50 ] || [ -z "$pkg_cached" ]; then
     candidate="$(foreground_package)"
     [ -n "$candidate" ] && next_pkg="$candidate" || next_pkg="$pkg_cached"
     discover_tick=0
@@ -381,8 +383,10 @@ stream(){
   fi
 
   if [ "$current" -lt 0 ] 2>/dev/null; then
+   # Keep gfxinfo/FrameTimeline fallback near 1 Hz; only the cheap, already
+   # resolved per-layer latency query runs at the fast cadence.
    fallback_tick=$((fallback_tick+1))
-   if [ "$fallback_tick" -ge 10 ]; then
+   if [ "$fallback_tick" -ge 25 ]; then
     current="$(gfxinfo_fps "$pkg_cached")"
     case "$current" in ''|*[!0-9-]*) current=-1;; esac
 
@@ -401,7 +405,7 @@ stream(){
   fi
 
   printf '%s|%s\n' "$current" "$avg" || exit 0
-  sleep 0.10
+  sleep 0.04
  done
 }
 
