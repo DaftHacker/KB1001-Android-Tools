@@ -6,7 +6,6 @@ on:
     branches: [ main ]
     paths:
       - 'app/**'
-      - 'scripts/**'
       - '*.gradle'
       - 'gradle.properties'
       - '.github/workflows/build.yml'
@@ -50,12 +49,9 @@ jobs:
         run: |
           APP_CODE=$((100000 + GITHUB_RUN_NUMBER))
           APP_NAME="0.5-dev.${GITHUB_RUN_NUMBER}"
-          LEGACY_ASSET="KB1001-Legacy-Module-Retired-Do-Not-Flash.zip"
-
           echo "APP_VERSION_CODE=$APP_CODE" >> "$GITHUB_ENV"
           echo "APP_VERSION_NAME=$APP_NAME" >> "$GITHUB_ENV"
           echo "APP_ASSET=KB1001-Performance-Manager-${APP_NAME}.apk" >> "$GITHUB_ENV"
-          echo "LEGACY_ASSET=$LEGACY_ASSET" >> "$GITHUB_ENV"
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v6
@@ -124,60 +120,31 @@ jobs:
           test -n "$CERT_SHA256"
           echo "APK_CERT_SHA256=$CERT_SHA256" >> "$GITHUB_ENV"
 
-      - name: Create legacy-updater compatibility asset
-        shell: bash
-        run: |
-          rm -rf out
-          mkdir -p out/legacy
-
-          cat > out/legacy/README.txt <<'EOF'
-          RETIRED — DO NOT FLASH
-
-          KB1001 Performance Manager no longer uses a Magisk module.
-          The privileged root backend is bundled inside the APK and is installed/updated by the app.
-
-          This ZIP exists only so older app versions can parse the rolling update manifest
-          and update themselves to the first app-owned-backend release.
-          EOF
-
-          (
-            cd out/legacy
-            zip -9 "../$LEGACY_ASSET" README.txt
-          )
-
       - name: Generate update manifest
         shell: bash
         run: |
           APP_SHA="$(sha256sum "$APP_ASSET" | awk '{print $1}')"
-          LEGACY_SHA="$(sha256sum "out/$LEGACY_ASSET" | awk '{print $1}')"
 
           cat > update.json <<EOF
           {
-            "version": "retired",
-            "versionCode": 0,
-            "zipUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest/${LEGACY_ASSET}",
             "changelog": "https://github.com/${GITHUB_REPOSITORY}/releases/tag/dev-latest",
             "app_version_code": ${APP_VERSION_CODE},
             "app_version_name": "${APP_VERSION_NAME}",
-            "module_version_code": 0,
-            "module_version_name": "retired-bundled-in-apk",
             "commit": "${GITHUB_SHA}",
             "app_asset": "${APP_ASSET}",
             "app_sha256": "${APP_SHA}",
-            "module_asset": "${LEGACY_ASSET}",
-            "module_sha256": "${LEGACY_SHA}",
             "backend_bundled": true,
+            "module_required": false,
             "stable_app_signing": ${STABLE_SIGNING:-0}
           }
           EOF
-
       - name: Publish direct development download
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          RELEASE_NOTES="Rolling main build. The privileged backend is now bundled inside the APK; no Magisk module needs to be flashed. The legacy ZIP asset is compatibility metadata for older app updaters only and must not be flashed."
+          RELEASE_NOTES="Rolling main build. The privileged backend is bundled inside the APK and installs its own root boot service hook. No Magisk module is built or required."
 
           if gh release view dev-latest >/dev/null 2>&1; then
             gh release edit dev-latest \
@@ -196,7 +163,6 @@ jobs:
 
           gh release upload dev-latest \
             "$APP_ASSET" \
-            "out/$LEGACY_ASSET" \
             update.json \
             --clobber
 
