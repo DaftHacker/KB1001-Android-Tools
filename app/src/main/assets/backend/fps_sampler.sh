@@ -70,12 +70,15 @@ surface_fps(){
 
    last=t[n]
 
-   # The history can remain unchanged between 500 ms polls. Preserve a valid
-   # source and report 0 new FPS rather than treating the layer as missing.
+   # History can remain unchanged between fast polls. Preserve a valid source
+   # and report 0 new FPS rather than treating the layer as missing.
    if(previous!="" && previous!="0" && last==previous){print "0|" last;exit}
 
+   # A short rolling window reacts much more like a desktop FPS overlay.
+   # ~300 ms is responsive enough to show rapid changes without turning
+   # individual frame jitter into an unreadable counter.
    start=n-1
-   while(start>1 && (last-t[start-1])<=1000000000) start--
+   while(start>1 && (last-t[start-1])<=300000000) start--
 
    frames=n-start
    span=last-t[start]
@@ -238,11 +241,11 @@ stream(){
 
   # When automatic game state is unavailable/stale (for example a manually
   # enabled FPS counter), rediscover the foreground package at only 0.5 Hz.
-  # The fast path below samples the already-resolved layer more often without
+  # The fast path below samples the already-resolved layer at ~10 Hz without
   # increasing expensive foreground discovery work.
   if [ -z "$next_pkg" ]; then
    discover_tick=$((discover_tick+1))
-   if [ "$discover_tick" -ge 8 ] || [ -z "$pkg_cached" ]; then
+   if [ "$discover_tick" -ge 20 ] || [ -z "$pkg_cached" ]; then
     candidate="$(foreground_package)"
     [ -n "$candidate" ] && next_pkg="$candidate" || next_pkg="$pkg_cached"
     discover_tick=0
@@ -285,7 +288,7 @@ stream(){
     if [ "$fps" -gt 0 ] 2>/dev/null; then
      last_good_fps="$fps"
      hold_ticks=0
-    elif [ "$last_good_fps" -ge 0 ] 2>/dev/null && [ "$hold_ticks" -lt 6 ]; then
+    elif [ "$last_good_fps" -ge 0 ] 2>/dev/null && [ "$hold_ticks" -lt 3 ]; then
      # Avoid flashing 0 between normal frame-history refreshes.
      fps="$last_good_fps"
      hold_ticks=$((hold_ticks+1))
@@ -304,7 +307,7 @@ stream(){
   # useful on launcher/system apps that do not expose usable layer latency.
   if [ "$fps" -lt 0 ] 2>/dev/null; then
    gfx_tick=$((gfx_tick+1))
-   if [ "$gfx_tick" -ge 4 ]; then
+   if [ "$gfx_tick" -ge 10 ]; then
     gfx_fps=-1
     if [ -n "$pkg_cached" ]; then
      gfx_fps="$(gfxinfo_fps "$pkg_cached")"
@@ -338,7 +341,7 @@ stream(){
   fi
 
   printf '%s\n' "$fps" || exit 0
-  sleep 0.25
+  sleep 0.10
  done
 }
 
