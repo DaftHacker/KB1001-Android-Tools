@@ -294,8 +294,16 @@ public final class FpsOverlayService extends Service {
                             resetAverage(sample.source);
                         }
 
+                        // Validation/recon is driven by the foreground source,
+                        // not by successful FPS measurement. This must run even
+                        // while the HUD is unresolved so diagnostics cannot
+                        // deadlock behind "FPS: —".
+                        syncValidationLogger(sample.source);
+                        captureValidatorResolverSnapshot(sample.source);
+                        captureValidatorArchitectureRecon(sample.source);
+
                         if(sample.fps<0){
-                            // Resolver misses are not frame-rate measurements.
+                            logValidationSample(sample,-1,pollMs,getAverageWindowMs());
                             continue;
                         }
 
@@ -305,8 +313,6 @@ public final class FpsOverlayService extends Service {
 
                         // Only primary SurfaceFlinger presentation samples and
                         // confirmed sustained stalls advance Average FPS.
-                        // A held display value is not a new measurement, and a
-                        // fallback source must not silently mix with the primary.
                         final int avg;
                         if("live".equals(sample.kind)){
                             averageHasLiveSample=true;
@@ -317,9 +323,6 @@ public final class FpsOverlayService extends Service {
                             avg=averageHasLiveSample?currentAverage(now,windowMs):-1;
                         }
 
-                        syncValidationLogger(sample.source);
-                        captureValidatorResolverSnapshot(sample.source);
-                        captureValidatorArchitectureRecon(sample.source);
                         logValidationSample(sample,avg,pollMs,windowMs);
 
                         if(fps==displayedFps && avg==displayedAverageFps)continue;
@@ -606,12 +609,13 @@ public final class FpsOverlayService extends Service {
     }
 
     private void publishToDownloads(File source,String name,String mime){
-        if(source==null||!source.isFile())return;
+        if(source==null)return;
         try{
             String dst="/sdcard/Download/"+name;
             String tmp=dst+".tmp";
             RootBridge.get().exec(
-                    "mkdir -p /sdcard/Download && cp -f "+
+                    "test -f "+RootBridge.shellQuote(source.getAbsolutePath())+
+                    " && mkdir -p /sdcard/Download && cp -f "+
                     RootBridge.shellQuote(source.getAbsolutePath())+" "+
                     RootBridge.shellQuote(tmp)+" && chmod 0644 "+
                     RootBridge.shellQuote(tmp)+" && mv -f "+
