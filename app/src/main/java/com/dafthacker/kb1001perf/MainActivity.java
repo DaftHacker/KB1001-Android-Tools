@@ -665,26 +665,13 @@ public class MainActivity extends Activity {
         displaySleep.setTextSize(13);
         page.addView(card(displaySleep),full());
 
-        section("SOFTWARE","One update operation handles the app and persistent backend together.");
+        section("SOFTWARE","Current version: "+BuildConfig.VERSION_NAME);
 
         Button check=button("Check for Update",true,v -> checkForUpdate(false));
         check.setTextSize(14);
         check.setTextColor(Color.rgb(6,28,12));
         check.setBackground(tabBackground(CPU_COLOR,true));
         page.addView(card(check),full());
-
-        TextView versions=text(
-                "App "+BuildConfig.VERSION_NAME+"\nRoot backend bundled with this APK.",
-                11,MUTED,false);
-        page.addView(card(versions),full());
-
-        section("BACKEND","Privileged hardware support is owned and updated by the Android app.");
-        TextView info=text(
-                "Root scripts are deployed from the APK to /data/local/kb1001perf. " +
-                        "A lightweight /data/adb/service.d boot hook starts them early without a Magisk module. " +
-                        "Any legacy KB1001 module is migrated, disabled, and scheduled for removal automatically.",
-                11,Color.rgb(190,205,202),false);
-        page.addView(card(info),full());
     }
 
     private View overlayScaleCard() {
@@ -1214,9 +1201,7 @@ public class MainActivity extends Activity {
                 .setTitle("Install update?")
                 .setMessage(
                         "Current version: "+BuildConfig.VERSION_NAME+
-                                "\nNew version: "+info.appVersionName+
-                                "\n\nThe root backend is included in the APK and will update automatically with the app. " +
-                                "The download is SHA-256 verified before installation.")
+                                "\nNew version: "+info.appVersionName)
                 .setNegativeButton("Later",null)
                 .setPositiveButton("Install",(d,w) -> performAppUpdate(info))
                 .show();
