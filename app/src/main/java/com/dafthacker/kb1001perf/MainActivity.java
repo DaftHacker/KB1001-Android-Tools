@@ -658,16 +658,13 @@ public class MainActivity extends Activity {
                 11,MUTED,false);
         page.addView(card(versions),full());
 
-        section("BACKEND","Privileged hardware support is now owned and updated by the Android app.");
+        section("BACKEND","Privileged hardware support is owned and updated by the Android app.");
         TextView info=text(
                 "Root scripts are deployed from the APK to /data/local/kb1001perf. " +
-                        "The old Magisk module is automatically disabled after its saved state is migrated.",
+                        "A lightweight /data/adb/service.d boot hook starts them early without a Magisk module. " +
+                        "Any legacy KB1001 module is migrated, disabled, and scheduled for removal automatically.",
                 11,Color.rgb(190,205,202),false);
         page.addView(card(info),full());
-
-        Button removeLegacy=button("Remove Legacy Magisk Module",true,v -> confirmLegacyModuleRemoval());
-        removeLegacy.setTextSize(12);
-        page.addView(card(removeLegacy),full());
     }
 
     private View overlayScaleCard() {
