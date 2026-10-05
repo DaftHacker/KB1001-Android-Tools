@@ -839,30 +839,18 @@ public class MainActivity extends Activity {
         });
         card.addView(avgSeek,new LinearLayout.LayoutParams(-1,-2));
 
-        LinearLayout validationRow=row();
-        validationRow.setPadding(0,dp(8),0,dp(2));
-        LinearLayout validationLabels=new LinearLayout(this);
-        validationLabels.setOrientation(LinearLayout.VERTICAL);
-        validationLabels.addView(text("FPS validation CSV logging",10,MUTED,true));
-        validationLabels.addView(text(
-                "Logs overlay FPS, average, source quality, layer and new-frame count using the same boottime clock as the validator.",
-                9,MUTED,false));
-        validationRow.addView(validationLabels,new LinearLayout.LayoutParams(0,-2,1));
-
-        Switch validationSwitch=new Switch(this);
-        validationSwitch.setChecked(prefs.getBoolean("validation_log_enabled",false));
-        validationSwitch.setOnCheckedChangeListener((button,checked)->{
-            prefs.edit().putBoolean("validation_log_enabled",checked).apply();
-            refreshFpsSamplingIfRunning();
-        });
-        validationRow.addView(validationSwitch);
-        card.addView(validationRow);
+        TextView validationInfo=text(
+                "FPS validation logging is automatic when KB1001 FPS Validator is foreground. "+
+                        "Logging uses a buffered CSV writer so validation does not add per-sample disk flushes.",
+                9,MUTED,false);
+        validationInfo.setPadding(0,dp(8),0,dp(3));
+        card.addView(validationInfo);
 
         String lastValidationPath=prefs.getString("validation_log_path","");
         TextView validationPath=text(
                 lastValidationPath.isEmpty()
-                        ? "Latest overlay log: none yet"
-                        : "Latest overlay log: "+lastValidationPath,
+                        ? "Latest validation log: none yet"
+                        : "Latest validation log: "+lastValidationPath,
                 8,Color.rgb(130,150,165),false);
         validationPath.setPadding(0,dp(2),0,dp(3));
         validationPath.setTextIsSelectable(true);
