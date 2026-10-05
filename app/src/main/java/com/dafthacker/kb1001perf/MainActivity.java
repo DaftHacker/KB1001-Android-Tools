@@ -1202,7 +1202,8 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle("Install update?")
                 .setMessage(
-                        "App → "+info.appVersionName+
+                        "Current version: "+BuildConfig.VERSION_NAME+
+                                "\nNew version: "+info.appVersionName+
                                 "\n\nThe root backend is included in the APK and will update automatically with the app. " +
                                 "The download is SHA-256 verified before installation.")
                 .setNegativeButton("Later",null)
