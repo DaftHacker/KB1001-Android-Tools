@@ -777,36 +777,16 @@ public class MainActivity extends Activity {
         });
         card.addView(seek,new LinearLayout.LayoutParams(-1,-2));
 
-        TextView samplingTitle=text("FPS polling interval",10,MUTED,true);
+        TextView samplingTitle=text("FPS source",10,MUTED,true);
         samplingTitle.setPadding(0,dp(9),0,dp(2));
         card.addView(samplingTitle);
 
-        int savedPoll=Math.max(50,Math.min(1000,prefs.getInt("poll_ms",50)));
-        LinearLayout pollHead=row();
-        TextView pollHint=text("How often the compositor is sampled. Lower is faster but uses more CPU.",9,MUTED,false);
-        TextView pollValue=text(savedPoll+" ms",11,CPU_COLOR,true);
-        pollValue.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
-        pollHead.addView(pollHint,new LinearLayout.LayoutParams(0,-2,1));
-        pollHead.addView(pollValue,new LinearLayout.LayoutParams(dp(70),-2));
-        card.addView(pollHead);
-
-        SeekBar pollSeek=new SeekBar(this);
-        pollSeek.setMax(19); // 50..1000 ms in 50 ms steps.
-        pollSeek.setProgress((savedPoll-50)/50);
-        pollSeek.setPadding(0,dp(3),0,dp(2));
-        pollSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
-            @Override public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
-                int ms=50+progress*50;
-                pollValue.setText(ms+" ms");
-            }
-            @Override public void onStartTrackingTouch(SeekBar bar){}
-            @Override public void onStopTrackingTouch(SeekBar bar){
-                int ms=50+bar.getProgress()*50;
-                prefs.edit().putInt("poll_ms",ms).apply();
-                refreshFpsSamplingIfRunning();
-            }
-        });
-        card.addView(pollSeek,new LinearLayout.LayoutParams(-1,-2));
+        TextView samplingHint=text(
+                "Live FPS uses a persistent SurfaceFlinger FrameTimeline stream. " +
+                "The overlay updates automatically without repeated dumpsys polling.",
+                9,MUTED,false);
+        samplingHint.setPadding(0,0,0,dp(3));
+        card.addView(samplingHint);
 
         TextView avgTitle=text("Average FPS window",10,MUTED,true);
         avgTitle.setPadding(0,dp(7),0,dp(2));
