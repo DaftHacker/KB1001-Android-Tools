@@ -309,6 +309,60 @@ layer_cycle_fps(){
   }'
 }
 
+target_stream(){
+ trap 'exit 0' HUP INT TERM PIPE
+
+ poll_ms="$1"
+ case "$poll_ms" in ''|*[!0-9]*) poll_ms=250;; esac
+ [ "$poll_ms" -lt 100 ] 2>/dev/null && poll_ms=100
+ [ "$poll_ms" -gt 1000 ] 2>/dev/null && poll_ms=1000
+
+ # Foreground discovery is intentionally slow and completely separate from
+ # the presentation-event hot path. The game daemon state gives us an
+ # immediate target; dumpsys only verifies/corrects it about once per second.
+ fg_every=$(((1000 + poll_ms - 1)/poll_ms))
+ [ "$fg_every" -lt 1 ] && fg_every=1
+
+ tick="$fg_every"
+ pkg_cached=""
+ last_line=""
+
+ while true; do
+  if [ -z "$pkg_cached" ]; then
+   read_state_package
+   [ -n "$pkg" ] && pkg_cached="$pkg"
+  fi
+
+  tick=$((tick+1))
+  if [ "$tick" -ge "$fg_every" ] || [ -z "$pkg_cached" ]; then
+   fg="$(foreground_package)"
+   [ -n "$fg" ] && pkg_cached="$fg"
+   tick=0
+  fi
+
+  pids=""
+  if [ -n "$pkg_cached" ]; then
+   # pidof is cheap and lets the Java collector match the actual app process
+   # even when the SurfaceFlinger layer name is vendor-decorated.
+   for p in $(pidof "$pkg_cached" 2>/dev/null); do
+    case "$p" in
+     ''|*[!0-9]*) ;;
+     *) pids="${pids}${pids:+,}${p}" ;;
+    esac
+   done
+  fi
+
+  line="${pkg_cached}|${pids}"
+  if [ "$line" != "$last_line" ]; then
+   printf '%s\n' "$line" || exit 0
+   last_line="$line"
+  fi
+
+  sleep_sec="$(awk -v ms="$poll_ms" 'BEGIN{printf "%.3f",ms/1000.0}')"
+  sleep "$sleep_sec"
+ done
+}
+
 stream(){
  trap 'rm -f "$cycle_state" 2>/dev/null; exit 0' HUP INT TERM PIPE
 
@@ -596,6 +650,7 @@ validator_snapshot(){
 }
 
 case "$1" in
+ target-stream) target_stream "$2" ;;
  stream) stream "$2" ;;
  diagnose) diagnose ;;
  validator-snapshot) validator_snapshot "$2" ;;
