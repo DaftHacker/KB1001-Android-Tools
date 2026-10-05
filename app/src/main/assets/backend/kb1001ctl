@@ -201,6 +201,7 @@ status(){
  echo "Persistent profile: $(cat "$CONFIG" 2>/dev/null)"
  echo "Runtime profile: $(cat "$RUNTIME_PROFILE" 2>/dev/null)"
  echo "Profile request state: $(grep -m1 '^state=' "$PROFILE_REQUEST_STATE" 2>/dev/null | cut -d= -f2-)"
+ echo "Profile request seq: $(grep -m1 '^seq=' "$PROFILE_REQUEST_STATE" 2>/dev/null | cut -d= -f2-)"
  echo "Requested profile: $(grep -m1 '^profile=' "$PROFILE_REQUEST_STATE" 2>/dev/null | cut -d= -f2-)"
  echo "CPU mode: $(cat "$CPU_MODE_STATE" 2>/dev/null)"
  echo "CPU request state: $(grep -m1 '^state=' "$CPU_REQUEST_STATE" 2>/dev/null | cut -d= -f2-)"
