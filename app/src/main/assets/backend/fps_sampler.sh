@@ -409,7 +409,25 @@ stream(){
  done
 }
 
+diagnose(){
+ pkg="$(foreground_package)"
+ echo "foreground=${pkg:-<none>}"
+
+ layer="$(discover_layer "$pkg")"
+ echo "layer=${layer:-<none>}"
+
+ if [ -n "$layer" ]; then
+  sample="$(dumpsys SurfaceFlinger --latency "$layer" 2>/dev/null | tail -n 12)"
+  rows="$(printf '%s\n' "$sample" | awk 'NF>=3 && (($2 ~ /^[0-9]+$/ && $2>0) || ($3 ~ /^[0-9]+$/ && $3>0)){n++} END{print n+0}')"
+  echo "latency_rows=$rows"
+  printf '%s\n' "$sample"
+ else
+  echo "latency_rows=0"
+ fi
+}
+
 case "$1" in
  stream) stream ;;
+ diagnose) diagnose ;;
  *) exit 2 ;;
 esac
