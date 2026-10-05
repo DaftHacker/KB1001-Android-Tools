@@ -77,7 +77,7 @@ public final class AppStateCache {
         if(status.containsKey("File logging")){
             fileLogging="1".equals(status.get("File logging"));
         }
-        statusUpdatedAt=android.os.SystemClock.elapsedRealtime();
+        statusUpdatedAt=System.currentTimeMillis();
         prefs(context).edit()
                 .putBoolean(KEY_MANUAL_METRICS,manualMetrics)
                 .putBoolean(KEY_MANUAL_FPS,manualFps)
@@ -134,7 +134,7 @@ public final class AppStateCache {
     public static synchronized boolean statusFresh(Context context,long maxAgeMs){
         initialize(context);
         return statusUpdatedAt>0 &&
-                android.os.SystemClock.elapsedRealtime()-statusUpdatedAt<=maxAgeMs;
+                System.currentTimeMillis()-statusUpdatedAt<=maxAgeMs;
     }
 
     public static synchronized void updateGameSnapshot(
@@ -147,7 +147,7 @@ public final class AppStateCache {
         fpsGames.clear();
         if(fps!=null)fpsGames.addAll(fps);
         gamesLoaded=true;
-        gamesUpdatedAt=android.os.SystemClock.elapsedRealtime();
+        gamesUpdatedAt=System.currentTimeMillis();
         persistGames(context);
     }
 
@@ -156,7 +156,7 @@ public final class AppStateCache {
         if(pkg==null||pkg.isEmpty())return;
         games.add(pkg);
         gamesLoaded=true;
-        gamesUpdatedAt=android.os.SystemClock.elapsedRealtime();
+        gamesUpdatedAt=System.currentTimeMillis();
         persistGames(context);
     }
 
@@ -165,7 +165,7 @@ public final class AppStateCache {
         games.remove(pkg);
         metricsGames.remove(pkg);
         fpsGames.remove(pkg);
-        gamesUpdatedAt=android.os.SystemClock.elapsedRealtime();
+        gamesUpdatedAt=System.currentTimeMillis();
         persistGames(context);
     }
 
@@ -173,7 +173,7 @@ public final class AppStateCache {
         initialize(context);
         Set<String> target="metrics".equals(type)?metricsGames:fpsGames;
         if(enabled)target.add(pkg); else target.remove(pkg);
-        gamesUpdatedAt=android.os.SystemClock.elapsedRealtime();
+        gamesUpdatedAt=System.currentTimeMillis();
         persistGames(context);
     }
 
@@ -190,7 +190,7 @@ public final class AppStateCache {
     public static synchronized boolean gamesFresh(Context context,long maxAgeMs){
         initialize(context);
         return gamesLoaded && gamesUpdatedAt>0 &&
-                android.os.SystemClock.elapsedRealtime()-gamesUpdatedAt<=maxAgeMs;
+                System.currentTimeMillis()-gamesUpdatedAt<=maxAgeMs;
     }
 
     private static void persistGames(Context context){
