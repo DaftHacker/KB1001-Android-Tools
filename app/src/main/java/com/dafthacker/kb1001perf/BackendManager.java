@@ -200,6 +200,17 @@ public final class BackendManager {
                 "cat " + RootBridge.shellQuote(VERSION_FILE) + " 2>/dev/null");
     }
 
+    public static RootBridge.Result backendHealth(Context context) {
+        RootBridge.Result ready=ensureInstalled(context);
+        if(!ready.ok())return ready;
+
+        return RootBridge.get().exec(
+                "if [ -r " + RootBridge.shellQuote(CONTROLLER) + " ] && " +
+                        "[ -x " + RootBridge.shellQuote(ROOT_BOOT_HOOK) + " ]; then " +
+                        "echo 'ready|boot-hook'; " +
+                        "else echo 'missing'; exit 1; fi");
+    }
+
     private static byte[] readAll(InputStream input) throws Exception {
         try (InputStream in = input; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[16 * 1024];
