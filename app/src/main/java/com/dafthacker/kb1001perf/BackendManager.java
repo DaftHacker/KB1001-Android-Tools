@@ -123,11 +123,12 @@ public final class BackendManager {
         RootBridge.Result hook = installRootBootHook(bridge);
         if (!hook.ok()) return hook;
 
-        // The old module is no longer the runtime owner. Leave it installed but
-        // disabled until the user explicitly removes it after validating migration.
+        // The app-owned backend and service.d hook are now the runtime owner.
+        // After state migration succeeds, retire any installed legacy module automatically.
         bridge.exec(
                 "if [ -d " + RootBridge.shellQuote(LEGACY_MODULE) + " ]; then " +
-                        "touch " + RootBridge.shellQuote(LEGACY_MODULE + "/disable") + "; fi");
+                        "touch " + RootBridge.shellQuote(LEGACY_MODULE + "/disable") + " " +
+                        RootBridge.shellQuote(LEGACY_MODULE + "/remove") + "; fi");
 
         // Old daemons and the app-owned daemons share legacy runtime PID filenames.
         // If a migration happened this process, clear stale PID files before bootstrap.
