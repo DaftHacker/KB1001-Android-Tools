@@ -198,7 +198,7 @@ public class MainActivity extends Activity {
     }
 
     private void dashboardPage() {
-        section("LIVE PERFORMANCE","Tap CPU or GPU for deeper controls and details.");
+        section("LIVE PERFORMANCE","Tap CPU, GPU, Thermal, or Battery for deeper controls and details.");
 
         cpuMetric = metricCard("CPU",CPU_COLOR);
         cpuMetric.root.setOnClickListener(v -> showCpuMenu());
@@ -212,6 +212,7 @@ public class MainActivity extends Activity {
         page.addView(ramMetric.root,full());
 
         thermalMetric = metricCard("THERMAL",THERMAL_COOL);
+        thermalMetric.root.setOnClickListener(v -> showThermalMenu());
         page.addView(thermalMetric.root,full());
 
         batteryMetric = metricCard("BATTERY",BATTERY_GOOD);
@@ -244,6 +245,10 @@ public class MainActivity extends Activity {
 
     private void showCpuMenu() {
         startActivity(new Intent(this,CpuActivity.class));
+    }
+
+    private void showThermalMenu() {
+        startActivity(new Intent(this,ThermalActivity.class));
     }
 
     private void showBatteryMenu() {
