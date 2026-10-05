@@ -35,11 +35,7 @@ public final class FpsOverlayService extends Service {
     private WindowManager wm;
     private WindowManager.LayoutParams params;
     private TextView fpsText;
-    private PerfettoFpsCollector sampler;
-    private volatile java.lang.Process legacySampler;
-    private volatile Thread legacySamplerThread;
-    private volatile long lastPerfettoLiveMs;
-    private volatile boolean legacyFallbackStarted;
+    private java.lang.Process sampler;
 
     private float downX,downY;
     private int startX,startY;
@@ -51,12 +47,12 @@ public final class FpsOverlayService extends Service {
     private long averageSum;
     private String averageSource="";
     private boolean averageHasLiveSample;
+    private volatile boolean samplerRestartRequested;
     private BufferedWriter validationWriter;
     private File validationFile;
     private int validationRowsSinceFlush;
     private long validationLastFlushMs;
     private boolean validatorSnapshotCaptured;
-    private boolean validatorReconCaptured;
     private static final String VALIDATOR_PACKAGE="com.dafthacker.fpsvalidator";
     private static final int DEFAULT_POLL_MS=50;
     private static final int MIN_POLL_MS=50;
@@ -112,9 +108,8 @@ public final class FpsOverlayService extends Service {
         if(intent!=null && "kb1001.refresh_fps_appearance".equals(intent.getAction())){
             applyAppearance();
         }else if(intent!=null && "kb1001.refresh_fps_sampling".equals(intent.getAction())){
-            synchronized(this){
-                resetAverage(averageSource);
-            }
+            samplerRestartRequested=true;
+            try{if(sampler!=null)sampler.destroy();}catch(Exception ignored){}
         }
         return START_STICKY;
     }
@@ -261,156 +256,95 @@ public final class FpsOverlayService extends Service {
     }
 
     private void startSampler(){
-        if(!running || sampler!=null)return;
-
-        String targetCommand="sh "+RootBridge.shellQuote(FPS_SAMPLER)+" target-stream 250";
-        sampler=new PerfettoFpsCollector(targetCommand,this::handlePerfettoSample);
-        sampler.start();
-
-        // Some SurfaceView/BLAST producers do not emit attributable
-        // FrameTimeline SurfaceFrame events on this Android build. Give the
-        // zero-overhead event path a short chance, then recover automatically
-        // with the last known-working compositor sampler instead of leaving
-        // the HUD unresolved forever.
-        handler.postDelayed(this::ensureLegacyFallbackIfNeeded,1500L);
-    }
-
-    private void handlePerfettoSample(PerfettoFpsCollector.Sample raw){
-        if(!running || raw==null)return;
-
-        if(raw.fps>=0){
-            lastPerfettoLiveMs=SystemClock.elapsedRealtime();
-            stopLegacyFallback();
-        }else if(!legacyFallbackStarted){
-            handler.postDelayed(this::ensureLegacyFallbackIfNeeded,500L);
-        }
-
-        handleFpsSample(new FpsSample(
-                raw.fps,
-                raw.packageName,
-                raw.kind,
-                raw.layer,
-                raw.newFrames,
-                raw.candidateCount,
-                raw.cycleMs),100);
-    }
-
-    private void ensureLegacyFallbackIfNeeded(){
-        if(!running || legacyFallbackStarted)return;
-        long now=SystemClock.elapsedRealtime();
-        if(lastPerfettoLiveMs>0 && now-lastPerfettoLiveMs<1000L)return;
-        startLegacyFallback();
-    }
-
-    private synchronized void startLegacyFallback(){
-        if(!running || legacyFallbackStarted || legacySampler!=null)return;
-        legacyFallbackStarted=true;
-
-        Thread t=new Thread(()->{
-            java.lang.Process p=null;
-            try{
-                p=new ProcessBuilder(
-                        "su","-c",
-                        "sh "+RootBridge.shellQuote(FPS_SAMPLER)+" stream 250")
-                        .redirectErrorStream(true)
-                        .start();
-                legacySampler=p;
-
-                try(BufferedReader in=new BufferedReader(
-                        new InputStreamReader(p.getInputStream(),StandardCharsets.UTF_8))){
-                    String line;
-                    while(running && legacySampler==p && (line=in.readLine())!=null){
-                        FpsSample sample=parseFps(line);
-                        if(sample.source.isEmpty())continue;
-
-                        // If Perfetto has become healthy again, stop consuming
-                        // fallback samples. Otherwise this is the authoritative
-                        // source for SurfaceView/BLAST games.
-                        long now=SystemClock.elapsedRealtime();
-                        if(lastPerfettoLiveMs>0 && now-lastPerfettoLiveMs<1000L)break;
-                        handleFpsSample(sample,250);
-                    }
-                }
-            }catch(Exception ignored){
-            }finally{
-                if(p!=null){
-                    try{p.destroy();}catch(Exception ignored){}
-                }
-                if(legacySampler==p)legacySampler=null;
-                legacyFallbackStarted=false;
-            }
-        },"KB1001-fps-legacy-fallback");
-        t.setDaemon(true);
-        legacySamplerThread=t;
-        t.start();
-    }
-
-    private synchronized void stopLegacyFallback(){
-        java.lang.Process p=legacySampler;
-        legacySampler=null;
-        legacyFallbackStarted=false;
-        if(p!=null){
-            try{p.destroy();}catch(Exception ignored){}
-            if(Build.VERSION.SDK_INT>=26){
-                try{p.destroyForcibly();}catch(Exception ignored){}
-            }
-        }
-        Thread t=legacySamplerThread;
-        legacySamplerThread=null;
-        if(t!=null)t.interrupt();
-    }
-
-    private void handleFpsSample(FpsSample sample,int publishMs){
-        if(!running || sample==null)return;
-
-        synchronized(this){
-            boolean sourceChanged=!sample.source.isEmpty() &&
-                    !sample.source.equals(averageSource);
-            if(sourceChanged){
-                resetAverage(sample.source);
-                displayedFps=Integer.MIN_VALUE;
-                displayedAverageFps=Integer.MIN_VALUE;
+        reader.execute(()->{
+            RootBridge.Result ready=BackendManager.ensureInstalled(this);
+            if(!ready.ok()){
                 handler.post(()->{
-                    if(fpsText!=null)fpsText.setText("FPS: —");
+                    if(fpsText!=null)fpsText.setText("Current FPS: —\nAverage FPS: —");
                 });
-            }
-
-            syncValidationLogger(sample.source);
-            captureValidatorResolverSnapshot(sample.source);
-            // Full architecture recon is now explicit-only. Running it during
-            // every validator session adds dozens of blocking system probes and
-            // can distort the FPS source we are trying to validate.
-
-            final int windowMs=getAverageWindowMs();
-
-            if(sample.fps<0){
-                logValidationSample(sample,-1,publishMs,windowMs);
                 return;
             }
 
-            final int fps=sample.fps;
-            final long now=SystemClock.elapsedRealtime();
+            while(running && !Thread.currentThread().isInterrupted()){
+                try{
+                    android.content.SharedPreferences prefs=getSharedPreferences("fps_hud",MODE_PRIVATE);
+                    int pollMs=clamp(
+                            prefs.getInt("poll_ms",DEFAULT_POLL_MS),
+                            MIN_POLL_MS,
+                            MAX_POLL_MS);
 
-            final int avg;
-            if("live".equals(sample.kind) || "fallback".equals(sample.kind)){
-                averageHasLiveSample=true;
-                avg=addAverageSample(fps,now,windowMs);
-            }else if("stall".equals(sample.kind) && averageHasLiveSample){
-                avg=addAverageSample(fps,now,windowMs);
-            }else{
-                avg=averageHasLiveSample?currentAverage(now,windowMs):-1;
+                    samplerRestartRequested=false;
+                    sampler=new ProcessBuilder(
+                            "su","-c",
+                            FPS_SAMPLER+" stream "+pollMs)
+                            .redirectErrorStream(true)
+                            .start();
+
+                    BufferedReader in=new BufferedReader(
+                            new InputStreamReader(sampler.getInputStream(), StandardCharsets.UTF_8));
+
+                    String line;
+                    while((line=in.readLine())!=null && running){
+                        FpsSample sample=parseFps(line);
+
+                        boolean sourceChanged=!sample.source.isEmpty() &&
+                                !sample.source.equals(averageSource);
+                        if(sourceChanged){
+                            resetAverage(sample.source);
+                        }
+
+                        if(sample.fps<0){
+                            // Resolver misses are not frame-rate measurements.
+                            continue;
+                        }
+
+                        final int fps=sample.fps;
+                        final long now=SystemClock.elapsedRealtime();
+                        final int windowMs=getAverageWindowMs();
+
+                        // Only primary SurfaceFlinger presentation samples and
+                        // confirmed sustained stalls advance Average FPS.
+                        // A held display value is not a new measurement, and a
+                        // fallback source must not silently mix with the primary.
+                        final int avg;
+                        if("live".equals(sample.kind)){
+                            averageHasLiveSample=true;
+                            avg=addAverageSample(fps,now,windowMs);
+                        }else if("stall".equals(sample.kind) && averageHasLiveSample){
+                            avg=addAverageSample(fps,now,windowMs);
+                        }else{
+                            avg=averageHasLiveSample?currentAverage(now,windowMs):-1;
+                        }
+
+                        syncValidationLogger(sample.source);
+                        captureValidatorResolverSnapshot(sample.source);
+                        logValidationSample(sample,avg,pollMs,windowMs);
+
+                        if(fps==displayedFps && avg==displayedAverageFps)continue;
+                        displayedFps=fps;
+                        displayedAverageFps=avg;
+
+                        handler.post(()->{
+                            if(fpsText==null)return;
+                            fpsText.setText("FPS: "+fps);
+                        });
+                    }
+                }catch(Exception ignored){
+                    // Preserve the last valid reading while the sampler is restarted.
+                }finally{
+                    try{if(sampler!=null)sampler.destroy();}catch(Exception ignored){}
+                    sampler=null;
+                }
+
+                if(!running)break;
+                long delay=samplerRestartRequested?75L:1000L;
+                samplerRestartRequested=false;
+                try{Thread.sleep(delay);}catch(InterruptedException e){
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             }
-
-            logValidationSample(sample,avg,publishMs,windowMs);
-
-            if(fps==displayedFps && avg==displayedAverageFps)return;
-            displayedFps=fps;
-            displayedAverageFps=avg;
-
-            handler.post(()->{
-                if(fpsText!=null)fpsText.setText("FPS: "+fps);
-            });
-        }
+        });
     }
 
     private FpsSample parseFps(String line){
@@ -515,35 +449,6 @@ public final class FpsOverlayService extends Service {
             this.candidateCount=candidateCount;
             this.cycleMs=cycleMs;
         }
-    }
-
-    private void captureValidatorArchitectureRecon(String source){
-        if(!VALIDATOR_PACKAGE.equals(source)){
-            validatorReconCaptured=false;
-            return;
-        }
-        if(validatorReconCaptured)return;
-        validatorReconCaptured=true;
-
-        Thread t=new Thread(()->{
-            try{
-                File dir=new File(getExternalFilesDir(null),"fps-validation");
-                if(!dir.exists()&&!dir.mkdirs())return;
-                File report=new File(dir,"architecture-recon-latest.txt");
-
-                // Give the validator SurfaceView/BLAST layer time to register,
-                // then run one bounded system-owned capability sweep.
-                Thread.sleep(1500L);
-                RootBridge.get().exec(
-                        "sh "+RootBridge.shellQuote(FPS_SAMPLER)+
-                        " recon "+RootBridge.shellQuote(report.getAbsolutePath())+
-                        " "+RootBridge.shellQuote(VALIDATOR_PACKAGE));
-                publishToDownloads(
-                        report,"KB1001-FPS-Architecture-Recon.txt","text/plain");
-            }catch(Exception ignored){}
-        },"KB1001-fps-architecture-recon");
-        t.setDaemon(true);
-        t.start();
     }
 
     private void captureValidatorResolverSnapshot(String source){
@@ -670,13 +575,12 @@ public final class FpsOverlayService extends Service {
     }
 
     private void publishToDownloads(File source,String name,String mime){
-        if(source==null)return;
+        if(source==null||!source.isFile())return;
         try{
             String dst="/sdcard/Download/"+name;
             String tmp=dst+".tmp";
             RootBridge.get().exec(
-                    "test -f "+RootBridge.shellQuote(source.getAbsolutePath())+
-                    " && mkdir -p /sdcard/Download && cp -f "+
+                    "mkdir -p /sdcard/Download && cp -f "+
                     RootBridge.shellQuote(source.getAbsolutePath())+" "+
                     RootBridge.shellQuote(tmp)+" && chmod 0644 "+
                     RootBridge.shellQuote(tmp)+" && mv -f "+
@@ -724,11 +628,10 @@ public final class FpsOverlayService extends Service {
 
         try{
             if(sampler!=null){
-                sampler.close();
-                sampler=null;
+                sampler.destroy();
+                if(Build.VERSION.SDK_INT>=26) sampler.destroyForcibly();
             }
         }catch(Exception ignored){}
-        stopLegacyFallback();
 
         if(fpsText!=null&&wm!=null){
             try{wm.removeView(fpsText);}catch(Exception ignored){}
