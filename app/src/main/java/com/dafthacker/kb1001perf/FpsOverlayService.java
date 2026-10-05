@@ -33,6 +33,7 @@ public final class FpsOverlayService extends Service {
     private int startX,startY;
     private boolean moved;
     private long lastTapUp;
+    private int displayedFps=Integer.MIN_VALUE;
 
     public static boolean isRunning(){return running;}
 
@@ -234,6 +235,8 @@ public final class FpsOverlayService extends Service {
                         }
                         lastGoodFps=parsed;
                         final int fps=lastGoodFps;
+                        if(fps==displayedFps)continue;
+                        displayedFps=fps;
                         handler.post(()->{
                             if(fpsText!=null)fpsText.setText(fps+" FPS");
                         });
