@@ -68,6 +68,19 @@ public class MainActivity extends Activity {
     private int tab;
     private boolean active;
     private boolean suppressSwitchCallbacks;
+    private boolean overlayStateReceiverRegistered;
+
+    private final BroadcastReceiver overlayStateReceiver=new BroadcastReceiver(){
+        @Override public void onReceive(Context context,Intent intent){
+            if(intent==null)return;
+            String type=intent.getStringExtra("type");
+            boolean enabled=intent.getBooleanExtra("enabled",false);
+            suppressSwitchCallbacks=true;
+            if("metrics".equals(type) && hudSwitch!=null)hudSwitch.setChecked(enabled);
+            if("fps".equals(type) && fpsHudSwitch!=null)fpsHudSwitch.setChecked(enabled);
+            suppressSwitchCallbacks=false;
+        }
+    };
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -1488,6 +1501,15 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        if(!overlayStateReceiverRegistered){
+            IntentFilter filter=new IntentFilter(AppStateCache.ACTION_MANUAL_OVERLAY_CHANGED);
+            if(Build.VERSION.SDK_INT>=33){
+                registerReceiver(overlayStateReceiver,filter,Context.RECEIVER_NOT_EXPORTED);
+            }else{
+                registerReceiver(overlayStateReceiver,filter);
+            }
+            overlayStateReceiverRegistered=true;
+        }
         TelemetryDemand.activityResumed();
         applyMainKeepAwake();
         active = true;
@@ -1498,6 +1520,10 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        if(overlayStateReceiverRegistered){
+            try{unregisterReceiver(overlayStateReceiver);}catch(Exception ignored){}
+            overlayStateReceiverRegistered=false;
+        }
         active = false;
         handler.removeCallbacks(ticker);
         TelemetryDemand.activityPaused();
