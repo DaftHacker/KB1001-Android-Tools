@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
 
     <queries>
         <intent>
@@ -68,6 +69,7 @@
         <activity android:name=".GpuActivity" android:exported="false" />
         <activity android:name=".CpuActivity" android:exported="false" />
         <activity android:name=".BatteryActivity" android:exported="false" />
+        <activity android:name=".DisplaySleepActivity" android:exported="false" />
         <activity android:name=".StressTestActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
