@@ -82,18 +82,16 @@ public class MainActivity extends Activity {
             if(intent==null)return;
             String type=intent.getStringExtra("type");
             boolean enabled=intent.getBooleanExtra("enabled",false);
-            suppressSwitchCallbacks=true;
             if("metrics".equals(type) && hudSwitch!=null){
                 metricsTogglePending=false;
+                setSwitchStateSilently(hudSwitch,enabled);
                 hudSwitch.setEnabled(true);
-                hudSwitch.setChecked(enabled);
             }
             if("fps".equals(type) && fpsHudSwitch!=null){
                 fpsTogglePending=false;
+                setSwitchStateSilently(fpsHudSwitch,enabled);
                 fpsHudSwitch.setEnabled(true);
-                fpsHudSwitch.setChecked(enabled);
             }
-            suppressSwitchCallbacks=false;
         }
     };
 
@@ -834,27 +832,30 @@ public class MainActivity extends Activity {
             AppStateCache.setManualFps(this,enabled);
         }
 
-        suppressSwitchCallbacks=true;
-        control.setChecked(enabled);
-        suppressSwitchCallbacks=false;
+        // The user's tap already put the switch in the requested state.
+        // Lock it there while the backend confirms; do not toggle it again.
         control.setEnabled(false);
+
         io.execute(()->{
             String command="overlay "+type+"-manual-"+(enabled?"on":"off");
             RootBridge.Result r=RootBridge.get().ctl(command);
             boolean saved=r.ok() && (enabled?"enabled":"disabled").equals(r.output.trim());
+
             runOnUiThread(()->{
-                suppressSwitchCallbacks=true;
-                control.setChecked(saved?enabled:!enabled);
-                suppressSwitchCallbacks=false;
                 if("metrics".equals(type))metricsTogglePending=false;
                 else fpsTogglePending=false;
-                control.setEnabled(true);
+
                 if(!saved){
                     if("metrics".equals(type))AppStateCache.setManualMetrics(this,!enabled);
                     else AppStateCache.setManualFps(this,!enabled);
-                    Toast.makeText(this,"Could not verify manual "+type.toUpperCase(Locale.US)+" overlay state.",Toast.LENGTH_SHORT).show();
+                    setSwitchStateSilently(control,!enabled);
+                    Toast.makeText(this,
+                            "Could not verify manual "+type.toUpperCase(Locale.US)+" overlay state.",
+                            Toast.LENGTH_SHORT).show();
                     refreshBackendState();
                 }
+
+                control.setEnabled(true);
             });
         });
     }
@@ -872,11 +873,19 @@ public class MainActivity extends Activity {
     }
 
     private void setSwitchImmediately(Switch sw,boolean checked){
-        if(sw==null)return;
-        boolean old=suppressSwitchCallbacks;
+        setSwitchStateSilently(sw,checked);
+    }
+
+    private void setSwitchStateSilently(Switch sw,boolean checked){
+        if(sw==null || sw.isChecked()==checked)return;
+
+        boolean oldSuppress=suppressSwitchCallbacks;
+        boolean oldSound=sw.isSoundEffectsEnabled();
         suppressSwitchCallbacks=true;
+        sw.setSoundEffectsEnabled(false);
         sw.setChecked(checked);
-        suppressSwitchCallbacks=old;
+        sw.setSoundEffectsEnabled(oldSound);
+        suppressSwitchCallbacks=oldSuppress;
     }
 
     private Switch toggleCard(String title,String subtitle,ToggleAction action) {
@@ -910,9 +919,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        suppressSwitchCallbacks = true;
-        if (hudSwitch != null) hudSwitch.setChecked(false);
-        suppressSwitchCallbacks = false;
+        setSwitchStateSilently(hudSwitch,false);
 
         showOverlayPermissionDialog();
     }
@@ -925,9 +932,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        suppressSwitchCallbacks=true;
-        if(fpsHudSwitch!=null)fpsHudSwitch.setChecked(false);
-        suppressSwitchCallbacks=false;
+        setSwitchStateSilently(fpsHudSwitch,false);
 
         showOverlayPermissionDialog();
     }
@@ -957,8 +962,10 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 suppressSwitchCallbacks = true;
 
-                if (autoBoostSwitch != null) autoBoostSwitch.setChecked(AppStateCache.autoBoost(this));
-                if (loggingSwitch != null) loggingSwitch.setChecked(AppStateCache.fileLogging(this));
+                if (autoBoostSwitch != null)
+                    setSwitchStateSilently(autoBoostSwitch,AppStateCache.autoBoost(this));
+                if (loggingSwitch != null)
+                    setSwitchStateSilently(loggingSwitch,AppStateCache.fileLogging(this));
                 boolean metricsRunning=OverlayService.isRunning();
                 boolean fpsRunning=FpsOverlayService.isRunning();
 
@@ -968,9 +975,9 @@ public class MainActivity extends Activity {
                         .putBoolean("runtime_running",fpsRunning).apply();
 
                 if (hudSwitch != null && !metricsTogglePending)
-                    hudSwitch.setChecked(AppStateCache.manualMetrics(this));
+                    setSwitchStateSilently(hudSwitch,AppStateCache.manualMetrics(this));
                 if (fpsHudSwitch != null && !fpsTogglePending)
-                    fpsHudSwitch.setChecked(AppStateCache.manualFps(this));
+                    setSwitchStateSilently(fpsHudSwitch,AppStateCache.manualFps(this));
 
                 String persistent = status.get("Persistent profile");
                 if (persistent != null) {
