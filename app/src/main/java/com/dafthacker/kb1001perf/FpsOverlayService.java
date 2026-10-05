@@ -215,7 +215,6 @@ public final class FpsOverlayService extends Service {
                 return;
             }
 
-            int lastGoodFps=-1;
             while(running && !Thread.currentThread().isInterrupted()){
                 try{
                     sampler=new ProcessBuilder(
@@ -230,23 +229,20 @@ public final class FpsOverlayService extends Service {
                     String line;
                     while((line=in.readLine())!=null && running){
                         int[] parsed=parseFps(line);
-                        int current=parsed[0];
-                        int average=parsed[1];
-                        if(current<0 && average<0)continue;
+                        final int fps=parsed[0];
+                        final int avg=parsed[1];
 
-                        if(current>=0)lastGoodFps=current;
-                        if(current<0)current=lastGoodFps;
-                        if(average<0)average=current;
-
-                        final int fps=current;
-                        final int avg=average;
                         if(fps==displayedFps && avg==displayedAverageFps)continue;
                         displayedFps=fps;
                         displayedAverageFps=avg;
+
                         handler.post(()->{
-                            if(fpsText!=null){
-                                fpsText.setText("Current FPS: "+fps+"\nAverage FPS: "+avg);
-                            }
+                            if(fpsText==null)return;
+                            String currentText=fps>=0?Integer.toString(fps):"—";
+                            String averageText=avg>=0?Integer.toString(avg):"—";
+                            fpsText.setText(
+                                    "Current FPS: "+currentText+
+                                            "\nAverage FPS: "+averageText);
                         });
                     }
                 }catch(Exception ignored){
