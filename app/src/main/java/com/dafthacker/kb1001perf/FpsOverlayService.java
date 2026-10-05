@@ -75,6 +75,15 @@ public final class FpsOverlayService extends Service {
             return;
         }
 
+        android.content.SharedPreferences fpsPrefs=getSharedPreferences("fps_hud",MODE_PRIVATE);
+        if(!fpsPrefs.getBoolean("poll_default_v2_migrated",false)){
+            int old=fpsPrefs.getInt("poll_ms",250);
+            android.content.SharedPreferences.Editor e=fpsPrefs.edit()
+                    .putBoolean("poll_default_v2_migrated",true);
+            if(old==250)e.putInt("poll_ms",50);
+            e.apply();
+        }
+
         wm=(WindowManager)getSystemService(WINDOW_SERVICE);
         createOverlay();
 
