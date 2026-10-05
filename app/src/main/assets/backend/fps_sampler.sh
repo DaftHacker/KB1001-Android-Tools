@@ -167,7 +167,7 @@ timestats_layer(){
    return pkg==target || index(tolower(layer),tolower(target))>0
   }
   function finish(){
-   if(!belongs() || frames<0)return
+   if(!belongs() || frames<0 || avg<=0)return
    p=(layer ~ /SurfaceView|BLAST|BBQ/) ? 2 : 1
    if(p>bestp || (p==bestp && frames>bestframes)){
     bestp=p
@@ -313,8 +313,8 @@ stream(){
  trap 'rm -f "$cycle_state" 2>/dev/null; exit 0' HUP INT TERM PIPE
 
  poll_ms="$1"
- case "$poll_ms" in ''|*[!0-9]*) poll_ms=250;; esac
- [ "$poll_ms" -lt 100 ] 2>/dev/null && poll_ms=100
+ case "$poll_ms" in ''|*[!0-9]*) poll_ms=50;; esac
+ [ "$poll_ms" -lt 50 ] 2>/dev/null && poll_ms=50
  [ "$poll_ms" -gt 1000 ] 2>/dev/null && poll_ms=1000
 
  foreground_every=$(((1000 + poll_ms - 1)/poll_ms))
@@ -427,59 +427,7 @@ stream(){
     ts_last_layer=""
    fi
 
-   # Legacy compatibility is only a periodic rescue path after repeated
-   # TimeStats misses. TimeStats is retried every cycle so a late BLAST layer
-   # is adopted as soon as SurfaceFlinger starts reporting it.
-   if [ "$fps" -le 0 ] 2>/dev/null &&
-      [ "$ts_miss_streak" -ge 3 ] 2>/dev/null &&
-      [ $((ts_miss_streak%4)) -eq 0 ] 2>/dev/null; then
-    candidate_tick=$((candidate_tick+1))
-    if [ "$candidate_tick" -ge "$candidate_every" ] || [ -z "$candidates" ]; then
-     candidates="$(candidate_layers "$pkg_cached")"
-     candidate_tick=0
-    fi
-
-    # Prefer render surfaces in compatibility mode and cap probes to two.
-    preferred="$(printf '%s\n' "$candidates" | grep -Ei 'SurfaceView|BLAST|BBQ' | head -n 2)"
-    [ -n "$preferred" ] || preferred="$(printf '%s\n' "$candidates" | head -n 2)"
-    candidates="$preferred"
-    candidate_count="$(printf '%s\n' "$candidates" | awk 'NF{n++}END{print n+0}')"
-    : > "$cycle_state"
-
-    while IFS= read -r candidate; do
-     [ -n "$candidate" ] || continue
-     last_known="$(awk -F '\t' -v layer="$candidate" '$1==layer{print $2;exit}' "$state_file" 2>/dev/null)"
-     case "$last_known" in ''|*[!0-9]*) last_known=0;; esac
-
-     sample="$(layer_cycle_fps "$candidate" "$last_known")"
-     layer_fps="${sample%%|*}"
-     rest="${sample#*|}"
-     newest="${rest%%|*}"
-     new_frames="${rest#*|}"
-     case "$layer_fps" in ''|*[!0-9-]*) layer_fps=-1;; esac
-     case "$newest" in ''|*[!0-9]*) newest="$last_known";; esac
-     case "$new_frames" in ''|*[!0-9]*) new_frames=0;; esac
-     printf '%s\t%s\n' "$candidate" "$newest" >> "$cycle_state"
-
-     [ "$layer_fps" -gt 0 ] 2>/dev/null || continue
-     [ "$new_frames" -gt 0 ] 2>/dev/null || continue
-     priority=1
-     printf '%s' "$candidate" | grep -Eqi 'SurfaceView|BLAST|BBQ' && priority=2
-     if [ "$priority" -gt "$best_priority" ] 2>/dev/null ||
-        { [ "$priority" -eq "$best_priority" ] 2>/dev/null && [ "$new_frames" -gt "$best_frames" ] 2>/dev/null; } ||
-        { [ "$priority" -eq "$best_priority" ] 2>/dev/null && [ "$new_frames" -eq "$best_frames" ] 2>/dev/null && [ "$layer_fps" -gt "$best_fps" ] 2>/dev/null; }; then
-      best_priority="$priority"
-      best_frames="$new_frames"
-      best_fps="$layer_fps"
-      best_layer="$candidate"
-      fps="$layer_fps"
-      sample_kind="live"
-     fi
-    done <<EOF
-$candidates
-EOF
-    mv "$cycle_state" "$state_file" 2>/dev/null || cp "$cycle_state" "$state_file" 2>/dev/null
-   fi
+   # Recon baseline: no blocking legacy rescue in the hot path.
 
    if [ "$best_fps" -gt 0 ] 2>/dev/null; then
     fps="$best_fps"
@@ -490,34 +438,8 @@ EOF
   if [ "$fps" -gt 0 ] 2>/dev/null; then
    last_good_fps="$fps"
    miss_streak=0
-   fallback_tick=0
   else
    miss_streak=$((miss_streak+1))
-   fallback_tick=$((fallback_tick+1))
-
-   # Fallbacks remain attributed to the foreground package. Do not let a
-   # display-wide/system animation override a game that merely had one missed
-   # SurfaceFlinger cycle.
-   if [ "$fallback_tick" -ge "$fallback_every" ]; then
-    fallback=-1
-    if [ -n "$pkg_cached" ]; then
-     fallback="$(gfxinfo_fps "$pkg_cached")"
-     case "$fallback" in ''|*[!0-9-]*) fallback=-1;; esac
-    fi
-
-    if [ "$fallback" -le 0 ] 2>/dev/null; then
-     fallback="$(target_frametimeline_fps "$pkg_cached")"
-     case "$fallback" in ''|*[!0-9-]*) fallback=-1;; esac
-    fi
-
-    if [ "$fallback" -gt 0 ] 2>/dev/null; then
-     fps="$fallback"
-     last_good_fps="$fallback"
-     miss_streak=0
-     sample_kind="fallback"
-    fi
-    fallback_tick=0
-   fi
   fi
 
   if [ "$fps" -le 0 ] 2>/dev/null; then
@@ -544,7 +466,9 @@ EOF
   printf '%s|%s|%s|%s|%s|%s|%s\n' \
     "$fps" "$pkg_cached" "$sample_kind" "$best_layer" "$best_frames" \
     "$candidate_count" "$cycle_ms" || exit 0
-  sleep_sec="$(awk -v ms="$poll_ms" 'BEGIN{printf "%.3f",ms/1000.0}')"
+  remain_ms=$((poll_ms-cycle_ms))
+  [ "$remain_ms" -lt 20 ] 2>/dev/null && remain_ms=20
+  sleep_sec="$(awk -v ms="$remain_ms" 'BEGIN{printf "%.3f",ms/1000.0}')"
   sleep "$sleep_sec"
  done
 }
@@ -580,6 +504,100 @@ diagnose(){
  done <<EOF
 $candidates
 EOF
+}
+
+fps_recon(){
+ out="$1"
+ target="$2"
+ [ -n "$out" ] || out="/data/local/tmp/kb1001_fps_recon.txt"
+ [ -n "$target" ] || target="$(foreground_package)"
+ {
+  echo "KB1001 FPS architecture recon"
+  echo "date=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
+  echo "boottime_ms=$(monotonic_ms)"
+  echo "target=$target"
+  echo "foreground=$(foreground_package)"
+  echo "identity=$(id)"
+  echo "selinux=$(getenforce 2>/dev/null)"
+  echo "kernel=$(uname -a 2>/dev/null)"
+  echo "sdk=$(getprop ro.build.version.sdk)"
+  echo "fingerprint=$(getprop ro.build.fingerprint)"
+  echo
+  echo "=== graphics services ==="
+  service list 2>/dev/null | grep -Ei 'surface|display|gpu|graphic|render|game|perf' || true
+  echo "SurfaceFlinger: $(service check SurfaceFlinger 2>&1)"
+  echo
+  echo "=== graphics processes ==="
+  ps -A 2>/dev/null | grep -Ei 'surfaceflinger|composer|gpu|gralloc|render' || true
+  echo
+  echo "=== graphics libraries ==="
+  for d in /system/lib64 /vendor/lib64 /system_ext/lib64; do
+   [ -d "$d" ] || continue
+   ls "$d" 2>/dev/null | grep -Ei '^(libEGL|libGLES|libvulkan|libgui|libbinder|libsurface|libgraphics|libgralloc|libhwui|libperfetto).*\.so
+ out="$1"
+ [ -n "$out" ] || out="/data/local/tmp/kb1001_fps_validator_snapshot.txt"
+ {
+  echo "boottime_ms=$(monotonic_ms)"
+  echo "date=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
+  echo "backend_version=$(cat /data/local/kb1001perf/backend.version 2>/dev/null)"
+  if command -v sha256sum >/dev/null 2>&1; then
+   echo "fps_sampler_sha256=$(sha256sum "$0" 2>/dev/null | awk '{print $1}')"
+  fi
+  diagnose
+ } > "$out" 2>&1
+ echo "$out"
+}
+
+case "$1" in
+ stream) stream "$2" ;;
+ diagnose) diagnose ;;
+ validator-snapshot) validator_snapshot "$2" ;;
+ recon) fps_recon "$2" "$3" ;;
+ *) exit 2 ;;
+esac
+ | sed "s#^#$d/#"
+  done
+  echo
+  echo "=== trace facilities ==="
+  for x in /sys/kernel/tracing /sys/kernel/debug/tracing; do
+   echo "$x trace=$([ -r "$x/trace" ] && echo readable || echo no) events=$([ -r "$x/available_events" ] && echo readable || echo no)"
+   [ -r "$x/available_events" ] && grep -Ei 'gpu|mali|surface|fence|sync|binder' "$x/available_events" | head -n 120
+  done
+  echo
+  echo "=== perfetto ==="
+  command -v perfetto 2>/dev/null || true
+  perfetto --query-raw 2>&1 | head -n 100
+  echo
+  echo "=== binder devices ==="
+  ls -l /dev/binder /dev/hwbinder /dev/vndbinder 2>&1
+  echo
+  echo "=== SurfaceFlinger capabilities ==="
+  dumpsys SurfaceFlinger --help 2>&1 | head -n 220
+  echo
+  echo "=== target TimeStats ==="
+  timestats_layer "$target"
+  echo
+  echo "=== target layers ==="
+  dumpsys SurfaceFlinger --list 2>/dev/null | grep -Fi "$target" | head -n 80
+  echo
+  echo "=== source latency benchmark ms ==="
+  for cmd in timestats list frametimeline gfxinfo; do
+   i=0
+   while [ "$i" -lt 5 ]; do
+    t0="$(monotonic_ms)"
+    case "$cmd" in
+     timestats) dumpsys SurfaceFlinger --timestats -dump >/dev/null 2>&1 ;;
+     list) dumpsys SurfaceFlinger --list >/dev/null 2>&1 ;;
+     frametimeline) dumpsys SurfaceFlinger --frametimeline -all >/dev/null 2>&1 ;;
+     gfxinfo) dumpsys gfxinfo "$target" framestats >/dev/null 2>&1 ;;
+    esac
+    t1="$(monotonic_ms)"
+    echo "$cmd,$((t1-t0))"
+    i=$((i+1))
+   done
+  done
+ } > "$out" 2>&1
+ echo "$out"
 }
 
 validator_snapshot(){
