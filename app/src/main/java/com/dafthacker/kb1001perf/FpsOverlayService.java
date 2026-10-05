@@ -53,6 +53,7 @@ public final class FpsOverlayService extends Service {
     private int validationRowsSinceFlush;
     private long validationLastFlushMs;
     private boolean validatorSnapshotCaptured;
+    private boolean validatorReconCaptured;
     private static final String VALIDATOR_PACKAGE="com.dafthacker.fpsvalidator";
     private static final int DEFAULT_POLL_MS=50;
     private static final int MIN_POLL_MS=50;
@@ -318,6 +319,7 @@ public final class FpsOverlayService extends Service {
 
                         syncValidationLogger(sample.source);
                         captureValidatorResolverSnapshot(sample.source);
+                        captureValidatorArchitectureRecon(sample.source);
                         logValidationSample(sample,avg,pollMs,windowMs);
 
                         if(fps==displayedFps && avg==displayedAverageFps)continue;
@@ -449,6 +451,35 @@ public final class FpsOverlayService extends Service {
             this.candidateCount=candidateCount;
             this.cycleMs=cycleMs;
         }
+    }
+
+    private void captureValidatorArchitectureRecon(String source){
+        if(!VALIDATOR_PACKAGE.equals(source)){
+            validatorReconCaptured=false;
+            return;
+        }
+        if(validatorReconCaptured)return;
+        validatorReconCaptured=true;
+
+        Thread t=new Thread(()->{
+            try{
+                File dir=new File(getExternalFilesDir(null),"fps-validation");
+                if(!dir.exists()&&!dir.mkdirs())return;
+                File report=new File(dir,"architecture-recon-latest.txt");
+
+                // Give the validator SurfaceView/BLAST layer time to register,
+                // then run one bounded system-owned capability sweep.
+                Thread.sleep(1500L);
+                RootBridge.get().exec(
+                        "sh "+RootBridge.shellQuote(FPS_SAMPLER)+
+                        " recon "+RootBridge.shellQuote(report.getAbsolutePath())+
+                        " "+RootBridge.shellQuote(VALIDATOR_PACKAGE));
+                publishToDownloads(
+                        report,"KB1001-FPS-Architecture-Recon.txt","text/plain");
+            }catch(Exception ignored){}
+        },"KB1001-fps-architecture-recon");
+        t.setDaemon(true);
+        t.start();
     }
 
     private void captureValidatorResolverSnapshot(String source){
