@@ -97,6 +97,8 @@ surface_fps(){
   NR==1 { next }
   NF>=3 {
    v=0
+   # Prefer actual-present time; use completed timestamp only as a vendor
+   # fallback when actual-present is unavailable.
    if($2 ~ /^[0-9]+$/ && $2>0 && $2<9000000000000000000)v=$2
    else if($3 ~ /^[0-9]+$/ && $3>0 && $3<9000000000000000000)v=$3
    if(v>0)t[++n]=v
@@ -105,32 +107,19 @@ surface_fps(){
    if(n<2){print "-1|0";exit}
 
    last=t[n]
+   prior=t[n-1]
+   dt=last-prior
 
-   # Measure only actual completed presents from the most recent 250 ms of
-   # SurfaceFlinger history. No extrapolation or visual smoothing.
-   cutoff=last-250000000
-   first=n
-   while(first>1 && t[first-1]>=cutoff)first--
+   # Live FPS is the newest actual displayed-frame interval only.
+   # No moving average, smoothing, interpolation, or scaling.
+   if(dt<=0){print "0|" last;exit}
 
-   frames=n-first
-   span=last-t[first]
-
-   if(frames<=0 || span<=0){
-    if(n>=2){
-     span=last-t[n-1]
-     frames=1
-    }
-   }
-
-   if(span<=0 || frames<=0){print "0|" last;exit}
-
-   fps=int((frames*1000000000.0/span)+0.5)
+   fps=int((1000000000.0/dt)+0.5)
    if(fps<0)fps=0
    if(fps>240)fps=240
    print fps "|" last
   }'
 }
-
 
 query_layer(){
  current_layer="$1"
