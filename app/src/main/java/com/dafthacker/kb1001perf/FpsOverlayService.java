@@ -34,6 +34,7 @@ public final class FpsOverlayService extends Service {
     private boolean moved;
     private long lastTapUp;
     private int displayedFps=Integer.MIN_VALUE;
+    private int displayedAverageFps=Integer.MIN_VALUE;
 
     public static boolean isRunning(){return running;}
 
@@ -69,13 +70,13 @@ public final class FpsOverlayService extends Service {
         int textColor=prefs.getInt("color",Color.WHITE);
 
         fpsText=new TextView(this);
-        fpsText.setText("— FPS");
+        fpsText.setText("Current FPS: —\nAverage FPS: —");
         fpsText.setTextColor(textColor);
         fpsText.setTextSize(18f*scale);
         fpsText.setShadowLayer(3f,0f,0f,Color.BLACK);
         fpsText.setPadding(dp(7),dp(3),dp(7),dp(3));
         fpsText.setIncludeFontPadding(false);
-        fpsText.setSingleLine(true);
+        fpsText.setSingleLine(false);
         fpsText.setContentDescription("FPS counter. Double tap to close.");
 
         GradientDrawable backing=new GradientDrawable();
@@ -228,18 +229,24 @@ public final class FpsOverlayService extends Service {
 
                     String line;
                     while((line=in.readLine())!=null && running){
-                        int parsed=parseFps(line);
-                        if(parsed<0){
-                            // A transient sampler miss is not a new FPS value. Keep the most
-                            // recent valid reading instead of flashing the placeholder.
-                            continue;
-                        }
-                        lastGoodFps=parsed;
-                        final int fps=lastGoodFps;
-                        if(fps==displayedFps)continue;
+                        int[] parsed=parseFps(line);
+                        int current=parsed[0];
+                        int average=parsed[1];
+                        if(current<0 && average<0)continue;
+
+                        if(current>=0)lastGoodFps=current;
+                        if(current<0)current=lastGoodFps;
+                        if(average<0)average=current;
+
+                        final int fps=current;
+                        final int avg=average;
+                        if(fps==displayedFps && avg==displayedAverageFps)continue;
                         displayedFps=fps;
+                        displayedAverageFps=avg;
                         handler.post(()->{
-                            if(fpsText!=null)fpsText.setText(fps+" FPS");
+                            if(fpsText!=null){
+                                fpsText.setText("Current FPS: "+fps+"\nAverage FPS: "+avg);
+                            }
                         });
                     }
                 }catch(Exception ignored){
@@ -258,13 +265,18 @@ public final class FpsOverlayService extends Service {
         });
     }
 
-    private int parseFps(String line){
-        try{
-            int v=Integer.parseInt(line.trim());
-            return Math.max(-1,Math.min(240,v));
-        }catch(Exception e){
-            return -1;
+    private int[] parseFps(String line){
+        int[] out={-1,-1};
+        if(line==null)return out;
+
+        String[] parts=line.trim().split("\\|",-1);
+        for(int i=0;i<Math.min(2,parts.length);i++){
+            try{
+                int v=Integer.parseInt(parts[i].trim());
+                out[i]=Math.max(-1,Math.min(240,v));
+            }catch(Exception ignored){}
         }
+        return out;
     }
 
     private int dp(int value){
