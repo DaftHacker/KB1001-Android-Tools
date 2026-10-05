@@ -123,6 +123,7 @@ public final class AppStateCache {
 
     public static synchronized void setManualMetrics(Context context,boolean value){
         initialize(context);
+        if(manualMetrics==value && pendingManualMetrics==null)return;
         manualMetrics=value;
         pendingManualMetrics=value;
         pendingManualMetricsAt=System.currentTimeMillis();
@@ -131,6 +132,7 @@ public final class AppStateCache {
 
     public static synchronized void setManualFps(Context context,boolean value){
         initialize(context);
+        if(manualFps==value && pendingManualFps==null)return;
         manualFps=value;
         pendingManualFps=value;
         pendingManualFpsAt=System.currentTimeMillis();
@@ -152,12 +154,14 @@ public final class AppStateCache {
 
     public static synchronized void setAutoBoost(Context context,boolean value){
         initialize(context);
+        if(autoBoost==value)return;
         autoBoost=value;
         prefs(context).edit().putBoolean(KEY_AUTO_BOOST,value).apply();
     }
 
     public static synchronized void setFileLogging(Context context,boolean value){
         initialize(context);
+        if(fileLogging==value)return;
         fileLogging=value;
         prefs(context).edit().putBoolean(KEY_FILE_LOGGING,value).apply();
     }
@@ -223,7 +227,8 @@ public final class AppStateCache {
     public static synchronized void setGameOverlay(Context context,String pkg,String type,boolean enabled){
         initialize(context);
         Set<String> target="metrics".equals(type)?metricsGames:fpsGames;
-        if(enabled)target.add(pkg); else target.remove(pkg);
+        boolean changed=enabled?target.add(pkg):target.remove(pkg);
+        if(!changed)return;
         gamesUpdatedAt=System.currentTimeMillis();
         persistGames(context);
     }
