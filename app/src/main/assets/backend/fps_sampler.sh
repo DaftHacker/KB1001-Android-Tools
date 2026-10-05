@@ -419,6 +419,10 @@ diagnose(){
  pkg="$(foreground_package)"
  echo "foreground=${pkg:-<none>}"
 
+ echo "--- raw SurfaceFlinger matches ---"
+ dumpsys SurfaceFlinger --list 2>/dev/null | grep -Fi "${pkg##*.}" || true
+ echo "--- candidates ---"
+
  candidates="$(candidate_layers "$pkg")"
  if [ -z "$candidates" ]; then
   echo "candidates=0"
@@ -436,13 +440,27 @@ diagnose(){
   sample="$(layer_cycle_fps "$candidate" "$last_known")"
   echo "layer=$candidate"
   echo "  sample=$sample last_known=$last_known"
+  echo "  latency_head:"
+  dumpsys SurfaceFlinger --latency "$candidate" 2>/dev/null | head -n 6 | sed 's/^/    /'
  done <<EOF
 $candidates
 EOF
 }
 
+validator_snapshot(){
+ out="$1"
+ [ -n "$out" ] || out="/data/local/tmp/kb1001_fps_validator_snapshot.txt"
+ {
+  echo "boottime_ms=$(monotonic_ms)"
+  echo "date=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
+  diagnose
+ } > "$out" 2>&1
+ echo "$out"
+}
+
 case "$1" in
  stream) stream "$2" ;;
  diagnose) diagnose ;;
+ validator-snapshot) validator_snapshot "$2" ;;
  *) exit 2 ;;
 esac
