@@ -232,13 +232,20 @@ stream(){
  [ "$poll_ms" -lt 100 ] 2>/dev/null && poll_ms=100
  [ "$poll_ms" -gt 1000 ] 2>/dev/null && poll_ms=1000
 
+ foreground_every=$(((1000 + poll_ms - 1)/poll_ms))
+ candidate_every=$(((1500 + poll_ms - 1)/poll_ms))
+ fallback_every=$(((500 + poll_ms - 1)/poll_ms))
+ [ "$foreground_every" -lt 1 ] && foreground_every=1
+ [ "$candidate_every" -lt 1 ] && candidate_every=1
+ [ "$fallback_every" -lt 1 ] && fallback_every=1
+
  state_file="/data/local/tmp/kb1001_fps_layers.state"
- cycle_state="/data/local/tmp/kb1001_fps_layers.$$"
+ cycle_state="/data/local/tmp/kb1001_fps_layers.$"
  pkg_cached=""
  candidates=""
- candidate_tick=4
- foreground_tick=4
- fallback_tick=4
+ candidate_tick="$candidate_every"
+ foreground_tick="$foreground_every"
+ fallback_tick="$fallback_every"
  last_good_fps=-1
  miss_streak=0
 
@@ -249,7 +256,7 @@ stream(){
   # The game daemon is a useful hint, but FPS follows the actual foreground
   # application even when the app is not registered in the game library.
   foreground_tick=$((foreground_tick+1))
-  if [ -z "$next_pkg" ] || [ "$foreground_tick" -ge 4 ]; then
+  if [ -z "$next_pkg" ] || [ "$foreground_tick" -ge "$foreground_every" ]; then
    candidate_pkg="$(foreground_package)"
    [ -n "$candidate_pkg" ] && next_pkg="$candidate_pkg"
    foreground_tick=0
@@ -258,8 +265,8 @@ stream(){
   if [ "$next_pkg" != "$pkg_cached" ]; then
    pkg_cached="$next_pkg"
    candidates=""
-   candidate_tick=4
-   fallback_tick=4
+   candidate_tick="$candidate_every"
+   fallback_tick="$fallback_every"
    last_good_fps=-1
    miss_streak=0
    : > "$state_file"
@@ -275,7 +282,7 @@ stream(){
 
   if [ -n "$pkg_cached" ]; then
    candidate_tick=$((candidate_tick+1))
-   if [ "$candidate_tick" -ge 4 ] || [ -z "$candidates" ]; then
+   if [ "$candidate_tick" -ge "$candidate_every" ] || [ -z "$candidates" ]; then
     candidates="$(candidate_layers "$pkg_cached")"
     candidate_tick=0
    fi
@@ -346,7 +353,7 @@ EOF
    # Fallbacks remain attributed to the foreground package. Do not let a
    # display-wide/system animation override a game that merely had one missed
    # SurfaceFlinger cycle.
-   if [ "$fallback_tick" -ge 2 ]; then
+   if [ "$fallback_tick" -ge "$fallback_every" ]; then
     fallback=-1
     if [ -n "$pkg_cached" ]; then
      fallback="$(gfxinfo_fps "$pkg_cached")"
