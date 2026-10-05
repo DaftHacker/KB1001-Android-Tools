@@ -318,9 +318,9 @@ public final class FpsOverlayService extends Service {
     }
 
     private FpsSample parseFps(String line){
-        if(line==null)return new FpsSample(-1,"","","",0);
+        if(line==null)return new FpsSample(-1,"","","",0,0,0);
 
-        String[] parts=line.trim().split("\\|",5);
+        String[] parts=line.trim().split("\\|",7);
         int fps=-1;
         try{
             fps=Math.max(-1,Math.min(240,Integer.parseInt(parts[0].trim())));
@@ -329,13 +329,17 @@ public final class FpsOverlayService extends Service {
         String source=parts.length>=2?parts[1].trim():"";
         String kind=parts.length>=3?parts[2].trim():"";
         String layer=parts.length>=4?parts[3].trim():"";
-        int newFrames=0;
-        if(parts.length>=5){
-            try{newFrames=Math.max(0,Integer.parseInt(parts[4].trim()));}
-            catch(Exception ignored){}
-        }
+        int newFrames=parseNonNegative(parts,4);
+        int candidateCount=parseNonNegative(parts,5);
+        int cycleMs=parseNonNegative(parts,6);
         if(kind.isEmpty() && fps>=0)kind="live";
-        return new FpsSample(fps,source,kind,layer,newFrames);
+        return new FpsSample(fps,source,kind,layer,newFrames,candidateCount,cycleMs);
+    }
+
+    private static int parseNonNegative(String[] parts,int index){
+        if(index>=parts.length)return 0;
+        try{return Math.max(0,Integer.parseInt(parts[index].trim()));}
+        catch(Exception ignored){return 0;}
     }
 
     private void resetAverage(String source){
@@ -402,13 +406,18 @@ public final class FpsOverlayService extends Service {
         final String kind;
         final String layer;
         final int newFrames;
+        final int candidateCount;
+        final int cycleMs;
 
-        FpsSample(int fps,String source,String kind,String layer,int newFrames){
+        FpsSample(int fps,String source,String kind,String layer,int newFrames,
+                  int candidateCount,int cycleMs){
             this.fps=fps;
             this.source=source==null?"":source;
             this.kind=kind==null?"":kind;
             this.layer=layer==null?"":layer;
             this.newFrames=newFrames;
+            this.candidateCount=candidateCount;
+            this.cycleMs=cycleMs;
         }
     }
 
@@ -432,7 +441,8 @@ public final class FpsOverlayService extends Service {
             validationWriter=new BufferedWriter(new FileWriter(validationFile,false),65536);
             validationWriter.write(
                     "elapsed_realtime_ns,wall_time_ms,current_fps,average_fps,"+
-                    "package,kind,poll_ms,average_window_ms,layer,new_frames\n");
+                    "package,kind,poll_ms,average_window_ms,layer,new_frames,"+
+                    "candidate_count,sampler_cycle_ms\n");
             validationWriter.flush();
             validationRowsSinceFlush=0;
             validationLastFlushMs=SystemClock.elapsedRealtime();
@@ -467,6 +477,10 @@ public final class FpsOverlayService extends Service {
             validationWriter.write(csv(sample.layer));
             validationWriter.write(',');
             validationWriter.write(Integer.toString(sample.newFrames));
+            validationWriter.write(',');
+            validationWriter.write(Integer.toString(sample.candidateCount));
+            validationWriter.write(',');
+            validationWriter.write(Integer.toString(sample.cycleMs));
             validationWriter.write('\n');
 
             validationRowsSinceFlush++;
