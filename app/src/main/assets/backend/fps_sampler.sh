@@ -439,14 +439,22 @@ stream(){
     fi
    fi
 
-   # A valid-but-zero latency result often means the selected SurfaceFlinger
-   # layer is stale/inactive. Re-resolve it just like dedicated FPS tools do.
-   if [ "$bad_layer_count" -ge 2 ] || [ "$zero_fps_count" -ge 3 ]; then
+   # A zero from one SurfaceFlinger layer is not proof that the app is
+   # actually rendering at 0 FPS. It commonly means we attached to a static
+   # package-matched wrapper. After two zero samples, invalidate that layer and
+   # let the attributed fallback chain try to resolve a live source this cycle.
+   if [ "$zero_fps_count" -ge 2 ]; then
+    fps=-1
+    layer=""
+    last_present=0
+    last_layer_frame_count=-1
+    zero_fps_count=0
+    frame_counter_tick=0
+   elif [ "$bad_layer_count" -ge 2 ]; then
     layer=""
     last_present=0
     last_layer_frame_count=-1
     bad_layer_count=0
-    zero_fps_count=0
     frame_counter_tick=0
    fi
   fi
