@@ -31,6 +31,9 @@ public class CpuActivity extends Activity {
     private TextView overallValue;
     private TextView primeValue;
     private TextView modeValue;
+    private TextView governorValue;
+    private TextView primeModeValue;
+    private TextView requestValue;
     private TextView vfValue;
     private TextView ocStage1Value;
     private TextView ocStage2Value;
@@ -186,7 +189,10 @@ public class CpuActivity extends Activity {
     }
 
     private View liveCard(){
-        LinearLayout card=card(GREEN);
+        LinearLayout card=new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(15),dp(13),dp(15),dp(13));
+        card.setBackground(blackAccentCard(GREEN));
 
         LinearLayout head=row();
         LinearLayout labels=new LinearLayout(this);
@@ -207,9 +213,28 @@ public class CpuActivity extends Activity {
         overallGraph=new SparklineView(this);
         overallGraph.setAccentColor(GREEN);
         LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,dp(104));
-        gp.setMargins(0,dp(8),0,0);
+        gp.setMargins(0,dp(8),0,dp(8));
         card.addView(overallGraph,gp);
+
+        LinearLayout info=new LinearLayout(this);
+        info.setOrientation(LinearLayout.HORIZONTAL);
+        governorValue=miniStat(info,"GOVERNOR","—");
+        primeModeValue=miniStat(info,"PRIME","—");
+        requestValue=miniStat(info,"STATUS","ACTIVE");
+        card.addView(info);
         return card;
+    }
+
+    private TextView miniStat(LinearLayout parent,String label,String initial){
+        LinearLayout box=new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(4),0,dp(4),0);
+        TextView l=text(label,8,MUTED,true);
+        TextView v=text(initial,11,TEXT,true);
+        box.addView(l);
+        box.addView(v);
+        parent.addView(box,new LinearLayout.LayoutParams(0,-2,1));
+        return v;
     }
 
     private ClusterUi clusterCard(
@@ -295,12 +320,14 @@ public class CpuActivity extends Activity {
         Button target=cpuModeButtons.get(modeKey);
         if(target!=null)target.setText("REQUESTED…");
         if(modeValue!=null)modeValue.setText(friendly+" • requested");
+        if(requestValue!=null)requestValue.setText("REQUESTED");
 
         handler.postDelayed(()->{
             if(modeKey.equals(pendingCpuMode)){
                 Button b=cpuModeButtons.get(modeKey);
                 if(b!=null)b.setText("SWITCHING…");
                 if(modeValue!=null)modeValue.setText(friendly+" • switching");
+                if(requestValue!=null)requestValue.setText("SWITCHING");
             }
         },140);
 
@@ -316,10 +343,12 @@ public class CpuActivity extends Activity {
                     pendingCpuMode=null;
                     updateCpuButtons(modeKey);
                     if(modeValue!=null)modeValue.setText(friendlyMode(modeKey));
+                    if(requestValue!=null)requestValue.setText("ACTIVE");
                 }else{
                     pendingCpuMode=null;
                     confirmedCpuMode=null;
                     updateCpuButtons(TelemetryStore.get(TelemetryStore.read(this),"cpu_mode","stock"));
+                    if(requestValue!=null)requestValue.setText("ERROR");
                     Toast.makeText(this,"CPU profile request failed",Toast.LENGTH_LONG).show();
                 }
                 handler.postDelayed(this::refresh,350);
@@ -405,8 +434,18 @@ public class CpuActivity extends Activity {
         int primeClock=primePolicy==null?0:primePolicy.current;
 
         overallValue.setText(overall+"%");
-        modeValue.setText(friendlyMode(cpuMode));
+        if(pendingCpuMode==null){
+            modeValue.setText(friendlyMode(cpuMode));
+            if(requestValue!=null)requestValue.setText("ACTIVE");
+        }
         primeValue.setText("Prime A73 • "+primeUtil+"% • "+primeClock+" MHz");
+        if(governorValue!=null){
+            PolicyState p0=policies.get("policy0");
+            governorValue.setText(p0==null?"—":p0.governor);
+        }
+        if(primeModeValue!=null){
+            primeModeValue.setText(primePolicy==null?"—":primePolicy.governor+" • "+primeClock);
+        }
         overallGraph.addValue(overall);
 
         updateCluster(efficiency,util,capacity,policies,thermals,cooling);
@@ -582,6 +621,14 @@ public class CpuActivity extends Activity {
         t.setTextColor(color);
         if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         return t;
+    }
+
+    private GradientDrawable blackAccentCard(int accent){
+        GradientDrawable bg=new GradientDrawable();
+        bg.setColor(Color.rgb(8,12,13));
+        bg.setCornerRadius(dp(16));
+        bg.setStroke(dp(1),Color.argb(165,Color.red(accent),Color.green(accent),Color.blue(accent)));
+        return bg;
     }
 
     private GradientDrawable tintedCard(int color,int alpha){
