@@ -21,6 +21,7 @@ public final class BackendManager {
 
     private static final String VERSION_FILE = ROOT + "/backend.version";
     private static final String MIGRATION_MARKER = ROOT + "/.legacy_state_migrated";
+    private static final String ROOT_BOOT_HOOK = "/data/adb/service.d/kb1001perf.sh";
 
     private static final String[] BACKEND_FILES = {
             "common.sh",
@@ -119,6 +120,9 @@ public final class BackendManager {
             }
         }
 
+        RootBridge.Result hook = installRootBootHook(bridge);
+        if (!hook.ok()) return hook;
+
         // The old module is no longer the runtime owner. Leave it installed but
         // disabled until the user explicitly removes it after validating migration.
         bridge.exec(
@@ -142,6 +146,21 @@ public final class BackendManager {
         processReady = true;
         return new RootBridge.Result(0,
                 "backend=ready\nstate=" + migrated.output.trim());
+    }
+
+    private static RootBridge.Result installRootBootHook(RootBridge bridge) {
+        String hook =
+                "#!/system/bin/sh\n" +
+                "BACKEND=/data/local/kb1001perf/backend/service.sh\n" +
+                "i=0\n" +
+                "while [ $i -lt 120 ] && [ ! -r \"$BACKEND\" ]; do sleep 1; i=$((i+1)); done\n" +
+                "[ -r \"$BACKEND\" ] || exit 0\n" +
+                "nohup sh \"$BACKEND\" >/dev/null 2>&1 </dev/null &\n" +
+                "exit 0\n";
+        return bridge.writeRootFile(
+                ROOT_BOOT_HOOK,
+                hook.getBytes(StandardCharsets.UTF_8),
+                "0700");
     }
 
     public static RootBridge.Result startBootBackend(Context context) {
