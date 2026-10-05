@@ -133,13 +133,24 @@ public class GamePickerActivity extends Activity {
     }
 
     private void load(){
+        AppStateCache.GameSnapshot cached=AppStateCache.gameSnapshot(this);
+        selected.clear();
+        if(cached.loaded) selected.addAll(cached.games);
+
         io.execute(()->{
-            RootBridge.Result current=RootBridge.get().ctl("game list");
-            selected.clear();
-            if(current.ok()){
-                for(String line:current.output.split("\\R")){
-                    String pkg=line.trim();
-                    if(!pkg.isEmpty())selected.add(pkg);
+            if(!cached.loaded || !AppStateCache.gamesFresh(this,5000)){
+                RootBridge.Result current=RootBridge.get().ctl("game list");
+                if(current.ok()){
+                    selected.clear();
+                    for(String line:current.output.split("\\R")){
+                        String pkg=line.trim();
+                        if(!pkg.isEmpty())selected.add(pkg);
+                    }
+                    AppStateCache.updateGameSnapshot(
+                            this,
+                            selected,
+                            cached.metricsGames,
+                            cached.fpsGames);
                 }
             }
 
@@ -271,6 +282,7 @@ public class GamePickerActivity extends Activity {
             RootBridge.Result r=RootBridge.get().ctl("game add "+app.pkg);
             if(r.ok()){
                 selected.add(app.pkg);
+                AppStateCache.addGame(this,app.pkg);
 
                 Set<String> ignored=new LinkedHashSet<>(
                         prefs.getStringSet("ignored_games",Collections.emptySet()));
