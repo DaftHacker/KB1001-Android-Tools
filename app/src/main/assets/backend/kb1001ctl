@@ -19,6 +19,7 @@ MANUAL_METRICS="$STATE_DIR/manual_metrics_overlay"
 MANUAL_FPS="$STATE_DIR/manual_fps_overlay"
 UI_DEMAND="/data/local/tmp/kb1001_telemetry_ui"
 HUD_DEMAND="/data/local/tmp/kb1001_telemetry_hud"
+VALIDATOR_PKG="com.dafthacker.fpsvalidator"
 
 ensure_configs(){
  mkdir -p "$STATE_DIR"
@@ -92,6 +93,7 @@ telemetry_active(){
 }
 
 overlay_feature_enabled(){
+ pm path "$VALIDATOR_PKG" >/dev/null 2>&1 ||
  grep -q '[^[:space:]#]' "$METRICS_GAMES" 2>/dev/null ||
  grep -q '[^[:space:]#]' "$FPS_GAMES" 2>/dev/null
 }
