@@ -83,7 +83,6 @@ public class MainActivity extends Activity {
         applyMainKeepAwake();
         showTab(0);
 
-        io.execute(() -> RootBridge.get().ctl("status"));
 
         quietUpdateCheck();
     }
@@ -425,8 +424,9 @@ public class MainActivity extends Activity {
         button.setOnClickListener(v -> {
             boolean current=Boolean.TRUE.equals(button.getTag());
             boolean next=!current;
+            styleGameOverlayButton(button,next);
             button.setEnabled(false);
-            button.setText("SAVE…");
+            AppStateCache.setGameOverlay(this,pkg,type,next);
             setGameOverlayEnabled(pkg,type,next,current,button);
         });
 
@@ -465,6 +465,7 @@ public class MainActivity extends Activity {
                 if(verified){
                     styleGameOverlayButton(button,enabled);
                 }else{
+                    AppStateCache.setGameOverlay(this,pkg,type,previous);
                     styleGameOverlayButton(button,previous);
                     Toast.makeText(this,
                             "Could not verify saved "+type.toUpperCase(Locale.US)+" overlay setting.",
@@ -1492,8 +1493,8 @@ public class MainActivity extends Activity {
         active = true;
         handler.removeCallbacks(ticker);
         handler.post(ticker);
-        if(!AppStateCache.statusFresh(this,1500)) refreshBackendState();
-        if (tab == 1 && !AppStateCache.gamesFresh(this,5000)) loadGamesInline();
+        if(!AppStateCache.statusFresh(this,5000)) refreshBackendState();
+        if (tab == 1) loadGamesInline();
     }
 
     @Override protected void onPause() {
