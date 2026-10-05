@@ -668,15 +668,17 @@ public class MainActivity extends Activity {
 
         section("SOFTWARE","");
 
-        LinearLayout softwareStatus=row();
+        LinearLayout softwareStatus=new LinearLayout(this);
+        softwareStatus.setOrientation(LinearLayout.VERTICAL);
+
         TextView currentVersion=text(
                 "Current version: "+BuildConfig.VERSION_NAME,
                 10,MUTED,false);
-        softwareStatus.addView(currentVersion,new LinearLayout.LayoutParams(0,-2,1));
+        softwareStatus.addView(currentVersion);
 
         backendHealthValue=text("Backend: Checking…",10,MUTED,false);
-        backendHealthValue.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
-        softwareStatus.addView(backendHealthValue,new LinearLayout.LayoutParams(0,-2,1));
+        backendHealthValue.setPadding(0,dp(2),0,0);
+        softwareStatus.addView(backendHealthValue);
         page.addView(softwareStatus,full());
 
         Button check=button("Check for Update",true,v -> checkForUpdate(false));
@@ -953,6 +955,17 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    private void restoreManualOverlaysIfNeeded(){
+        if(!Settings.canDrawOverlays(this))return;
+
+        if(AppStateCache.manualMetrics(this) && !OverlayService.isRunning()){
+            showHud();
+        }
+        if(AppStateCache.manualFps(this) && !FpsOverlayService.isRunning()){
+            showFpsHud();
+        }
+    }
+
     private void refreshBackendState() {
         io.execute(() -> {
             RootBridge.Result r = RootBridge.get().ctl("status");
@@ -979,6 +992,8 @@ public class MainActivity extends Activity {
                     setSwitchStateSilently(hudSwitch,AppStateCache.manualMetrics(this));
                 if (fpsHudSwitch != null && !fpsTogglePending)
                     setSwitchStateSilently(fpsHudSwitch,AppStateCache.manualFps(this));
+
+                restoreManualOverlaysIfNeeded();
 
                 String persistent = status.get("Persistent profile");
                 if (persistent != null) {
@@ -1542,6 +1557,7 @@ public class MainActivity extends Activity {
         active = true;
         handler.removeCallbacks(ticker);
         handler.post(ticker);
+        restoreManualOverlaysIfNeeded();
         if(!AppStateCache.statusFresh(this,5000)) refreshBackendState();
         if (tab == 1) loadGamesInline();
     }
