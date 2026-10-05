@@ -388,7 +388,13 @@ EOF
    fi
   fi
 
-  printf '%s|%s|%s\n' "$fps" "$pkg_cached" "$sample_kind" || exit 0
+  # Stream contract:
+  # fps|foreground_package|kind|selected_layer|new_frames
+  # selected_layer/new_frames describe the primary live SurfaceFlinger election.
+  # Fallback/hold/stall samples retain an empty/zero primary provenance when no
+  # live layer won this cycle.
+  printf '%s|%s|%s|%s|%s\n' \
+    "$fps" "$pkg_cached" "$sample_kind" "$best_layer" "$best_frames" || exit 0
   sleep_sec="$(awk -v ms="$poll_ms" 'BEGIN{printf "%.3f",ms/1000.0}')"
   sleep "$sleep_sec"
  done
