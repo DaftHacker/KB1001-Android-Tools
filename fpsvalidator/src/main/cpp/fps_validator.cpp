@@ -5,6 +5,7 @@
 #include <GLES2/gl2.h>
 #include <android/log.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -119,13 +120,16 @@ bool hasExt(const char* extensions, const char* name) {
 
 void writeHeader(std::ofstream& out) {
     out << "seq,mode,phase,target_fps,target_frame_ns,render_start_ns,render_end_ns,"
-           "swap_start_ns,swap_end_ns,egl_frame_id,present_supported,actual_present_ns,"
+           "swap_start_ns,swap_end_ns,egl_frame_id,present_supported,"
+           "rendering_complete_ns,composition_latch_ns,actual_present_ns,"
            "present_delta_ns,present_fps\n";
 }
 
 void flushFrame(std::ofstream& out,
                 const PendingFrame& f,
                 bool presentSupported,
+                int64_t renderingCompleteNs,
+                int64_t compositionLatchNs,
                 int64_t actualPresentNs,
                 int64_t& previousPresentNs) {
     int64_t delta = -1;
@@ -147,6 +151,8 @@ void flushFrame(std::ofstream& out,
         << f.swapEndNs << ','
         << f.eglFrameId << ','
         << (presentSupported ? 1 : 0) << ','
+        << renderingCompleteNs << ','
+        << compositionLatchNs << ','
         << actualPresentNs << ','
         << delta << ','
         << presentFps << '\n';
@@ -302,23 +308,32 @@ void renderer(ANativeWindow* window, std::string path, int mode, double fixedFps
         if (presentSupported && f.eglFrameId != 0) {
             pending.push_back(f);
         } else {
-            flushFrame(out, f, false, -1, previousPresentNs);
+            flushFrame(out, f, false, -1, -1, -1, previousPresentNs);
         }
 
         // Presentation timestamps can become available a little later than swap. Keep a small
         // queue and query old frames opportunistically without blocking the renderer.
         for (auto it = pending.begin(); it != pending.end();) {
-            const EGLint names[] = {EGL_DISPLAY_PRESENT_TIME_ANDROID};
-            EGLnsecsANDROID values[] = {0};
+            const EGLint names[] = {
+                    EGL_RENDERING_COMPLETE_TIME_ANDROID,
+                    EGL_COMPOSITION_LATCH_TIME_ANDROID,
+                    EGL_DISPLAY_PRESENT_TIME_ANDROID
+            };
+            EGLnsecsANDROID values[] = {0, 0, 0};
             EGLBoolean ok = getFrameTimestamps(
-                    display, surface, it->eglFrameId, 1, names, values);
+                    display, surface, it->eglFrameId, 3, names, values);
 
-            if (ok == EGL_TRUE && values[0] > 0) {
-                flushFrame(out, *it, true, static_cast<int64_t>(values[0]), previousPresentNs);
+            if (ok == EGL_TRUE && values[2] > 0) {
+                flushFrame(
+                        out, *it, true,
+                        static_cast<int64_t>(values[0]),
+                        static_cast<int64_t>(values[1]),
+                        static_cast<int64_t>(values[2]),
+                        previousPresentNs);
                 it = pending.erase(it);
             } else if (seq - it->seq > 16) {
                 // Timestamp never became available. Preserve the frame in the CSV explicitly.
-                flushFrame(out, *it, true, -1, previousPresentNs);
+                flushFrame(out, *it, true, -1, -1, -1, previousPresentNs);
                 it = pending.erase(it);
             } else {
                 ++it;
@@ -336,7 +351,9 @@ void renderer(ANativeWindow* window, std::string path, int mode, double fixedFps
         }
     }
 
-    for (const auto& f : pending) flushFrame(out, f, presentSupported, -1, previousPresentNs);
+    for (const auto& f : pending) {
+        flushFrame(out, f, presentSupported, -1, -1, -1, previousPresentNs);
+    }
     out.flush();
     out.close();
     setStatus("Stopped • CSV saved");
