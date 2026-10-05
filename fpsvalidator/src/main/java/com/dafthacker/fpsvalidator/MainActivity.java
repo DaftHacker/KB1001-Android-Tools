@@ -150,9 +150,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             android.content.ContentResolver cr=getContentResolver();
             android.net.Uri collection=MediaStore.Downloads.EXTERNAL_CONTENT_URI;
             cr.delete(collection,
-                    MediaStore.MediaColumns.DISPLAY_NAME+"=? AND "+
-                            MediaStore.MediaColumns.RELATIVE_PATH+"=?",
-                    new String[]{name,"Download/"});
+                    MediaStore.MediaColumns.DISPLAY_NAME+"=?",
+                    new String[]{name});
 
             ContentValues values=new ContentValues();
             values.put(MediaStore.MediaColumns.DISPLAY_NAME,name);
