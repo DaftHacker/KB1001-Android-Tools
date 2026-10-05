@@ -839,6 +839,35 @@ public class MainActivity extends Activity {
         });
         card.addView(avgSeek,new LinearLayout.LayoutParams(-1,-2));
 
+        LinearLayout validationRow=row();
+        validationRow.setPadding(0,dp(8),0,dp(2));
+        LinearLayout validationLabels=new LinearLayout(this);
+        validationLabels.setOrientation(LinearLayout.VERTICAL);
+        validationLabels.addView(text("FPS validation CSV logging",10,MUTED,true));
+        validationLabels.addView(text(
+                "Logs overlay FPS, average, source quality, layer and new-frame count using the same boottime clock as the validator.",
+                9,MUTED,false));
+        validationRow.addView(validationLabels,new LinearLayout.LayoutParams(0,-2,1));
+
+        Switch validationSwitch=new Switch(this);
+        validationSwitch.setChecked(prefs.getBoolean("validation_log_enabled",false));
+        validationSwitch.setOnCheckedChangeListener((button,checked)->{
+            prefs.edit().putBoolean("validation_log_enabled",checked).apply();
+            refreshFpsSamplingIfRunning();
+        });
+        validationRow.addView(validationSwitch);
+        card.addView(validationRow);
+
+        String lastValidationPath=prefs.getString("validation_log_path","");
+        TextView validationPath=text(
+                lastValidationPath.isEmpty()
+                        ? "Latest overlay log: none yet"
+                        : "Latest overlay log: "+lastValidationPath,
+                8,Color.rgb(130,150,165),false);
+        validationPath.setPadding(0,dp(2),0,dp(3));
+        validationPath.setTextIsSelectable(true);
+        card.addView(validationPath);
+
         TextView colorTitle=text("Text color",10,MUTED,true);
         colorTitle.setPadding(0,dp(7),0,dp(5));
         card.addView(colorTitle);
