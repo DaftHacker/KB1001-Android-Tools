@@ -46,6 +46,7 @@ public final class FpsOverlayService extends Service {
     private File validationFile;
     private int validationRowsSinceFlush;
     private long validationLastFlushMs;
+    private boolean validatorSnapshotCaptured;
     private static final String VALIDATOR_PACKAGE="com.dafthacker.fpsvalidator";
     private static final int DEFAULT_POLL_MS=250;
     private static final int MIN_POLL_MS=100;
@@ -285,6 +286,7 @@ public final class FpsOverlayService extends Service {
                         }
 
                         syncValidationLogger(sample.source);
+                        captureValidatorResolverSnapshot(sample.source);
                         logValidationSample(sample,avg,pollMs,windowMs);
 
                         if(fps==displayedFps && avg==displayedAverageFps)continue;
@@ -419,6 +421,36 @@ public final class FpsOverlayService extends Service {
             this.candidateCount=candidateCount;
             this.cycleMs=cycleMs;
         }
+    }
+
+    private void captureValidatorResolverSnapshot(String source){
+        if(!VALIDATOR_PACKAGE.equals(source)){
+            validatorSnapshotCaptured=false;
+            return;
+        }
+        if(validatorSnapshotCaptured)return;
+        validatorSnapshotCaptured=true;
+
+        try{
+            File dir=new File(getExternalFilesDir(null),"fps-validation");
+            if(!dir.exists()&&!dir.mkdirs())return;
+            String stamp=new java.text.SimpleDateFormat(
+                    "yyyyMMdd-HHmmss",java.util.Locale.US)
+                    .format(new java.util.Date());
+            File snapshot=new File(dir,"resolver-"+stamp+".txt");
+
+            // Run once on a separate thread so the diagnostic dumpsys calls cannot
+            // delay the sampler stream used for the scored validation phases.
+            Thread t=new Thread(()->{
+                try{
+                    RootBridge.get().exec(
+                            "sh "+RootBridge.shellQuote(FPS_SAMPLER)+
+                            " validator-snapshot "+
+                            RootBridge.shellQuote(snapshot.getAbsolutePath()));
+                }catch(Exception ignored){}
+            },"KB1001-fps-resolver-snapshot");
+            t.start();
+        }catch(Exception ignored){}
     }
 
     private void syncValidationLogger(String source){
