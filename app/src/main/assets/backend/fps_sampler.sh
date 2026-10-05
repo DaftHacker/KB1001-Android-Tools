@@ -306,22 +306,103 @@ gfxinfo_fps(){
  echo "$fps"
 }
 
+candidate_layers(){
+ target="$1"
+ [ -n "$target" ] || return
+
+ layers="$(dumpsys SurfaceFlinger --list 2>/dev/null)"
+ matches="$(printf '%s\n' "$layers" |
+  grep -F "$target" |
+  grep -Ev 'ActivityRecord|InputSink|Background for|Bounds for|Dim layer|Snapshot|Transition|leash|Task=')"
+
+ if [ -z "$matches" ]; then
+  short="${target##*.}"
+  if [ "${#short}" -ge 4 ]; then
+   matches="$(printf '%s\n' "$layers" |
+    grep -Fi "$short" |
+    grep -Ev 'ActivityRecord|InputSink|Background for|Bounds for|Dim layer|Snapshot|Transition|leash|Task=')"
+  fi
+ fi
+
+ while IFS= read -r raw; do
+  [ -n "$raw" ] || continue
+  clean_sf_layer "$raw"
+  printf '\n'
+ done <<EOF | awk 'NF && !seen[$0]++'
+$matches
+EOF
+}
+
+monotonic_ns(){
+ awk '{printf "%.0f\n", $1*1000000000.0}' /proc/uptime 2>/dev/null
+}
+
+best_live_fps(){
+ candidates="$1"
+ now_ns="$(monotonic_ns)"
+ case "$now_ns" in ''|*[!0-9]*) now_ns=0;; esac
+
+ best_fps=-1
+ best_priority=-1
+ best_last=0
+ best_layer=""
+ live_count=0
+
+ while IFS= read -r candidate; do
+  [ -n "$candidate" ] || continue
+
+  metrics="$(surface_fps "$candidate")"
+  fps="${metrics%%|*}"
+  rest="${metrics#*|}"
+  rest="${rest#*|}"
+  last="$rest"
+
+  case "$fps" in ''|*[!0-9-]*) fps=-1;; esac
+  case "$last" in ''|*[!0-9]*) last=0;; esac
+
+  [ "$fps" -gt 0 ] 2>/dev/null || continue
+  [ "$last" -gt 0 ] 2>/dev/null || continue
+  [ "$now_ns" -gt 0 ] 2>/dev/null || continue
+
+  age_ns=$((now_ns-last))
+  [ "$age_ns" -ge 0 ] 2>/dev/null || continue
+  [ "$age_ns" -le 1500000000 ] 2>/dev/null || continue
+
+  live_count=$((live_count+1))
+  priority=1
+  if printf '%s' "$candidate" | grep -Eqi 'SurfaceView|BLAST|BBQ'; then
+   priority=2
+  fi
+
+  if [ "$priority" -gt "$best_priority" ] 2>/dev/null ||
+     { [ "$priority" -eq "$best_priority" ] 2>/dev/null &&
+       [ "$fps" -gt "$best_fps" ] 2>/dev/null; } ||
+     { [ "$priority" -eq "$best_priority" ] 2>/dev/null &&
+       [ "$fps" -eq "$best_fps" ] 2>/dev/null &&
+       [ "$last" -gt "$best_last" ] 2>/dev/null; }; then
+   best_priority="$priority"
+   best_fps="$fps"
+   best_last="$last"
+   best_layer="$candidate"
+  fi
+ done <<EOF
+$candidates
+EOF
+
+ printf '%s|%s|%s\n' "$best_fps" "$live_count" "$best_layer"
+}
+
 stream(){
  trap 'exit 0' HUP INT TERM PIPE
 
  pkg_cached=""
- layer=""
- last_present=0
- bad_layer_count=0
- zero_fps_count=0
- discover_tick=0
- gfx_tick=0
- frame_counter_tick=0
+ candidates=""
+ candidate_tick=4
+ foreground_tick=4
+ fallback_tick=4
  last_good_fps=-1
- hold_ticks=0
- no_present_since_ms=0
- last_layer_frame_count=-1
- last_sample_ms="$(monotonic_ms)"
+ last_live_ms=0
+ had_valid=0
 
  while true; do
   read_state_package
@@ -329,180 +410,146 @@ stream(){
   [ -n "$pkg" ] && game_state=1
   next_pkg="$pkg"
 
-  # When automatic game state is unavailable/stale (for example a manually
-  # enabled FPS counter), rediscover the foreground package at only 0.5 Hz.
-  # The fast path below samples the already-resolved layer at ~10 Hz without
-  # increasing expensive foreground discovery work.
-  if [ -z "$next_pkg" ]; then
-   discover_tick=$((discover_tick+1))
-   if [ "$discover_tick" -ge 20 ] || [ -z "$pkg_cached" ]; then
-    candidate="$(foreground_package)"
-    [ -n "$candidate" ] && next_pkg="$candidate" || next_pkg="$pkg_cached"
-    discover_tick=0
-   else
-    next_pkg="$pkg_cached"
-   fi
-  else
-   discover_tick=0
+  # Verify foreground state frequently enough that manual FPS mode follows
+  # app switches without relying on the game daemon.
+  foreground_tick=$((foreground_tick+1))
+  if [ -z "$next_pkg" ] || [ "$foreground_tick" -ge 4 ]; then
+   candidate_pkg="$(foreground_package)"
+   [ -n "$candidate_pkg" ] && next_pkg="$candidate_pkg"
+   foreground_tick=0
   fi
 
   if [ "$next_pkg" != "$pkg_cached" ]; then
    pkg_cached="$next_pkg"
-   layer=""
-   last_present=0
-   bad_layer_count=0
-   zero_fps_count=0
-   frame_counter_tick=0
+   candidates=""
+   candidate_tick=4
+   fallback_tick=4
    last_good_fps=-1
-   hold_ticks=0
-   no_present_since_ms=0
-   last_layer_frame_count=-1
-   last_sample_ms="$(monotonic_ms)"
-  fi
-
-  if [ -n "$pkg_cached" ] && [ -z "$layer" ]; then
-   layer="$(discover_layer "$pkg_cached")"
-   last_present=0
-   zero_fps_count=0
-   last_layer_frame_count=-1
+   last_live_ms=0
+   had_valid=0
   fi
 
   fps=-1
-  if [ -n "$layer" ]; then
-   previous_present="$last_present"
-   result="$(query_layer "$layer" "$previous_present")"
-   fps="${result%%|*}"
-   rest="${result#*|}"
-   last_present="${rest%%|*}"
-   resolved_layer="${rest#*|}"
-   [ -n "$resolved_layer" ] && layer="$resolved_layer"
+  live_count=0
 
-   sample_now_ms="$(monotonic_ms)"
-   case "$sample_now_ms" in ''|*[!0-9]*) sample_now_ms=0;; esac
-
-   if [ "$last_present" != "0" ] && [ "$last_present" != "$previous_present" ]; then
-    no_present_since_ms="$sample_now_ms"
-   elif [ "$last_present" != "0" ] && [ "$sample_now_ms" -gt 0 ] 2>/dev/null; then
-    if [ "$no_present_since_ms" -le 0 ] 2>/dev/null; then
-     no_present_since_ms="$sample_now_ms"
-    elif [ $((sample_now_ms-no_present_since_ms)) -ge 250 ]; then
-     fps=0
-    fi
+  if [ -n "$pkg_cached" ]; then
+   candidate_tick=$((candidate_tick+1))
+   if [ "$candidate_tick" -ge 4 ] || [ -z "$candidates" ]; then
+    candidates="$(candidate_layers "$pkg_cached")"
+    candidate_tick=0
    fi
 
-   case "$fps" in ''|*[!0-9-]*) fps=-1;; esac
-
-   frame_counter_tick=$((frame_counter_tick+1))
-   counter_fps=-1
-
-   # Full SurfaceFlinger dumps are expensive. Use the frame counter only as a
-   # slow fallback/cross-check, not on the 10 Hz latency fast path.
-   if [ "$fps" -lt 0 ] 2>/dev/null || [ "$zero_fps_count" -ge 2 ]; then
-    if [ "$frame_counter_tick" -ge 10 ]; then
-     current_count="$(layer_frame_count "$layer")"
-     case "$current_count" in ''|*[!0-9]*) current_count=-1;; esac
-
-     sample_elapsed_ms=0
-     if [ "$sample_now_ms" -gt 0 ] 2>/dev/null && [ "$last_sample_ms" -gt 0 ] 2>/dev/null; then
-      sample_elapsed_ms=$((sample_now_ms-last_sample_ms))
-     fi
-
-     if [ "$current_count" -ge 0 ] 2>/dev/null && [ "$last_layer_frame_count" -ge 0 ] 2>/dev/null &&
-        [ "$sample_elapsed_ms" -gt 0 ] 2>/dev/null; then
-      delta_frames=$((current_count-last_layer_frame_count))
-      [ "$delta_frames" -lt 0 ] && delta_frames=0
-      counter_fps=$(((delta_frames*1000 + sample_elapsed_ms/2)/sample_elapsed_ms))
-     fi
-
-     [ "$current_count" -ge 0 ] 2>/dev/null && last_layer_frame_count="$current_count"
-     [ "$sample_now_ms" -gt 0 ] 2>/dev/null && last_sample_ms="$sample_now_ms"
-     frame_counter_tick=0
-    fi
-   else
-    [ "$sample_now_ms" -gt 0 ] 2>/dev/null && last_sample_ms="$sample_now_ms"
-   fi
-
-   if [ "$fps" -lt 0 ] 2>/dev/null && [ "$counter_fps" -ge 0 ] 2>/dev/null; then
-    fps="$counter_fps"
-   fi
-
-   if [ "$fps" -lt 0 ] 2>/dev/null; then
-    bad_layer_count=$((bad_layer_count+1))
-   else
-    bad_layer_count=0
-    if [ "$fps" -eq 0 ] 2>/dev/null; then
-     zero_fps_count=$((zero_fps_count+1))
-    else
-     zero_fps_count=0
-     last_good_fps="$fps"
-     hold_ticks=0
-    fi
-   fi
-
-   # A zero from one SurfaceFlinger layer is not proof that the app is
-   # actually rendering at 0 FPS. It commonly means we attached to a static
-   # package-matched wrapper. After two zero samples, invalidate that layer and
-   # let the attributed fallback chain try to resolve a live source this cycle.
-   if [ "$zero_fps_count" -ge 2 ]; then
-    fps=-1
-    layer=""
-    last_present=0
-    last_layer_frame_count=-1
-    zero_fps_count=0
-    frame_counter_tick=0
-   elif [ "$bad_layer_count" -ge 2 ]; then
-    layer=""
-    last_present=0
-    last_layer_frame_count=-1
-    bad_layer_count=0
-    frame_counter_tick=0
+   if [ -n "$candidates" ]; then
+    live="$(best_live_fps "$candidates")"
+    fps="${live%%|*}"
+    rest="${live#*|}"
+    live_count="${rest%%|*}"
+    case "$fps" in ''|*[!0-9-]*) fps=-1;; esac
+    case "$live_count" in ''|*[!0-9]*) live_count=0;; esac
    fi
   fi
 
-  # If layer latency is unavailable, use gfxinfo only once per second.
-  # This keeps normal SurfaceFlinger sampling cheap while making the counter
-  # useful on launcher/system apps that do not expose usable layer latency.
-  if [ "$fps" -lt 0 ] 2>/dev/null; then
-   gfx_tick=$((gfx_tick+1))
-   if [ "$gfx_tick" -ge 10 ]; then
-    gfx_fps=-1
-    if [ -n "$pkg_cached" ]; then
-     gfx_fps="$(gfxinfo_fps "$pkg_cached")"
-     case "$gfx_fps" in ''|*[!0-9-]*) gfx_fps=-1;; esac
-    fi
+  now_ms="$(monotonic_ms)"
+  case "$now_ms" in ''|*[!0-9]*) now_ms=0;; esac
 
-    if [ "$gfx_fps" -ge 0 ] 2>/dev/null; then
-     fps="$gfx_fps"
-    else
-     timeline_fps="$(target_frametimeline_fps "$pkg_cached")"
-     case "$timeline_fps" in ''|*[!0-9-]*) timeline_fps=-1;; esac
-
-     if [ "$timeline_fps" -ge 0 ] 2>/dev/null; then
-      fps="$timeline_fps"
-     elif [ "$game_state" != 1 ]; then
-      # For launcher/System UI, display-wide FrameTimeline FPS is still useful.
-      # Never substitute display refresh for an attributed game's FPS.
-      timeline_fps="$(frametimeline_fps "")"
-      case "$timeline_fps" in ''|*[!0-9-]*) timeline_fps=-1;; esac
-      [ "$timeline_fps" -ge 0 ] 2>/dev/null && fps="$timeline_fps"
-     fi
-    fi
-
-    [ "$fps" -gt 0 ] 2>/dev/null && last_good_fps="$fps"
-    gfx_tick=0
-   elif [ "$last_good_fps" -ge 0 ] 2>/dev/null; then
-    fps="$last_good_fps"
-   fi
+  if [ "$fps" -gt 0 ] 2>/dev/null; then
+   last_good_fps="$fps"
+   last_live_ms="$now_ms"
+   had_valid=1
+   fallback_tick=0
   else
-   gfx_tick=0
+   fallback_tick=$((fallback_tick+1))
+
+   # Only run heavier attributed fallbacks when no foreground render layer
+   # is actively presenting.
+   if [ "$fallback_tick" -ge 4 ]; then
+    fallback=-1
+
+    if [ -n "$pkg_cached" ]; then
+     fallback="$(gfxinfo_fps "$pkg_cached")"
+     case "$fallback" in ''|*[!0-9-]*) fallback=-1;; esac
+    fi
+
+    if [ "$fallback" -le 0 ] 2>/dev/null; then
+     fallback="$(target_frametimeline_fps "$pkg_cached")"
+     case "$fallback" in ''|*[!0-9-]*) fallback=-1;; esac
+    fi
+
+    if [ "$fallback" -le 0 ] 2>/dev/null && [ "$game_state" != 1 ]; then
+     fallback="$(frametimeline_fps "")"
+     case "$fallback" in ''|*[!0-9-]*) fallback=-1;; esac
+    fi
+
+    if [ "$fallback" -gt 0 ] 2>/dev/null; then
+     fps="$fallback"
+     last_good_fps="$fps"
+     last_live_ms="$now_ms"
+     had_valid=1
+    fi
+    fallback_tick=0
+   fi
+  fi
+
+  if [ "$fps" -le 0 ] 2>/dev/null; then
+   # Do not invent 0 FPS before we have ever seen this foreground app render.
+   # Once a valid stream existed, a sustained one-second lack of presents is
+   # a real stall; briefly preserve the last value while layers transition.
+   if [ "$had_valid" = 1 ] && [ "$last_live_ms" -gt 0 ] 2>/dev/null &&
+      [ "$now_ms" -gt 0 ] 2>/dev/null; then
+    quiet_ms=$((now_ms-last_live_ms))
+    if [ "$quiet_ms" -ge 1000 ] 2>/dev/null; then
+     fps=0
+    elif [ "$last_good_fps" -gt 0 ] 2>/dev/null; then
+     fps="$last_good_fps"
+    fi
+   else
+    fps=-1
+   fi
   fi
 
   printf '%s\n' "$fps" || exit 0
-  sleep 0.10
+  sleep 0.25
  done
+}
+
+diagnose(){
+ pkg="$(foreground_package)"
+ echo "foreground=${pkg:-<none>}"
+
+ candidates="$(candidate_layers "$pkg")"
+ if [ -z "$candidates" ]; then
+  echo "candidates=0"
+  return
+ fi
+
+ count="$(printf '%s\n' "$candidates" | grep -c .)"
+ echo "candidates=$count"
+
+ now_ns="$(monotonic_ns)"
+ while IFS= read -r candidate; do
+  [ -n "$candidate" ] || continue
+  metrics="$(surface_fps "$candidate")"
+  fps="${metrics%%|*}"
+  rest="${metrics#*|}"
+  avg="${rest%%|*}"
+  last="${rest#*|}"
+  age_ms=-1
+  case "$last:$now_ns" in
+   *[!0-9:]*|0:*|*:0) ;;
+   *) age_ms=$(((now_ns-last)/1000000)) ;;
+  esac
+  echo "layer=$candidate"
+  echo "  fps=$fps avg=$avg age_ms=$age_ms"
+ done <<EOF
+$candidates
+EOF
+
+ best="$(best_live_fps "$candidates")"
+ echo "best=$best"
 }
 
 case "$1" in
  stream) stream ;;
+ diagnose) diagnose ;;
  *) exit 2 ;;
 esac
