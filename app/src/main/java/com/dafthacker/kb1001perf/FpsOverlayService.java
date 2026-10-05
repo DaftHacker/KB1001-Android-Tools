@@ -41,6 +41,7 @@ public final class FpsOverlayService extends Service {
     private final java.util.ArrayDeque<AveragePoint> averageSamples=new java.util.ArrayDeque<>();
     private long averageSum;
     private String averageSource="";
+    private boolean averageHasLiveSample;
     private volatile boolean samplerRestartRequested;
     private BufferedWriter validationWriter;
     private File validationFile;
@@ -292,10 +293,13 @@ public final class FpsOverlayService extends Service {
                         // A held display value is not a new measurement, and a
                         // fallback source must not silently mix with the primary.
                         final int avg;
-                        if("live".equals(sample.kind) || "stall".equals(sample.kind)){
+                        if("live".equals(sample.kind)){
+                            averageHasLiveSample=true;
+                            avg=addAverageSample(fps,now,windowMs);
+                        }else if("stall".equals(sample.kind) && averageHasLiveSample){
                             avg=addAverageSample(fps,now,windowMs);
                         }else{
-                            avg=currentAverage(now,windowMs);
+                            avg=averageHasLiveSample?currentAverage(now,windowMs):-1;
                         }
 
                         syncValidationLogger(sample.source);
