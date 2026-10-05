@@ -72,6 +72,7 @@ public class MainActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         TelemetryStore.ensureSnapshot(this);
+        AppStateCache.initialize(this);
 
         if (Build.VERSION.SDK_INT >= 33 &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -157,7 +158,7 @@ public class MainActivity extends Activity {
         else settingsPage();
 
         refreshTelemetry();
-        refreshBackendState();
+        if(!AppStateCache.statusFresh(this,1500)) refreshBackendState();
     }
 
     private void dashboardPage() {
@@ -189,7 +190,11 @@ public class MainActivity extends Activity {
         loggingSwitch = toggleCard(
                 "Record performance session",
                 "Save telemetry to Documents/KB1001Performance/logs.",
-                checked -> ctl("logger file " + (checked ? "on" : "off")));
+                checked -> {
+                    AppStateCache.setFileLogging(this,checked);
+                    ctl("logger file " + (checked ? "on" : "off"));
+                });
+        setSwitchImmediately(loggingSwitch,AppStateCache.fileLogging(this));
         page.addView((View)loggingSwitch.getParent());
 
         loggerPath = text("No active recording.",10,MUTED,false);
@@ -224,12 +229,14 @@ public class MainActivity extends Activity {
                 "Metrics overlay",
                 "Manual hold. ON stays visible through game launches/exits; OFF still allows per-game rules to show it.",
                 checked -> setManualOverlay("metrics",checked,hudSwitch));
+        setSwitchImmediately(hudSwitch,AppStateCache.manualMetrics(this));
         page.addView((View)hudSwitch.getParent());
 
         fpsHudSwitch = toggleCard(
                 "FPS counter",
                 "Manual hold. ON stays visible through game launches/exits; OFF still allows per-game FPS rules.",
                 checked -> setManualOverlay("fps",checked,fpsHudSwitch));
+        setSwitchImmediately(fpsHudSwitch,AppStateCache.manualFps(this));
         page.addView((View)fpsHudSwitch.getParent());
 
         page.addView(overlayScaleCard(),full());
@@ -550,7 +557,11 @@ public class MainActivity extends Activity {
         autoBoostSwitch=toggleCard(
                 "Boost profile in listed games",
                 "Temporarily apply the selected game GPU profile, then restore the outside-game profile.",
-                checked -> ctl("auto "+(checked?"enable":"disable")));
+                checked -> {
+                    AppStateCache.setAutoBoost(this,checked);
+                    ctl("auto "+(checked?"enable":"disable"));
+                });
+        setSwitchImmediately(autoBoostSwitch,AppStateCache.autoBoost(this));
         page.addView((View)autoBoostSwitch.getParent());
 
         section("DIAGNOSTICS","Repeatable CPU, GPU and system benchmark scores with live utilization, clocks and thermal safety.");
@@ -748,6 +759,14 @@ public class MainActivity extends Activity {
         b.setBackground(metricBackground(color));
         b.setOnClickListener(v -> startActivity(new Intent(this,StressTestActivity.class)));
         return b;
+    }
+
+    private void setSwitchImmediately(Switch sw,boolean checked){
+        if(sw==null)return;
+        boolean old=suppressSwitchCallbacks;
+        suppressSwitchCallbacks=true;
+        sw.setChecked(checked);
+        suppressSwitchCallbacks=old;
     }
 
     private Switch toggleCard(String title,String subtitle,ToggleAction action) {
