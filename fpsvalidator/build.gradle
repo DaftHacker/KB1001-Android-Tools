@@ -1,0 +1,60 @@
+plugins {
+    id 'com.android.application'
+}
+
+def ciCode = System.getenv("APP_VERSION_CODE")
+def validatorName = System.getenv("VALIDATOR_VERSION_NAME")
+
+android {
+    namespace 'com.dafthacker.fpsvalidator'
+    compileSdk 35
+    ndkVersion '27.0.12077973'
+
+    defaultConfig {
+        applicationId 'com.dafthacker.fpsvalidator'
+        minSdk 29
+        targetSdk 35
+        versionCode ciCode ? ciCode.toInteger() : 1
+        versionName validatorName ?: '0.1-dev'
+
+        externalNativeBuild {
+            cmake {
+                cppFlags '-std=c++17 -O2'
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (System.getenv("ANDROID_KEYSTORE_PATH")) {
+                // Signing is configured below when CI credentials are present.
+            }
+        }
+    }
+
+    def ksPath = System.getenv("ANDROID_KEYSTORE_PATH")
+    def ksPass = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+    def keyAliasEnv = System.getenv("ANDROID_KEY_ALIAS")
+    def keyPass = System.getenv("ANDROID_KEY_PASSWORD")
+    def hasReleaseKey = ksPath && ksPass && keyAliasEnv && keyPass && file(ksPath).exists()
+
+    if (hasReleaseKey) {
+        signingConfigs {
+            release {
+                storeFile file(ksPath)
+                storePassword ksPass
+                keyAlias keyAliasEnv
+                keyPassword keyPass
+            }
+        }
+        buildTypes.release.signingConfig signingConfigs.release
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+}
