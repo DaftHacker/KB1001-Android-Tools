@@ -40,6 +40,10 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private LinearLayout page;
+    private FrameLayout pageHost;
+    private final LinearLayout[] tabPages=new LinearLayout[3];
+    private final ScrollView[] tabScrolls=new ScrollView[3];
+    private final boolean[] tabBuilt=new boolean[3];
     private final Button[] tabButtons = new Button[3];
 
     private Switch hudSwitch;
@@ -138,40 +142,47 @@ public class MainActivity extends Activity {
 
         root.addView(tabShell,new LinearLayout.LayoutParams(-1,dp(54)));
 
-        ScrollView scroller = new ScrollView(this);
-        scroller.setFillViewport(true);
-        page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(0,dp(8),0,dp(28));
-        scroller.addView(page);
-        root.addView(scroller,new LinearLayout.LayoutParams(-1,0,1));
+        pageHost=new FrameLayout(this);
+        for(int i=0;i<tabPages.length;i++){
+            ScrollView scroller=new ScrollView(this);
+            scroller.setFillViewport(true);
+            LinearLayout content=new LinearLayout(this);
+            content.setOrientation(LinearLayout.VERTICAL);
+            content.setPadding(0,dp(8),0,dp(28));
+            scroller.addView(content);
+            scroller.setVisibility(View.GONE);
+            tabPages[i]=content;
+            tabScrolls[i]=scroller;
+            pageHost.addView(scroller,new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
+        }
+        root.addView(pageHost,new LinearLayout.LayoutParams(-1,0,1));
 
         return root;
     }
 
     private void showTab(int index) {
-        tab = index;
-        page.removeAllViews();
+        tab=index;
 
-        hudSwitch = null;
-        fpsHudSwitch = null;
-        autoBoostSwitch = null;
-        loggingSwitch = null;
-        ramMetric = cpuMetric = gpuMetric = thermalMetric = batteryMetric = null;
-        loggerPath = null;
-        limitValue = null;
-        limitDetail = null;
-        gamesContainer = null;
-        profileButtons.clear();
+        for(int i=0;i<tabScrolls.length;i++){
+            if(tabScrolls[i]!=null){
+                tabScrolls[i].setVisibility(i==index?View.VISIBLE:View.GONE);
+            }
+        }
 
+        page=tabPages[index];
         updateTabStyles();
 
-        if (index == 0) dashboardPage();
-        else if (index == 1) overlayPage();
-        else settingsPage();
+        if(!tabBuilt[index]){
+            if(index==0)dashboardPage();
+            else if(index==1)overlayPage();
+            else settingsPage();
+            tabBuilt[index]=true;
+        }
 
         refreshTelemetry();
-        if(!AppStateCache.statusFresh(this,5000)) refreshBackendState();
+        if(!AppStateCache.statusFresh(this,5000))refreshBackendState();
     }
 
     private void dashboardPage() {
