@@ -499,6 +499,10 @@ public class OverlayService extends Service {
                     "Performance HUD",
                     NotificationManager.IMPORTANCE_LOW);
             c.setDescription("Low-overhead live game performance monitor and quick controls.");
+            c.setSound(null,null);
+            c.enableVibration(false);
+            c.enableLights(false);
+            c.setShowBadge(false);
             ((NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(c);
         }
     }
