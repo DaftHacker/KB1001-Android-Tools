@@ -40,18 +40,44 @@ discover_layer(){
  target="$1"
  [ -n "$target" ] || return
 
- layers="$(dumpsys SurfaceFlinger --list 2>/dev/null)"
+ # Prefer an actively composed Output Layer. This avoids stale package-matched
+ # wrappers that can present at a cadence different from the game surface.
+ sf_dump="$(dumpsys SurfaceFlinger 2>/dev/null)"
+ output_lines="$(printf '%s\n' "$sf_dump" |
+  grep -F "$target" |
+  grep -E 'Output Layer|SurfaceView|BLAST|BBQ' |
+  grep -Ev 'ActivityRecord|InputSink|Background for|Bounds for|Dim layer|Snapshot|Transition|leash')"
 
- line="$(printf '%s\n' "$layers" | grep -F "$target" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | head -1)"
- [ -n "$line" ] || line="$(printf '%s\n' "$layers" | grep -F "$target" | grep -E 'SurfaceView|BLAST' | head -1)"
- [ -n "$line" ] || line="$(printf '%s\n' "$layers" | grep -F "$target" | head -1)"
+ line="$(printf '%s\n' "$output_lines" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | tail -1)"
+ [ -n "$line" ] || line="$(printf '%s\n' "$output_lines" | grep -E 'SurfaceView' | tail -1)"
+ [ -n "$line" ] || line="$(printf '%s\n' "$output_lines" | grep -E 'BLAST|BBQ' | tail -1)"
+
+ if [ -n "$line" ]; then
+  candidate="$(printf '%s\n' "$line" | sed -n 's/.*(\(.*\)).*/\1/p')"
+  [ -n "$candidate" ] || candidate="$(clean_sf_layer "$line")"
+  [ -n "$candidate" ] && { printf '%s\n' "$candidate"; return; }
+ fi
+
+ # Fallback to the layer list. Prefer the latest renderable SurfaceView/BLAST.
+ layers="$(dumpsys SurfaceFlinger --list 2>/dev/null)"
+ matches="$(printf '%s\n' "$layers" |
+  grep -F "$target" |
+  grep -Ev 'ActivityRecord|InputSink|Background for|Bounds for|Dim layer|Snapshot|Transition|leash')"
+
+ line="$(printf '%s\n' "$matches" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | tail -1)"
+ [ -n "$line" ] || line="$(printf '%s\n' "$matches" | grep -E 'SurfaceView' | tail -1)"
+ [ -n "$line" ] || line="$(printf '%s\n' "$matches" | grep -E 'BLAST|BBQ' | tail -1)"
+ [ -n "$line" ] || line="$(printf '%s\n' "$matches" | tail -1)"
 
  if [ -z "$line" ]; then
   short="${target##*.}"
   if [ "${#short}" -ge 4 ]; then
-   line="$(printf '%s\n' "$layers" | grep -Fi "$short" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | head -1)"
-   [ -n "$line" ] || line="$(printf '%s\n' "$layers" | grep -Fi "$short" | grep -E 'SurfaceView|BLAST' | head -1)"
-   [ -n "$line" ] || line="$(printf '%s\n' "$layers" | grep -Fi "$short" | head -1)"
+   matches="$(printf '%s\n' "$layers" |
+    grep -Fi "$short" |
+    grep -Ev 'ActivityRecord|InputSink|Background for|Bounds for|Dim layer|Snapshot|Transition|leash')"
+   line="$(printf '%s\n' "$matches" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | tail -1)"
+   [ -n "$line" ] || line="$(printf '%s\n' "$matches" | grep -E 'SurfaceView|BLAST|BBQ' | tail -1)"
+   [ -n "$line" ] || line="$(printf '%s\n' "$matches" | tail -1)"
   fi
  fi
 
@@ -62,65 +88,46 @@ surface_fps(){
  layer="$1"
  previous="$2"
 
- # SurfaceFlinger presentation timestamps use a monotonic clock. /proc/uptime
- # gives us the same kind of continuously increasing time base, so we can
- # detect a stall even when the latency history itself has not changed.
  now_ns="$(awk '{printf "%.0f", $1*1000000000.0}' /proc/uptime 2>/dev/null)"
  case "$now_ns" in ''|*[!0-9]*) now_ns=0;; esac
 
  dumpsys SurfaceFlinger --latency "$layer" 2>/dev/null | awk \
   -v previous="$previous" -v now="$now_ns" '
   NR==1 { next }
-  NF>=3 && $2 ~ /^[0-9]+$/ && $2>0 && $2<9000000000000000000 { t[++n]=$2 }
+  NF>=3 {
+   v=0
+   if($2 ~ /^[0-9]+$/ && $2>0 && $2<9000000000000000000)v=$2
+   else if($3 ~ /^[0-9]+$/ && $3>0 && $3<9000000000000000000)v=$3
+   if(v>0)t[++n]=v
+  }
   END {
-   if(n<2){print "-1|0";exit}
+   if(n<1){print "-1|0";exit}
 
    last=t[n]
 
-   # If no new frame has presented, do not keep an old high FPS value alive.
-   # Convert time-since-last-present into an instantaneous upper bound instead.
-   if(previous!="" && previous!="0" && last==previous){
-    age=now-last
-    if(now>0 && age>0){
-     fps=int((1000000000.0/age)+0.5)
-     if(fps<0)fps=0
-     if(fps>240)fps=240
-     print fps "|" last
+   if(previous=="" || previous=="0" || last<previous){
+    first=n-4
+    if(first<1)first=1
+    if(n-first<1){print "0|" last;exit}
+    span=last-t[first]
+    frames=n-first
+    if(span<=0){print "0|" last;exit}
+    fps=int((frames*1000000000.0/span)+0.5)
+   }else{
+    new_count=0
+    for(i=1;i<=n;i++)if(t[i]>previous)new_count++
+
+    if(new_count>0){
+     span=last-previous
+     if(span>0)fps=int((new_count*1000000000.0/span)+0.5)
+     else fps=0
     }else{
-     print "0|" last
+     age=now-last
+     if(now>0 && age>0)fps=int((1000000000.0/age)+0.5)
+     else fps=0
     }
-    exit
    }
 
-   # Favor the newest frame intervals so a sudden collapse from e.g. 30 FPS
-   # to 9 FPS becomes visible after the first few slow frames rather than
-   # waiting for a long rolling average to drain.
-   first=n-4
-   if(first<1)first=1
-
-   weighted=0
-   weights=0
-   w=1
-   for(i=first+1;i<=n;i++){
-    dt=t[i]-t[i-1]
-    if(dt<=0)continue
-
-    inst=1000000000.0/dt
-    if(inst<0)inst=0
-    if(inst>240)inst=240
-
-    # Recent intervals receive progressively larger weight.
-    weighted+=inst*w
-    weights+=w
-    w++
-   }
-
-   if(weights<=0){print "0|" last;exit}
-
-   fps=int((weighted/weights)+0.5)
-
-   # A long gap since the most recent present should pull the estimate down
-   # immediately even before another frame arrives.
    age=now-last
    if(now>0 && age>0){
     bound=1000000000.0/age
@@ -132,7 +139,6 @@ surface_fps(){
    print fps "|" last
   }'
 }
-
 
 query_layer(){
  current_layer="$1"
