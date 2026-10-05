@@ -777,6 +777,68 @@ public class MainActivity extends Activity {
         });
         card.addView(seek,new LinearLayout.LayoutParams(-1,-2));
 
+        TextView samplingTitle=text("FPS polling interval",10,MUTED,true);
+        samplingTitle.setPadding(0,dp(9),0,dp(2));
+        card.addView(samplingTitle);
+
+        int savedPoll=Math.max(100,Math.min(1000,prefs.getInt("poll_ms",250)));
+        LinearLayout pollHead=row();
+        TextView pollHint=text("How often the compositor is sampled. Lower is faster but uses more CPU.",9,MUTED,false);
+        TextView pollValue=text(savedPoll+" ms",11,CPU_COLOR,true);
+        pollValue.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+        pollHead.addView(pollHint,new LinearLayout.LayoutParams(0,-2,1));
+        pollHead.addView(pollValue,new LinearLayout.LayoutParams(dp(70),-2));
+        card.addView(pollHead);
+
+        SeekBar pollSeek=new SeekBar(this);
+        pollSeek.setMax(18); // 100..1000 ms in 50 ms steps.
+        pollSeek.setProgress((savedPoll-100)/50);
+        pollSeek.setPadding(0,dp(3),0,dp(2));
+        pollSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            @Override public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
+                int ms=100+progress*50;
+                pollValue.setText(ms+" ms");
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar){}
+            @Override public void onStopTrackingTouch(SeekBar bar){
+                int ms=100+bar.getProgress()*50;
+                prefs.edit().putInt("poll_ms",ms).apply();
+                refreshFpsSamplingIfRunning();
+            }
+        });
+        card.addView(pollSeek,new LinearLayout.LayoutParams(-1,-2));
+
+        TextView avgTitle=text("Average FPS window",10,MUTED,true);
+        avgTitle.setPadding(0,dp(7),0,dp(2));
+        card.addView(avgTitle);
+
+        int savedWindow=Math.max(500,Math.min(5000,prefs.getInt("average_window_ms",2000)));
+        LinearLayout avgHead=row();
+        TextView avgHint=text("Time represented by Average FPS. Shorter reacts faster.",9,MUTED,false);
+        TextView avgValue=text(formatFpsWindow(savedWindow),11,CPU_COLOR,true);
+        avgValue.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+        avgHead.addView(avgHint,new LinearLayout.LayoutParams(0,-2,1));
+        avgHead.addView(avgValue,new LinearLayout.LayoutParams(dp(70),-2));
+        card.addView(avgHead);
+
+        SeekBar avgSeek=new SeekBar(this);
+        avgSeek.setMax(18); // 0.5..5.0 s in 0.25 s steps.
+        avgSeek.setProgress((savedWindow-500)/250);
+        avgSeek.setPadding(0,dp(3),0,dp(3));
+        avgSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            @Override public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
+                int ms=500+progress*250;
+                avgValue.setText(formatFpsWindow(ms));
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar){}
+            @Override public void onStopTrackingTouch(SeekBar bar){
+                int ms=500+bar.getProgress()*250;
+                prefs.edit().putInt("average_window_ms",ms).apply();
+                refreshFpsSamplingIfRunning();
+            }
+        });
+        card.addView(avgSeek,new LinearLayout.LayoutParams(-1,-2));
+
         TextView colorTitle=text("Text color",10,MUTED,true);
         colorTitle.setPadding(0,dp(7),0,dp(5));
         card.addView(colorTitle);
@@ -825,6 +887,21 @@ public class MainActivity extends Activity {
         refresh.setAction("kb1001.refresh_fps_appearance");
         if(Build.VERSION.SDK_INT>=26)startForegroundService(refresh);
         else startService(refresh);
+    }
+
+    private void refreshFpsSamplingIfRunning(){
+        if(!FpsOverlayService.isRunning())return;
+        Intent refresh=new Intent(this,FpsOverlayService.class);
+        refresh.setAction("kb1001.refresh_fps_sampling");
+        if(Build.VERSION.SDK_INT>=26)startForegroundService(refresh);
+        else startService(refresh);
+    }
+
+    private String formatFpsWindow(int ms){
+        if(ms%1000==0)return (ms/1000)+" s";
+        return String.format(Locale.US,"%.2f s",ms/1000f)
+                .replaceAll("0+$","")
+                .replaceAll("\\.$","");
     }
 
     private void setManualOverlay(String type,boolean enabled,Switch control){
