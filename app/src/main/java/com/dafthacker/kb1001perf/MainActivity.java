@@ -60,6 +60,7 @@ public class MainActivity extends Activity {
     private TextView loggerPath;
     private TextView limitValue;
     private TextView limitDetail;
+    private TextView backendHealthValue;
 
     private LinearLayout gamesContainer;
     private final Set<String> selectedGames = new LinkedHashSet<>();
@@ -672,6 +673,12 @@ public class MainActivity extends Activity {
         check.setTextColor(Color.rgb(6,28,12));
         check.setBackground(tabBackground(CPU_COLOR,true));
         page.addView(card(check),full());
+
+        backendHealthValue=text("Backend: Checking…",10,MUTED,false);
+        backendHealthValue.setPadding(dp(2),dp(4),0,0);
+        page.addView(backendHealthValue);
+
+        refreshBackendHealth();
     }
 
     private View overlayScaleCard() {
@@ -1163,6 +1170,23 @@ public class MainActivity extends Activity {
 
     private void quietUpdateCheck() {
         checkForUpdate(true);
+    }
+
+    private void refreshBackendHealth(){
+        io.execute(()->{
+            RootBridge.Result r=BackendManager.backendHealth(this);
+            runOnUiThread(()->{
+                if(backendHealthValue==null)return;
+
+                if(r.ok() && "ready|boot-hook".equals(r.output.trim())){
+                    backendHealthValue.setText("Backend: Ready • Boot hook installed");
+                    backendHealthValue.setTextColor(Color.rgb(77,210,126));
+                }else{
+                    backendHealthValue.setText("Backend: Needs attention");
+                    backendHealthValue.setTextColor(Color.rgb(255,170,92));
+                }
+            });
+        });
     }
 
     private void checkForUpdate(boolean quiet) {
