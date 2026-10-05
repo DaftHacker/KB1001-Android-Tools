@@ -8,7 +8,7 @@ PID="/data/local/tmp/kb1001_manual_profile.pid"
 
 valid_profile(){
  case "$1" in
-  stock|dynamic744|performance744|extreme792_dynamic|extreme792_full) return 0 ;;
+  stock|performance696|dynamic744|performance744|extreme792_dynamic|extreme792_full) return 0 ;;
   custom_200|custom_300|custom_400|custom_600|custom_696|custom_744|custom_792) return 0 ;;
   *) return 1 ;;
  esac
@@ -73,7 +73,7 @@ worker(){
    case "$mode" in
     persist)
      case "$profile" in
-      stock|dynamic744|performance744) echo "$profile" > "$CONFIG" ;;
+      stock|performance696) echo "$profile" > "$CONFIG" ;;
      esac
      ;;
    esac
