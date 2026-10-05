@@ -12,6 +12,9 @@ import android.view.*;
 import android.widget.TextView;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.*;
@@ -39,6 +42,8 @@ public final class FpsOverlayService extends Service {
     private long averageSum;
     private String averageSource="";
     private volatile boolean samplerRestartRequested;
+    private BufferedWriter validationWriter;
+    private File validationFile;
     private static final int DEFAULT_POLL_MS=250;
     private static final int MIN_POLL_MS=100;
     private static final int MAX_POLL_MS=1000;
@@ -276,6 +281,9 @@ public final class FpsOverlayService extends Service {
                             avg=currentAverage(now,windowMs);
                         }
 
+                        syncValidationLogger();
+                        logValidationSample(sample,avg,pollMs,windowMs);
+
                         if(fps==displayedFps && avg==displayedAverageFps)continue;
                         displayedFps=fps;
                         displayedAverageFps=avg;
@@ -307,9 +315,9 @@ public final class FpsOverlayService extends Service {
     }
 
     private FpsSample parseFps(String line){
-        if(line==null)return new FpsSample(-1,"","");
+        if(line==null)return new FpsSample(-1,"","","",0);
 
-        String[] parts=line.trim().split("\\|",4);
+        String[] parts=line.trim().split("\\|",5);
         int fps=-1;
         try{
             fps=Math.max(-1,Math.min(240,Integer.parseInt(parts[0].trim())));
@@ -317,8 +325,14 @@ public final class FpsOverlayService extends Service {
 
         String source=parts.length>=2?parts[1].trim():"";
         String kind=parts.length>=3?parts[2].trim():"";
+        String layer=parts.length>=4?parts[3].trim():"";
+        int newFrames=0;
+        if(parts.length>=5){
+            try{newFrames=Math.max(0,Integer.parseInt(parts[4].trim()));}
+            catch(Exception ignored){}
+        }
         if(kind.isEmpty() && fps>=0)kind="live";
-        return new FpsSample(fps,source,kind);
+        return new FpsSample(fps,source,kind,layer,newFrames);
     }
 
     private void resetAverage(String source){
@@ -383,12 +397,95 @@ public final class FpsOverlayService extends Service {
         final int fps;
         final String source;
         final String kind;
+        final String layer;
+        final int newFrames;
 
-        FpsSample(int fps,String source,String kind){
+        FpsSample(int fps,String source,String kind,String layer,int newFrames){
             this.fps=fps;
             this.source=source==null?"":source;
             this.kind=kind==null?"":kind;
+            this.layer=layer==null?"":layer;
+            this.newFrames=newFrames;
         }
+    }
+
+    private void syncValidationLogger(){
+        boolean enabled=getSharedPreferences("fps_hud",MODE_PRIVATE)
+                .getBoolean("validation_log_enabled",false);
+
+        if(!enabled){
+            closeValidationLogger();
+            return;
+        }
+        if(validationWriter!=null)return;
+
+        try{
+            File dir=new File(getExternalFilesDir(null),"fps-validation");
+            if(!dir.exists()&&!dir.mkdirs())return;
+
+            String stamp=new java.text.SimpleDateFormat(
+                    "yyyyMMdd-HHmmss",java.util.Locale.US)
+                    .format(new java.util.Date());
+            validationFile=new File(dir,"overlay-"+stamp+".csv");
+            validationWriter=new BufferedWriter(new FileWriter(validationFile,false));
+            validationWriter.write(
+                    "elapsed_realtime_ns,wall_time_ms,current_fps,average_fps,"+
+                    "package,kind,poll_ms,average_window_ms,layer,new_frames\n");
+            validationWriter.flush();
+
+            getSharedPreferences("fps_hud",MODE_PRIVATE).edit()
+                    .putString("validation_log_path",validationFile.getAbsolutePath())
+                    .apply();
+        }catch(Exception ignored){
+            closeValidationLogger();
+        }
+    }
+
+    private void logValidationSample(FpsSample sample,int avg,int pollMs,int windowMs){
+        if(validationWriter==null)return;
+        try{
+            validationWriter.write(Long.toString(SystemClock.elapsedRealtimeNanos()));
+            validationWriter.write(',');
+            validationWriter.write(Long.toString(System.currentTimeMillis()));
+            validationWriter.write(',');
+            validationWriter.write(Integer.toString(sample.fps));
+            validationWriter.write(',');
+            validationWriter.write(Integer.toString(avg));
+            validationWriter.write(',');
+            validationWriter.write(csv(sample.source));
+            validationWriter.write(',');
+            validationWriter.write(csv(sample.kind));
+            validationWriter.write(',');
+            validationWriter.write(Integer.toString(pollMs));
+            validationWriter.write(',');
+            validationWriter.write(Integer.toString(windowMs));
+            validationWriter.write(',');
+            validationWriter.write(csv(sample.layer));
+            validationWriter.write(',');
+            validationWriter.write(Integer.toString(sample.newFrames));
+            validationWriter.write('\n');
+            validationWriter.flush();
+        }catch(Exception ignored){
+            closeValidationLogger();
+        }
+    }
+
+    private static String csv(String value){
+        if(value==null)return "";
+        String s=value.replace(""","""");
+        if(s.indexOf(',')>=0||s.indexOf('"')>=0||s.indexOf('\n')>=0){
+            return """+s+""";
+        }
+        return s;
+    }
+
+    private void closeValidationLogger(){
+        if(validationWriter!=null){
+            try{validationWriter.flush();}catch(Exception ignored){}
+            try{validationWriter.close();}catch(Exception ignored){}
+        }
+        validationWriter=null;
+        validationFile=null;
     }
 
     private int dp(int value){
@@ -441,6 +538,7 @@ public final class FpsOverlayService extends Service {
             fpsText=null;
         }
 
+        closeValidationLogger();
         reader.shutdownNow();
         super.onDestroy();
     }
