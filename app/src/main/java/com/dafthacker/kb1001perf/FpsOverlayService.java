@@ -453,7 +453,7 @@ public final class FpsOverlayService extends Service {
         try{
             File dir=new File(getExternalFilesDir(null),"fps-validation");
             if(!dir.exists()&&!dir.mkdirs())return;
-            File snapshot=new File(dir,"resolver-latest.txt");
+            File snapshot=new File("/sdcard/Download","KB1001-FPS-Resolver.txt");
 
             // Run once on a separate thread so the diagnostic dumpsys calls cannot
             // delay the sampler stream used for the scored validation phases.
@@ -463,8 +463,7 @@ public final class FpsOverlayService extends Service {
                             "sh "+RootBridge.shellQuote(FPS_SAMPLER)+
                             " validator-snapshot "+
                             RootBridge.shellQuote(snapshot.getAbsolutePath()));
-                    publishToDownloads(snapshot,"KB1001-FPS-Resolver.txt","text/plain");
-                }catch(Exception ignored){}
+                 }catch(Exception ignored){}
             },"KB1001-fps-resolver-snapshot");
             t.start();
         }catch(Exception ignored){}
@@ -535,6 +534,7 @@ public final class FpsOverlayService extends Service {
                 validationWriter.flush();
                 validationRowsSinceFlush=0;
                 validationLastFlushMs=now;
+                publishToDownloads(validationFile,"KB1001-FPS-Overlay.csv","text/csv");
             }
         }catch(Exception ignored){
             closeValidationLogger();
@@ -567,29 +567,12 @@ public final class FpsOverlayService extends Service {
     private void publishToDownloads(File source,String name,String mime){
         if(source==null||!source.isFile())return;
         try{
-            android.content.ContentResolver cr=getContentResolver();
-            Uri collection=MediaStore.Downloads.EXTERNAL_CONTENT_URI;
-            cr.delete(collection,
-                    MediaStore.MediaColumns.DISPLAY_NAME+"=? AND "+
-                            MediaStore.MediaColumns.RELATIVE_PATH+"=?",
-                    new String[]{name,"Download/"});
-            ContentValues values=new ContentValues();
-            values.put(MediaStore.MediaColumns.DISPLAY_NAME,name);
-            values.put(MediaStore.MediaColumns.MIME_TYPE,mime);
-            values.put(MediaStore.MediaColumns.RELATIVE_PATH,"Download/");
-            values.put(MediaStore.MediaColumns.IS_PENDING,1);
-            Uri uri=cr.insert(collection,values);
-            if(uri==null)return;
-            try(FileInputStream in=new FileInputStream(source);
-                OutputStream out=cr.openOutputStream(uri,"w")){
-                if(out==null)return;
-                byte[] buf=new byte[65536];
-                int n;
-                while((n=in.read(buf))>0)out.write(buf,0,n);
-            }
-            values.clear();
-            values.put(MediaStore.MediaColumns.IS_PENDING,0);
-            cr.update(uri,values,null,null);
+            String dst="/sdcard/Download/"+name;
+            RootBridge.get().exec(
+                    "mkdir -p /sdcard/Download && cp -f "+
+                    RootBridge.shellQuote(source.getAbsolutePath())+" "+
+                    RootBridge.shellQuote(dst)+" && chmod 0644 "+
+                    RootBridge.shellQuote(dst));
         }catch(Exception ignored){}
     }
 
