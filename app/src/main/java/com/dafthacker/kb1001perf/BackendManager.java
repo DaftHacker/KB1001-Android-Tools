@@ -249,7 +249,7 @@ public final class BackendManager {
                         "grep " + RootBridge.shellQuote(BACKEND_DIR + "/") + " | " +
                         "grep -E 'game_boost[.]sh|perf_logger[.]sh|fps_sampler[.]sh' | " +
                         "grep -v grep | while read p rest; do " +
-                        "case \"\$p\" in ''|*[!0-9]*) ;; *) kill \"\$p\" 2>/dev/null || true ;; esac; " +
+                        "case \"$p\" in ''|*[!0-9]*) ;; *) kill \"$p\" 2>/dev/null || true ;; esac; " +
                         "done");
     }
 
