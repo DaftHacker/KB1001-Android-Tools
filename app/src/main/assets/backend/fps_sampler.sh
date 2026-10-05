@@ -227,6 +227,11 @@ layer_cycle_fps(){
 stream(){
  trap 'rm -f "$cycle_state" 2>/dev/null; exit 0' HUP INT TERM PIPE
 
+ poll_ms="$1"
+ case "$poll_ms" in ''|*[!0-9]*) poll_ms=250;; esac
+ [ "$poll_ms" -lt 100 ] 2>/dev/null && poll_ms=100
+ [ "$poll_ms" -gt 1000 ] 2>/dev/null && poll_ms=1000
+
  state_file="/data/local/tmp/kb1001_fps_layers.state"
  cycle_state="/data/local/tmp/kb1001_fps_layers.$$"
  pkg_cached=""
@@ -261,6 +266,7 @@ stream(){
   fi
 
   fps=-1
+  sample_kind="unresolved"
   live_layers=0
   best_frames=0
   best_priority=-1
@@ -325,6 +331,7 @@ EOF
 
    if [ "$best_fps" -gt 0 ] 2>/dev/null; then
     fps="$best_fps"
+    sample_kind="live"
    fi
   fi
 
@@ -355,6 +362,7 @@ EOF
      fps="$fallback"
      last_good_fps="$fallback"
      miss_streak=0
+     sample_kind="fallback"
     fi
     fallback_tick=0
    fi
@@ -364,17 +372,25 @@ EOF
    # One or two missed cycles are resolution noise, not 0 FPS. Preserve the
    # last real value. Only a sustained lack of new foreground presents becomes
    # a visible zero.
-   if [ "$last_good_fps" -gt 0 ] 2>/dev/null && [ "$miss_streak" -lt 3 ] 2>/dev/null; then
+   # Stall threshold is time-based so changing poll rate does not alter semantics.
+   stall_samples=$(((1000 + poll_ms - 1)/poll_ms))
+   [ "$stall_samples" -lt 2 ] 2>/dev/null && stall_samples=2
+
+   if [ "$last_good_fps" -gt 0 ] 2>/dev/null && [ "$miss_streak" -lt "$stall_samples" ] 2>/dev/null; then
     fps="$last_good_fps"
-   elif [ "$last_good_fps" -gt 0 ] 2>/dev/null && [ "$miss_streak" -ge 3 ] 2>/dev/null; then
+    sample_kind="hold"
+   elif [ "$last_good_fps" -gt 0 ] 2>/dev/null && [ "$miss_streak" -ge "$stall_samples" ] 2>/dev/null; then
     fps=0
+    sample_kind="stall"
    else
     fps=-1
+    sample_kind="unresolved"
    fi
   fi
 
-  printf '%s|%s\n' "$fps" "$pkg_cached" || exit 0
-  sleep 0.50
+  printf '%s|%s|%s\n' "$fps" "$pkg_cached" "$sample_kind" || exit 0
+  sleep_sec="$(awk -v ms="$poll_ms" 'BEGIN{printf "%.3f",ms/1000.0}')"
+  sleep "$sleep_sec"
  done
 }
 
@@ -405,7 +421,7 @@ EOF
 }
 
 case "$1" in
- stream) stream ;;
+ stream) stream "$2" ;;
  diagnose) diagnose ;;
  *) exit 2 ;;
 esac
