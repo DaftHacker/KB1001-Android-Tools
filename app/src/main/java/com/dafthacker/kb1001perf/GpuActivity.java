@@ -99,35 +99,40 @@ public class GpuActivity extends Activity {
 
         liveCard();
 
-        section("PROFILES","Choose a GPU behavior. Extreme modes are session-only unless selected for game automation.",ORANGE);
+        section("VALIDATED PROFILES","Normal and persistent modes use only the stock A333 GPU OPP table discovered by recon.",ORANGE);
         content.addView(profileChoice(
                 "Stock 696 MHz",
-                "Factory frequency table and DVFS behavior.",
+                "Factory 200 / 300 / 400 / 600 / 696 MHz table with simple_ondemand DVFS.",
                 "stock",
                 true),full());
         content.addView(profileChoice(
-                "Dynamic 744 MHz",
-                "744 MHz ceiling with simple_ondemand DVFS.",
-                "dynamic744",
-                true),full());
-        content.addView(profileChoice(
-                "Performance 744 MHz",
-                "Pins the GPU at 744 MHz for maximum sustained clock.",
-                "performance744",
+                "Performance 696 MHz",
+                "Pins the GPU at the validated stock 696 MHz maximum. Thermal protection remains enabled.",
+                "performance696",
                 true),full());
 
         content.addView(customClockCard(),full());
 
+        section("EXPERIMENTAL OPP MODES","744 and 792 MHz are above the factory 696 MHz table. They are session-only and never selected by AutoBoost.",RED);
         content.addView(actionCard(
-                "Extreme 792 • Dynamic",
-                "Adds the 792 MHz OPP but keeps DVFS active so the GPU can clock down.",
+                "Experimental 744 • Dynamic",
+                "Adds a 744 MHz runtime OPP while keeping DVFS active.",
+                "APPLY DYNAMIC 744",
+                () -> confirmExtreme("Dynamic 744","dynamic744")),full());
+        content.addView(actionCard(
+                "Experimental 744 • Full Throttle",
+                "Adds and pins the 744 MHz runtime OPP.",
+                "APPLY FULL 744",
+                () -> confirmExtreme("Full Throttle 744","performance744")),full());
+        content.addView(actionCard(
+                "Experimental 792 • Dynamic",
+                "Adds the 792 MHz runtime OPP but keeps DVFS active.",
                 "APPLY DYNAMIC 792",
                 () -> confirmExtreme("Dynamic 792","extreme792_dynamic")),full());
-
         content.addView(actionCard(
-                "Extreme 792 • Full Throttle",
+                "Experimental 792 • Full Throttle",
                 "Pins the GPU at 792 MHz. Thermal protection remains enabled.",
-                "APPLY FULL THROTTLE",
+                "APPLY FULL 792",
                 () -> confirmExtreme("Full Throttle 792","extreme792_full")),full());
 
         section("GAME AUTOMATION","These profiles are used only when game profile switching is enabled.",Color.rgb(192,112,255));
@@ -223,7 +228,7 @@ public class GpuActivity extends Activity {
         card.addView(text("Custom MHz",15,TEXT,true));
 
         TextView note=text(
-                "Session-only pinned clock. Supported OPPs: 200, 300, 400, 600, 696, 744, 792 MHz.",
+                "Session-only pinned clock. Stock OPPs: 200, 300, 400, 600, 696 MHz. 744/792 MHz require experimental runtime OPP replacement.",
                 10,MUTED,false);
         note.setPadding(0,dp(2),0,dp(8));
         card.addView(note);
@@ -306,16 +311,12 @@ public class GpuActivity extends Activity {
 
     private void chooseGameProfile(){
         String[] labels={
-                "Dynamic 744 MHz",
-                "Performance 744 MHz",
-                "Extreme 792 Dynamic",
-                "Extreme 792 Full Throttle"
+                "Stock 696 MHz",
+                "Performance 696 MHz"
         };
         String[] values={
-                "dynamic744",
-                "performance744",
-                "extreme792_dynamic",
-                "extreme792_full"
+                "stock",
+                "performance696"
         };
         new AlertDialog.Builder(this)
                 .setTitle("Game GPU profile")
@@ -328,8 +329,8 @@ public class GpuActivity extends Activity {
     }
 
     private void chooseOutsideProfile(){
-        String[] labels={"Stock 696 MHz","Dynamic 744 MHz","Performance 744 MHz"};
-        String[] values={"stock","dynamic744","performance744"};
+        String[] labels={"Stock 696 MHz","Performance 696 MHz"};
+        String[] values={"stock","performance696"};
         new AlertDialog.Builder(this)
                 .setTitle("Outside-game GPU profile")
                 .setSingleChoiceItems(labels,currentIndex(outsideValue.getText().toString(),labels),(d,which)->{
@@ -350,7 +351,7 @@ public class GpuActivity extends Activity {
     private void confirmExtreme(String name,String profile){
         new AlertDialog.Builder(this)
                 .setTitle("Experimental "+name)
-                .setMessage("This 792 MHz mode is session-only and has not yet been validated as a safe long-run profile on this tablet. Thermal protection stays enabled and reboot fallback remains Dynamic 744.")
+                .setMessage("This mode uses a runtime OPP above the factory 696 MHz table. It is session-only, AutoBoost will not select it, thermal protection remains enabled, and reboot returns to a validated profile.")
                 .setNegativeButton("Cancel",null)
                 .setPositiveButton("Apply",(d,w)->requestProfile("apply",profile))
                 .show();
@@ -430,7 +431,8 @@ public class GpuActivity extends Activity {
     }
 
     private boolean isPinned(String profile){
-        return "performance744".equals(profile) ||
+        return "performance696".equals(profile) ||
+                "performance744".equals(profile) ||
                 "extreme792_full".equals(profile) ||
                 "performance792".equals(profile);
     }
@@ -568,8 +570,9 @@ public class GpuActivity extends Activity {
     private String displayProfile(String p){
         if(p==null)return "—";
         if("stock".equals(p))return "Stock 696";
-        if("dynamic744".equals(p))return "Dynamic 744";
-        if("performance744".equals(p))return "Performance 744";
+        if("performance696".equals(p))return "Performance 696";
+        if("dynamic744".equals(p))return "Experimental Dynamic 744";
+        if("performance744".equals(p))return "Experimental Performance 744";
         if("extreme792_dynamic".equals(p)||"extreme792".equals(p))return "Extreme 792 Dynamic";
         if("extreme792_full".equals(p)||"performance792".equals(p))return "Extreme 792 Full";
         if(p.startsWith("custom_"))return "Custom "+p.substring("custom_".length())+" MHz";
