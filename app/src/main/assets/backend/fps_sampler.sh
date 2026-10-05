@@ -154,6 +154,63 @@ gfxinfo_fps(){
  echo "$fps"
 }
 
+timestats_layer(){
+ target="$1"
+ [ -n "$target" ] || { echo "-1|-1|"; return; }
+
+ # One package-scoped pass over SurfaceFlinger TimeStats. Prefer a real
+ # SurfaceView/BLAST/BBQ render layer when an app has multiple layer records.
+ dumpsys SurfaceFlinger --timestats -dump 2>/dev/null | awk -v target="$target" '
+  function trim(s){sub(/^[ \t]+/,"",s);sub(/[ \t]+$/,"",s);return s}
+  function finish(){
+   if(pkg!=target || frames<0)return
+   p=(layer ~ /SurfaceView|BLAST|BBQ/) ? 2 : 1
+   if(p>bestp || (p==bestp && frames>bestframes)){
+    bestp=p
+    bestframes=frames
+    bestavg=avg
+    bestlayer=layer
+   }
+  }
+  /^layerName[ \t]*=/ {
+   finish()
+   layer=$0
+   sub(/^[^=]*=[ \t]*/,"",layer)
+   layer=trim(layer)
+   pkg=""
+   frames=-1
+   avg=-1
+   next
+  }
+  /^packageName[ \t]*=/ {
+   pkg=$0
+   sub(/^[^=]*=[ \t]*/,"",pkg)
+   pkg=trim(pkg)
+   next
+  }
+  /^totalFrames[ \t]*=/ || /^totalFrames=[ \t]*/ {
+   v=$0
+   sub(/^[^=]*=[ \t]*/,"",v)
+   if(v ~ /^[0-9]+$/)frames=v+0
+   next
+  }
+  /^averageFPS[ \t]*=/ {
+   v=$0
+   sub(/^[^=]*=[ \t]*/,"",v)
+   if(v ~ /^[0-9]+([.][0-9]+)?$/)avg=v+0
+   next
+  }
+  END {
+   finish()
+   if(bestframes==""){print "-1|-1|";exit}
+   printf "%d|%.3f|%s\n",bestframes,bestavg,bestlayer
+  }'
+}
+
+timestats_reset(){
+ dumpsys SurfaceFlinger --timestats -clear -enable >/dev/null 2>&1
+}
+
 candidate_layers(){
  target="$1"
  [ -n "$target" ] || return
@@ -249,6 +306,11 @@ stream(){
  fallback_tick="$fallback_every"
  last_good_fps=-1
  miss_streak=0
+ timestats_supported=1
+ ts_last_frames=-1
+ ts_last_ms=0
+ ts_last_layer=""
+ timestats_reset
 
  while true; do
   cycle_start_ms="$(monotonic_ms)"
@@ -272,6 +334,11 @@ stream(){
    fallback_tick="$fallback_every"
    last_good_fps=-1
    miss_streak=0
+   ts_last_frames=-1
+   ts_last_ms=0
+   ts_last_layer=""
+   timestats_supported=1
+   timestats_reset
    : > "$state_file"
   fi
 
@@ -284,61 +351,86 @@ stream(){
   best_layer=""
 
   if [ -n "$pkg_cached" ]; then
-   candidate_tick=$((candidate_tick+1))
-   if [ "$candidate_tick" -ge "$candidate_every" ] || [ -z "$candidates" ]; then
-    candidates="$(candidate_layers "$pkg_cached")"
-    candidate_tick=0
+   # Modern primary path: TimeStats gives package/layer presented-frame
+   # counters without relying on legacy --latency history.
+   ts_now_ms="$(monotonic_ms)"
+   ts_sample="$(timestats_layer "$pkg_cached")"
+   ts_frames="${ts_sample%%|*}"
+   ts_rest="${ts_sample#*|}"
+   ts_avg="${ts_rest%%|*}"
+   ts_layer="${ts_rest#*|}"
+   case "$ts_frames" in ''|*[!0-9-]*) ts_frames=-1;; esac
+
+   if [ "$ts_frames" -ge 0 ] 2>/dev/null; then
+    candidate_count=1
+    if [ "$ts_last_frames" -ge 0 ] 2>/dev/null &&
+       [ "$ts_frames" -ge "$ts_last_frames" ] 2>/dev/null &&
+       [ "$ts_last_ms" -gt 0 ] 2>/dev/null; then
+     dt_ms=$((ts_now_ms-ts_last_ms))
+     df=$((ts_frames-ts_last_frames))
+     if [ "$dt_ms" -gt 0 ] 2>/dev/null && [ "$df" -gt 0 ] 2>/dev/null; then
+      fps=$(((df*1000 + dt_ms/2)/dt_ms))
+      [ "$fps" -gt 240 ] 2>/dev/null && fps=240
+      [ "$fps" -lt 1 ] 2>/dev/null && fps=1
+      best_fps="$fps"
+      best_frames="$df"
+      best_layer="$ts_layer"
+      sample_kind="live"
+     fi
+    fi
+    ts_last_frames="$ts_frames"
+    ts_last_ms="$ts_now_ms"
+    ts_last_layer="$ts_layer"
+   else
+    timestats_supported=0
    fi
 
-   candidate_count="$(printf '%s\n' "$candidates" | awk 'NF{n++}END{print n+0}')"
-   : > "$cycle_state"
-
-   while IFS= read -r candidate; do
-    [ -n "$candidate" ] || continue
-
-    last_known="$(awk -F '\t' -v layer="$candidate" '$1==layer{print $2;exit}' "$state_file" 2>/dev/null)"
-    case "$last_known" in ''|*[!0-9]*) last_known=0;; esac
-
-    sample="$(layer_cycle_fps "$candidate" "$last_known")"
-    layer_fps="${sample%%|*}"
-    rest="${sample#*|}"
-    newest="${rest%%|*}"
-    new_frames="${rest#*|}"
-
-    case "$layer_fps" in ''|*[!0-9-]*) layer_fps=-1;; esac
-    case "$newest" in ''|*[!0-9]*) newest="$last_known";; esac
-    case "$new_frames" in ''|*[!0-9]*) new_frames=0;; esac
-
-    printf '%s\t%s\n' "$candidate" "$newest" >> "$cycle_state"
-
-    [ "$layer_fps" -gt 0 ] 2>/dev/null || continue
-    [ "$new_frames" -gt 0 ] 2>/dev/null || continue
-
-    live_layers=$((live_layers+1))
-    priority=1
-    if printf '%s' "$candidate" | grep -Eqi 'SurfaceView|BLAST|BBQ'; then
-     priority=2
+   # Compatibility path for devices whose SurfaceFlinger lacks usable
+   # TimeStats. It is intentionally skipped when TimeStats is available.
+   if [ "$timestats_supported" -eq 0 ] 2>/dev/null; then
+    candidate_tick=$((candidate_tick+1))
+    if [ "$candidate_tick" -ge "$candidate_every" ] || [ -z "$candidates" ]; then
+     candidates="$(candidate_layers "$pkg_cached")"
+     candidate_tick=0
     fi
 
-    # Prefer real render surfaces. Within that class, the layer that actually
-    # emitted the most new frames during this sampling cycle is the best match
-    # for what the foreground app is visibly presenting.
-    if [ "$priority" -gt "$best_priority" ] 2>/dev/null ||
-       { [ "$priority" -eq "$best_priority" ] 2>/dev/null &&
-         [ "$new_frames" -gt "$best_frames" ] 2>/dev/null; } ||
-       { [ "$priority" -eq "$best_priority" ] 2>/dev/null &&
-         [ "$new_frames" -eq "$best_frames" ] 2>/dev/null &&
-         [ "$layer_fps" -gt "$best_fps" ] 2>/dev/null; }; then
-     best_priority="$priority"
-     best_frames="$new_frames"
-     best_fps="$layer_fps"
-     best_layer="$candidate"
-    fi
-   done <<EOF
+    candidate_count="$(printf '%s\n' "$candidates" | awk 'NF{n++}END{print n+0}')"
+    : > "$cycle_state"
+
+    while IFS= read -r candidate; do
+     [ -n "$candidate" ] || continue
+     last_known="$(awk -F '\t' -v layer="$candidate" '$1==layer{print $2;exit}' "$state_file" 2>/dev/null)"
+     case "$last_known" in ''|*[!0-9]*) last_known=0;; esac
+
+     sample="$(layer_cycle_fps "$candidate" "$last_known")"
+     layer_fps="${sample%%|*}"
+     rest="${sample#*|}"
+     newest="${rest%%|*}"
+     new_frames="${rest#*|}"
+     case "$layer_fps" in ''|*[!0-9-]*) layer_fps=-1;; esac
+     case "$newest" in ''|*[!0-9]*) newest="$last_known";; esac
+     case "$new_frames" in ''|*[!0-9]*) new_frames=0;; esac
+     printf '%s\t%s\n' "$candidate" "$newest" >> "$cycle_state"
+
+     [ "$layer_fps" -gt 0 ] 2>/dev/null || continue
+     [ "$new_frames" -gt 0 ] 2>/dev/null || continue
+     priority=1
+     printf '%s' "$candidate" | grep -Eqi 'SurfaceView|BLAST|BBQ' && priority=2
+     if [ "$priority" -gt "$best_priority" ] 2>/dev/null ||
+        { [ "$priority" -eq "$best_priority" ] 2>/dev/null && [ "$new_frames" -gt "$best_frames" ] 2>/dev/null; } ||
+        { [ "$priority" -eq "$best_priority" ] 2>/dev/null && [ "$new_frames" -eq "$best_frames" ] 2>/dev/null && [ "$layer_fps" -gt "$best_fps" ] 2>/dev/null; }; then
+      best_priority="$priority"
+      best_frames="$new_frames"
+      best_fps="$layer_fps"
+      best_layer="$candidate"
+      fps="$layer_fps"
+      sample_kind="live"
+     fi
+    done <<EOF
 $candidates
 EOF
-
-   mv "$cycle_state" "$state_file" 2>/dev/null || cp "$cycle_state" "$state_file" 2>/dev/null
+    mv "$cycle_state" "$state_file" 2>/dev/null || cp "$cycle_state" "$state_file" 2>/dev/null
+   fi
 
    if [ "$best_fps" -gt 0 ] 2>/dev/null; then
     fps="$best_fps"
