@@ -27,6 +27,7 @@ constexpr int MODE_SWEEP = 1;
 constexpr int MODE_STEP = 2;
 constexpr int MODE_JITTER = 3;
 constexpr int MODE_STALL = 4;
+constexpr int MODE_AUTO = 5;
 
 std::atomic<bool> g_running{false};
 std::thread g_thread;
@@ -76,13 +77,88 @@ void setStatus(const std::string& s) {
     g_status = s;
 }
 
-double targetFor(int mode, double fixed, double elapsedSec, int& phase) {
+double targetFor(int mode,
+                 double fixed,
+                 double elapsedSec,
+                 int& phase,
+                 int& effectiveMode,
+                 double& patternElapsed,
+                 bool& done) {
     phase = 0;
+    effectiveMode = mode;
+    patternElapsed = elapsedSec;
+    done = false;
+
+    if (mode == MODE_AUTO) {
+        // One-click ~60 second regression suite.
+        // 0-2s: compositor/overlay warm-up.
+        if (elapsedSec < 2.0) {
+            effectiveMode = MODE_FIXED;
+            phase = 0;
+            patternElapsed = elapsedSec;
+            return 60.0;
+        }
+
+        // 2-20s: fixed-rate accuracy plateaus, 2 seconds each.
+        static const double fixedRates[] = {10, 15, 20, 24, 30, 40, 45, 50, 60};
+        if (elapsedSec < 20.0) {
+            effectiveMode = MODE_FIXED;
+            const double local = elapsedSec - 2.0;
+            const int idx = std::min(8, static_cast<int>(local / 2.0));
+            phase = 10 + idx;
+            patternElapsed = local - idx * 2.0;
+            return fixedRates[idx];
+        }
+
+        // 20-30s: continuous 10 -> 60 -> 10 sweep.
+        if (elapsedSec < 30.0) {
+            effectiveMode = MODE_SWEEP;
+            const double local = elapsedSec - 20.0;
+            phase = 30 + static_cast<int>(local);
+            patternElapsed = local;
+            const double x = local <= 5.0 ? local / 5.0 : (10.0 - local) / 5.0;
+            return 10.0 + 50.0 * std::max(0.0, std::min(1.0, x));
+        }
+
+        // 30-42s: abrupt rate transitions, 2 seconds each.
+        static const double stepRates[] = {60, 30, 60, 20, 45, 30};
+        if (elapsedSec < 42.0) {
+            effectiveMode = MODE_STEP;
+            const double local = elapsedSec - 30.0;
+            const int idx = std::min(5, static_cast<int>(local / 2.0));
+            phase = 50 + idx;
+            patternElapsed = local - idx * 2.0;
+            return stepRates[idx];
+        }
+
+        // 42-50s: irregular pacing around 60 FPS.
+        if (elapsedSec < 50.0) {
+            effectiveMode = MODE_JITTER;
+            phase = 70;
+            patternElapsed = elapsedSec - 42.0;
+            return 60.0;
+        }
+
+        // 50-60s: deliberate 250/500 ms stalls inside a nominal 60 FPS stream.
+        if (elapsedSec < 60.0) {
+            effectiveMode = MODE_STALL;
+            phase = 80;
+            patternElapsed = elapsedSec - 50.0;
+            return 60.0;
+        }
+
+        done = true;
+        effectiveMode = MODE_FIXED;
+        phase = 99;
+        patternElapsed = 0.0;
+        return 60.0;
+    }
+
     switch (mode) {
         case MODE_SWEEP: {
-            // 10 -> 60 -> 10 over a 20 second triangle wave.
             const double t = std::fmod(elapsedSec, 20.0);
             phase = static_cast<int>(t / 2.0);
+            patternElapsed = t;
             const double x = t <= 10.0 ? t / 10.0 : (20.0 - t) / 10.0;
             return 10.0 + 50.0 * x;
         }
@@ -90,6 +166,7 @@ double targetFor(int mode, double fixed, double elapsedSec, int& phase) {
             static const double rates[] = {60, 30, 60, 20, 45, 30};
             const int idx = static_cast<int>(elapsedSec / 4.0) % 6;
             phase = idx;
+            patternElapsed = std::fmod(elapsedSec, 4.0);
             return rates[idx];
         }
         case MODE_JITTER:
@@ -97,6 +174,7 @@ double targetFor(int mode, double fixed, double elapsedSec, int& phase) {
             return fixed > 0 ? fixed : 60.0;
         case MODE_STALL:
             phase = static_cast<int>(elapsedSec) % 8;
+            patternElapsed = std::fmod(elapsedSec, 8.0);
             return fixed > 0 ? fixed : 60.0;
         default:
             return fixed > 0 ? fixed : 60.0;
@@ -245,19 +323,33 @@ void renderer(ANativeWindow* window, std::string path, int mode, double fixedFps
         const int64_t now = monoNs();
         const double elapsed = (now - sessionStart) / 1e9;
         int phase = 0;
-        double targetFps = targetFor(mode, fixedFps, elapsed, phase);
+        int effectiveMode = mode;
+        double patternElapsed = elapsed;
+        bool done = false;
+        double targetFps = targetFor(
+                mode, fixedFps, elapsed, phase, effectiveMode, patternElapsed, done);
+        if (done) {
+            setStatus("Automatic validation complete");
+            break;
+        }
+
         targetFps = std::max(1.0, std::min(240.0, targetFps));
         int64_t framePeriodNs = static_cast<int64_t>(1e9 / targetFps);
 
-        if (mode == MODE_JITTER) {
+        if (effectiveMode == MODE_JITTER) {
             // Alternating +/-25% pacing while preserving approximately the requested mean.
             framePeriodNs = static_cast<int64_t>(framePeriodNs * ((seq & 1) ? 1.25 : 0.75));
         }
 
-        if (mode == MODE_STALL) {
-            const int sec = static_cast<int>(elapsed) % 8;
-            if (sec == 5 && (seq % 3 == 0)) framePeriodNs += 250'000'000LL;
-            if (sec == 6 && (seq % 2 == 0)) framePeriodNs += 500'000'000LL;
+        if (effectiveMode == MODE_STALL) {
+            // Single deliberate stall events, rather than slowing every frame in the interval.
+            const double slot = std::fmod(patternElapsed, 10.0);
+            if (slot >= 3.0 && slot < 3.05 && (seq % 2 == 0)) {
+                framePeriodNs += 250'000'000LL;
+            }
+            if (slot >= 6.0 && slot < 6.05 && (seq % 2 == 1)) {
+                framePeriodNs += 500'000'000LL;
+            }
         }
 
         if (nextFrameNs < now - framePeriodNs * 2) nextFrameNs = now;
@@ -268,7 +360,7 @@ void renderer(ANativeWindow* window, std::string path, int mode, double fixedFps
         PendingFrame f{};
         f.seq = ++seq;
         f.targetFps = targetFps;
-        f.mode = mode;
+        f.mode = effectiveMode;
         f.phase = phase;
         f.targetNs = targetNs;
 
@@ -345,7 +437,9 @@ void renderer(ANativeWindow* window, std::string path, int mode, double fixedFps
             std::ostringstream s;
             s.setf(std::ios::fixed);
             s.precision(1);
-            s << "Target " << targetFps << " FPS • frame " << seq
+            s << (mode == MODE_AUTO ? "AUTO • " : "")
+              << "Target " << targetFps << " FPS • phase " << phase
+              << " • frame " << seq
               << " • present timestamps " << (presentSupported ? "ON" : "OFF");
             setStatus(s.str());
         }
@@ -392,4 +486,9 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_com_dafthacker_fpsvalidator_MainActivity_nativeStatus(JNIEnv* env, jobject) {
     std::lock_guard<std::mutex> lock(g_statusMutex);
     return env->NewStringUTF(g_status.c_str());
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_dafthacker_fpsvalidator_MainActivity_nativeIsRunning(JNIEnv*, jobject) {
+    return g_running.load() ? JNI_TRUE : JNI_FALSE;
 }
