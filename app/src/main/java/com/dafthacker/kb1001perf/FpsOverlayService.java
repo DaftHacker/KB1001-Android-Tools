@@ -44,6 +44,9 @@ public final class FpsOverlayService extends Service {
     private volatile boolean samplerRestartRequested;
     private BufferedWriter validationWriter;
     private File validationFile;
+    private int validationRowsSinceFlush;
+    private long validationLastFlushMs;
+    private static final String VALIDATOR_PACKAGE="com.dafthacker.fpsvalidator";
     private static final int DEFAULT_POLL_MS=250;
     private static final int MIN_POLL_MS=100;
     private static final int MAX_POLL_MS=1000;
@@ -281,7 +284,7 @@ public final class FpsOverlayService extends Service {
                             avg=currentAverage(now,windowMs);
                         }
 
-                        syncValidationLogger();
+                        syncValidationLogger(sample.source);
                         logValidationSample(sample,avg,pollMs,windowMs);
 
                         if(fps==displayedFps && avg==displayedAverageFps)continue;
@@ -409,9 +412,8 @@ public final class FpsOverlayService extends Service {
         }
     }
 
-    private void syncValidationLogger(){
-        boolean enabled=getSharedPreferences("fps_hud",MODE_PRIVATE)
-                .getBoolean("validation_log_enabled",false);
+    private void syncValidationLogger(String source){
+        boolean enabled=VALIDATOR_PACKAGE.equals(source);
 
         if(!enabled){
             closeValidationLogger();
@@ -427,11 +429,13 @@ public final class FpsOverlayService extends Service {
                     "yyyyMMdd-HHmmss",java.util.Locale.US)
                     .format(new java.util.Date());
             validationFile=new File(dir,"overlay-"+stamp+".csv");
-            validationWriter=new BufferedWriter(new FileWriter(validationFile,false));
+            validationWriter=new BufferedWriter(new FileWriter(validationFile,false),65536);
             validationWriter.write(
                     "elapsed_realtime_ns,wall_time_ms,current_fps,average_fps,"+
                     "package,kind,poll_ms,average_window_ms,layer,new_frames\n");
             validationWriter.flush();
+            validationRowsSinceFlush=0;
+            validationLastFlushMs=SystemClock.elapsedRealtime();
 
             getSharedPreferences("fps_hud",MODE_PRIVATE).edit()
                     .putString("validation_log_path",validationFile.getAbsolutePath())
@@ -464,7 +468,14 @@ public final class FpsOverlayService extends Service {
             validationWriter.write(',');
             validationWriter.write(Integer.toString(sample.newFrames));
             validationWriter.write('\n');
-            validationWriter.flush();
+
+            validationRowsSinceFlush++;
+            long now=SystemClock.elapsedRealtime();
+            if(validationRowsSinceFlush>=32 || now-validationLastFlushMs>=1000){
+                validationWriter.flush();
+                validationRowsSinceFlush=0;
+                validationLastFlushMs=now;
+            }
         }catch(Exception ignored){
             closeValidationLogger();
         }
@@ -486,6 +497,8 @@ public final class FpsOverlayService extends Service {
         }
         validationWriter=null;
         validationFile=null;
+        validationRowsSinceFlush=0;
+        validationLastFlushMs=0;
     }
 
     private int dp(int value){
