@@ -326,7 +326,7 @@ public class MainActivity extends Activity {
     private void ensureLauncherMetadataAsync(){
         if(!launcherApps.isEmpty())return;
         scanIo.execute(() -> {
-            scanLauncherApps();
+            scanSelectedGameMetadata();
             runOnUiThread(() -> {
                 if(gamesContainer!=null)renderGamesInline();
             });
@@ -524,6 +524,25 @@ public class MainActivity extends Activity {
                 loadGamesInline();
             });
         });
+    }
+
+    private void scanSelectedGameMetadata() {
+        launcherApps.clear();
+        PackageManager pm=getPackageManager();
+        for(String pkg:new LinkedHashSet<>(selectedGames)){
+            try{
+                ApplicationInfo ai=pm.getApplicationInfo(pkg,0);
+                CharSequence label=pm.getApplicationLabel(ai);
+                String name=label==null?pkg:label.toString();
+                boolean game=Build.VERSION.SDK_INT>=26 &&
+                        ai.category==ApplicationInfo.CATEGORY_GAME;
+                Drawable icon=pm.getApplicationIcon(ai);
+                launcherApps.add(new LauncherApp(name,pkg,icon,game));
+            }catch(Exception ignored){
+                launcherApps.add(new LauncherApp(pkg,pkg,null,false));
+            }
+        }
+        launcherApps.sort(Comparator.comparing(a -> a.name.toLowerCase(Locale.US)));
     }
 
     private void scanLauncherApps() {
