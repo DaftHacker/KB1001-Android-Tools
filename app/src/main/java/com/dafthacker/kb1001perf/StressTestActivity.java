@@ -49,6 +49,7 @@ public final class StressTestActivity extends Activity {
     private String mode="combined";
     private int durationSeconds=60;
     private boolean running;
+    private boolean resultVisible;
     private long startedAt;
     private long endsAt;
     private float renderFps;
@@ -204,6 +205,7 @@ public final class StressTestActivity extends Activity {
         if(running)return;
 
         running=true;
+        resultVisible=false;
         applyKeepAwakePreference(true);
         startedAt=SystemClock.elapsedRealtime();
         endsAt=startedAt+durationSeconds*1000L;
@@ -398,6 +400,7 @@ public final class StressTestActivity extends Activity {
         testButton.setBackground(cardBg(CPU,125));
 
         if(showSummary && !isFinishing()){
+            resultVisible=true;
             applyKeepAwakePreference(false);
             double n=Math.max(1,samples);
             double sn=Math.max(1,scoreSamples);
@@ -474,7 +477,7 @@ public final class StressTestActivity extends Activity {
         android.content.SharedPreferences p=getSharedPreferences("display_settings",MODE_PRIVATE);
         boolean keepInApp=p.getBoolean("keep_awake_in_app",false);
         boolean keepResult=p.getBoolean("keep_stress_result_awake",true);
-        boolean keep=runningTest || keepInApp || (!running && keepResult);
+        boolean keep=runningTest || keepInApp || (resultVisible && keepResult);
         if(keep) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
