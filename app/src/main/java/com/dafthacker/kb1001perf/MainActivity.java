@@ -80,6 +80,7 @@ public class MainActivity extends Activity {
         }
 
         setContentView(buildUi());
+        applyMainKeepAwake();
         showTab(0);
 
         io.execute(() -> RootBridge.get().ctl("status"));
@@ -158,7 +159,7 @@ public class MainActivity extends Activity {
         else settingsPage();
 
         refreshTelemetry();
-        if(!AppStateCache.statusFresh(this,1500)) refreshBackendState();
+        if(!AppStateCache.statusFresh(this,5000)) refreshBackendState();
     }
 
     private void dashboardPage() {
@@ -295,7 +296,7 @@ public class MainActivity extends Activity {
             gamesContainer.addView(loading);
         }
 
-        if(AppStateCache.gamesFresh(this,2000)){
+        if(AppStateCache.gamesFresh(this,5000)){
             ensureLauncherMetadataAsync();
             return;
         }
@@ -593,6 +594,27 @@ public class MainActivity extends Activity {
 
         Button stress=stressButton("System Stress & Test",SESSION_COLOR);
         page.addView(stress,full());
+
+        section("DISPLAY","Screen timeout behavior for the app and benchmark results.");
+
+        SharedPreferences displayPrefs=getSharedPreferences("display_settings",MODE_PRIVATE);
+
+        Switch keepAwake=toggleCard(
+                "Keep app screen awake",
+                "Prevents Android from sleeping the screen while KB1001 Performance Manager is open.",
+                checked -> {
+                    displayPrefs.edit().putBoolean("keep_awake_in_app",checked).apply();
+                    applyMainKeepAwake();
+                });
+        setSwitchImmediately(keepAwake,displayPrefs.getBoolean("keep_awake_in_app",false));
+        page.addView((View)keepAwake.getParent());
+
+        Switch keepResult=toggleCard(
+                "Keep stress-test results awake",
+                "Keeps the completed stress-test result visible until you dismiss or leave it.",
+                checked -> displayPrefs.edit().putBoolean("keep_stress_result_awake",checked).apply());
+        setSwitchImmediately(keepResult,displayPrefs.getBoolean("keep_stress_result_awake",true));
+        page.addView((View)keepResult.getParent());
 
         section("SOFTWARE","One update operation handles the app and persistent backend together.");
 
@@ -1244,6 +1266,13 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void applyMainKeepAwake(){
+        boolean keep=getSharedPreferences("display_settings",MODE_PRIVATE)
+                .getBoolean("keep_awake_in_app",false);
+        if(keep)getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
     private View performanceLimitCard() {
         LinearLayout root=new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -1433,11 +1462,12 @@ public class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         TelemetryDemand.activityResumed();
+        applyMainKeepAwake();
         active = true;
         handler.removeCallbacks(ticker);
         handler.post(ticker);
         if(!AppStateCache.statusFresh(this,1500)) refreshBackendState();
-        if (tab == 1 && !AppStateCache.gamesFresh(this,2000)) loadGamesInline();
+        if (tab == 1 && !AppStateCache.gamesFresh(this,5000)) loadGamesInline();
     }
 
     @Override protected void onPause() {
