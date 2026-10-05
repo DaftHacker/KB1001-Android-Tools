@@ -122,7 +122,11 @@ public class OverlayService extends Service {
         head.addView(fold);
 
         Button close=mini("×");
-        close.setOnClickListener(v->stopSelf());
+        close.setOnClickListener(v->{
+            AppStateCache.setManualMetrics(this,false);
+            io.execute(()->RootBridge.get().ctl("overlay metrics-manual-off"));
+            stopSelf();
+        });
         head.addView(close);
 
         overlay.addView(head);
