@@ -4,15 +4,12 @@ AUTO_STATE="/data/local/tmp/kb1001_game_boost.state"
 
 read_state_package(){
  pkg=""
- mode=""
  [ -r "$AUTO_STATE" ] || return
  while IFS='=' read -r key value; do
   case "$key" in
-   mode) mode="$value" ;;
    package) pkg="$value" ;;
   esac
  done < "$AUTO_STATE"
- [ "$mode" = game ] || pkg=""
 }
 
 foreground_package(){
@@ -37,12 +34,23 @@ monotonic_ms(){
 }
 
 clean_sf_layer(){
- printf '%s' "$1" | sed \
-  -e 's/^RequestedLayerState{//' \
-  -e 's/ parentId=.*$//' \
-  -e 's/ relativeParentId=.*$//' \
-  -e 's/ z=.*$//' \
-  -e 's/}$//'
+ raw="$(printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+ case "$raw" in
+  RequestedLayerState\{*)
+   printf '%s' "$raw" | sed \
+    -e 's/^RequestedLayerState{//' \
+    -e 's/ parentId=.*$//' \
+    -e 's/ relativeParentId=.*$//' \
+    -e 's/ z=.*$//' \
+    -e 's/}$//'
+   ;;
+  Layer\ \[*)
+   printf '%s' "$raw" | sed 's/^Layer \[[^]]*\][[:space:]]*//'
+   ;;
+  *)
+   printf '%s' "$raw"
+   ;;
+ esac
 }
 
 # Keep the layer-selection behavior that previously worked well on this device:
@@ -52,10 +60,12 @@ discover_layer(){
  [ -n "$target" ] || return
 
  layers="$(dumpsys SurfaceFlinger --list 2>/dev/null)"
+ matches="$(printf '%s\\n' "$layers" | grep -F "$target" |
+  grep -Ev 'ActivityRecord|InputSink|Background for|Bounds for|Dim layer|Snapshot|Transition|leash|Task=')"
 
- line="$(printf '%s\\n' "$layers" | grep -F "$target" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | head -1)"
- [ -n "$line" ] || line="$(printf '%s\\n' "$layers" | grep -F "$target" | grep -E 'SurfaceView|BLAST' | head -1)"
- [ -n "$line" ] || line="$(printf '%s\\n' "$layers" | grep -F "$target" | head -1)"
+ line="$(printf '%s\\n' "$matches" | grep -E 'SurfaceView.*BLAST|BLAST.*SurfaceView' | head -1)"
+ [ -n "$line" ] || line="$(printf '%s\\n' "$matches" | grep -E 'SurfaceView|BLAST' | head -1)"
+ [ -n "$line" ] || line="$(printf '%s\\n' "$matches" | head -1)"
 
  if [ -z "$line" ]; then
   short="${target##*.}"
@@ -197,27 +207,30 @@ stream(){
  layer=""
  bad_layer_count=0
  last_discover_ms=0
+ last_foreground_ms=0
  last_average_ms=0
  current=-1
  average=-1
 
  while true; do
+  # Daemon state is only a hint. FPS must work for any foreground app,
+  # whether or not it is registered as a game.
   read_state_package
   next_pkg="$pkg"
 
   now_ms="$(monotonic_ms)"
   case "$now_ms" in ''|*[!0-9]*) now_ms=0;; esac
 
-  if [ -z "$next_pkg" ]; then
-   if [ -z "$pkg_cached" ] || [ "$now_ms" -le 0 ] 2>/dev/null ||
-      [ $((now_ms-last_discover_ms)) -ge 2000 ] 2>/dev/null; then
-    candidate="$(foreground_package)"
-    [ -n "$candidate" ] && next_pkg="$candidate" || next_pkg="$pkg_cached"
-    last_discover_ms="$now_ms"
-   else
-    next_pkg="$pkg_cached"
-   fi
+  # Verify the real foreground independently at startup and about once per second.
+  # This prevents stale game-daemon state from pinning the FPS sampler to an old app.
+  if [ -z "$pkg_cached" ] || [ "$now_ms" -le 0 ] 2>/dev/null ||
+     [ $((now_ms-last_foreground_ms)) -ge 1000 ] 2>/dev/null; then
+   candidate="$(foreground_package)"
+   [ -n "$candidate" ] && next_pkg="$candidate"
+   last_foreground_ms="$now_ms"
   fi
+
+  [ -n "$next_pkg" ] || next_pkg="$pkg_cached"
 
   if [ "$next_pkg" != "$pkg_cached" ]; then
    pkg_cached="$next_pkg"
@@ -260,7 +273,13 @@ stream(){
        [ $((now_ms-last_average_ms)) -ge 500 ] 2>/dev/null; }; then
    avg="$(timestats_average "$pkg_cached")"
    case "$avg" in ''|*[!0-9-]*) avg=-1;; esac
-   [ "$avg" -ge 0 ] 2>/dev/null && average="$avg"
+   if [ "$avg" -ge 0 ] 2>/dev/null; then
+    average="$avg"
+
+    # Secondary presented-FPS path. If the exact per-layer latency query cannot
+    # resolve, TimeStats still reports the package layer's real presented rate.
+    [ "$current" -lt 0 ] 2>/dev/null && current="$avg"
+   fi
    last_average_ms="$now_ms"
   fi
 
