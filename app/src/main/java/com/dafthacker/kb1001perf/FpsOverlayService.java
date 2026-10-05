@@ -462,7 +462,7 @@ public final class FpsOverlayService extends Service {
         try{
             File dir=new File(getExternalFilesDir(null),"fps-validation");
             if(!dir.exists()&&!dir.mkdirs())return;
-            File snapshot=new File("/sdcard/Download","KB1001-FPS-Resolver.txt");
+            File snapshot=new File(dir,"resolver-latest.txt");
 
             // Run once on a separate thread so the diagnostic dumpsys calls cannot
             // delay the sampler stream used for the scored validation phases.
@@ -472,7 +472,8 @@ public final class FpsOverlayService extends Service {
                             "sh "+RootBridge.shellQuote(FPS_SAMPLER)+
                             " validator-snapshot "+
                             RootBridge.shellQuote(snapshot.getAbsolutePath()));
-                 }catch(Exception ignored){}
+                     publishToDownloads(snapshot,"KB1001-FPS-Resolver.txt","text/plain");
+                }catch(Exception ignored){}
             },"KB1001-fps-resolver-snapshot");
             t.start();
         }catch(Exception ignored){}
@@ -577,11 +578,13 @@ public final class FpsOverlayService extends Service {
         if(source==null||!source.isFile())return;
         try{
             String dst="/sdcard/Download/"+name;
+            String tmp=dst+".tmp";
             RootBridge.get().exec(
                     "mkdir -p /sdcard/Download && cp -f "+
                     RootBridge.shellQuote(source.getAbsolutePath())+" "+
-                    RootBridge.shellQuote(dst)+" && chmod 0644 "+
-                    RootBridge.shellQuote(dst));
+                    RootBridge.shellQuote(tmp)+" && chmod 0644 "+
+                    RootBridge.shellQuote(tmp)+" && mv -f "+
+                    RootBridge.shellQuote(tmp)+" "+RootBridge.shellQuote(dst));
         }catch(Exception ignored){}
     }
 
