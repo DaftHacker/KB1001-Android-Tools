@@ -87,8 +87,11 @@ surface_current(){
 
  dumpsys SurfaceFlinger --latency "$layer" 2>/dev/null | awk '
   NR==1 { next }
-  NF>=3 && $2 ~ /^[0-9]+$/ && $2>0 && $2<9223372036854775807 {
-   if(n==0 || $2!=t[n]) t[++n]=$2
+  NF>=3 {
+   v=0
+   if($2 ~ /^[0-9]+$/ && $2>0 && $2<9223372036854775807)v=$2
+   else if($3 ~ /^[0-9]+$/ && $3>0 && $3<9223372036854775807)v=$3
+   if(v>0 && (n==0 || v!=t[n]))t[++n]=v
   }
   END {
    if(n<2){print "-1|0";exit}
@@ -198,6 +201,91 @@ timestats_average(){
   }'
 }
 
+frametimeline_fps(){
+ target="$1"
+ dumpsys SurfaceFlinger --frametimeline -all 2>/dev/null | awk -v target="$target" '
+  function trim(s){gsub(/^[ 	]+|[ 	]+$/,"",s);return s}
+  function finish_frame(){
+   if(!in_frame || present=="")return
+   if(target=="" || matched){
+    t[++n]=present+0
+   }
+  }
+
+  /^Display Frame [0-9]+/ {
+   finish_frame()
+   in_frame=1
+   present=""
+   matched=0
+   candidate=0
+   next
+  }
+
+  in_frame && present=="" && /^[ 	]*Actual[ 	]*\|/ {
+   parts=split($0,a,"|")
+   if(parts>=4){
+    v=trim(a[parts])
+    if(v ~ /^[0-9]+([.][0-9]+)?$/)present=v
+   }
+   next
+  }
+
+  in_frame && /Layer - / {
+   candidate=(target=="" || index(tolower($0),tolower(target))>0)
+   next
+  }
+
+  in_frame && candidate && /Present State : Presented/ {
+   matched=1
+   candidate=0
+   next
+  }
+
+  END {
+   finish_frame()
+   if(n<2){print -1;exit}
+
+   span=t[n]-t[1]
+   if(span<=0){print 0;exit}
+
+   fps=int((((n-1)*1000.0)/span)+0.5)
+   if(fps<0)fps=0
+   if(fps>240)fps=240
+   print fps
+  }'
+}
+
+target_
+
+gfxinfo_fps(){
+ target="$1"
+ [ -n "$target" ] || { echo -1; return; }
+
+ fps="$(dumpsys gfxinfo "$target" framestats 2>/dev/null | awk -F, '
+  /^Flags,IntendedVsync/ {
+   completed=0
+   for(i=1;i<=NF;i++) if($i=="FrameCompleted") completed=i
+   next
+  }
+  completed>0 && $completed ~ /^[0-9]+$/ && $completed>0 { t[++n]=$completed }
+  END {
+   if(n<2){print -1;exit}
+   last=t[n]
+   start=n-1
+   while(start>1 && (last-t[start-1])<=1000000000) start--
+   frames=n-start
+   span=last-t[start]
+   if(span<=0 || frames<=0){print 0;exit}
+   fps=int((frames*1000000000.0/span)+0.5)
+   if(fps<0)fps=0
+   if(fps>240)fps=240
+   print fps
+  }')"
+
+ case "$fps" in ''|*[!0-9-]*) fps=-1;; esac
+ echo "$fps"
+}
+
 stream(){
  trap 'dumpsys SurfaceFlinger --timestats -disable >/dev/null 2>&1; exit 0' HUP INT TERM PIPE EXIT
 
@@ -209,6 +297,7 @@ stream(){
  last_discover_ms=0
  last_foreground_ms=0
  last_average_ms=0
+ last_fallback_ms=0
  current=-1
  average=-1
 
@@ -281,6 +370,27 @@ stream(){
     [ "$current" -lt 0 ] 2>/dev/null && current="$avg"
    fi
    last_average_ms="$now_ms"
+  fi
+
+  # If both per-layer latency and TimeStats are unavailable on this firmware,
+  # fall back to the same attributed sources used by the last known resolving
+  # implementation (dev.341). Keep this off the hot path.
+  if [ "$current" -lt 0 ] 2>/dev/null &&
+     { [ "$last_fallback_ms" -le 0 ] 2>/dev/null ||
+       [ $((now_ms-last_fallback_ms)) -ge 500 ] 2>/dev/null; }; then
+   fallback="$(gfxinfo_fps "$pkg_cached")"
+   case "$fallback" in ''|*[!0-9-]*) fallback=-1;; esac
+
+   if [ "$fallback" -lt 0 ] 2>/dev/null; then
+    fallback="$(target_frametimeline_fps "$pkg_cached")"
+    case "$fallback" in ''|*[!0-9-]*) fallback=-1;; esac
+   fi
+
+   if [ "$fallback" -ge 0 ] 2>/dev/null; then
+    current="$fallback"
+    [ "$average" -lt 0 ] 2>/dev/null && average="$fallback"
+   fi
+   last_fallback_ms="$now_ms"
   fi
 
   printf '%s|%s\\n' "$current" "$average" || exit 0
