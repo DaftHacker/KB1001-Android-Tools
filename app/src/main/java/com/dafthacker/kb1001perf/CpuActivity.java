@@ -669,6 +669,7 @@ public class CpuActivity extends Activity {
 
     @Override protected void onResume(){
         super.onResume();
+        DisplaySleepPolicy.apply(this,false);
         TelemetryDemand.activityResumed();
         active=true;
         handler.removeCallbacks(ticker);
