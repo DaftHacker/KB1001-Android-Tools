@@ -9,6 +9,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class TelemetryStore {
+    private static final Object LOCK=new Object();
+    private static Map<String,String> cached=java.util.Collections.emptyMap();
+    private static long cachedMtime=-1L;
+    private static long cachedLength=-1L;
+
     private TelemetryStore() {}
 
     public static File ensureSnapshot(Context context) {
@@ -23,16 +28,36 @@ public final class TelemetryStore {
     }
 
     public static Map<String, String> read(Context context) {
-        LinkedHashMap<String, String> map = new LinkedHashMap<>();
         try {
-            File f = ensureSnapshot(context);
-            String text = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
-            for (String line : text.split("\\R")) {
-                int i = line.indexOf('=');
-                if (i > 0) map.put(line.substring(0, i).trim(), line.substring(i + 1).trim());
+            File f=ensureSnapshot(context);
+            long mtime=f.lastModified();
+            long length=f.length();
+
+            synchronized(LOCK){
+                if(mtime==cachedMtime && length==cachedLength && !cached.isEmpty()){
+                    return cached;
+                }
             }
-        } catch (Exception ignored) {}
-        return map;
+
+            LinkedHashMap<String,String> parsed=new LinkedHashMap<>();
+            String text=new String(Files.readAllBytes(f.toPath()),StandardCharsets.UTF_8);
+            for(String line:text.split("\\R")){
+                int i=line.indexOf('=');
+                if(i>0)parsed.put(line.substring(0,i).trim(),line.substring(i+1).trim());
+            }
+
+            Map<String,String> frozen=java.util.Collections.unmodifiableMap(parsed);
+            synchronized(LOCK){
+                cached=frozen;
+                cachedMtime=mtime;
+                cachedLength=length;
+                return cached;
+            }
+        } catch(Exception ignored){
+            synchronized(LOCK){
+                return cached;
+            }
+        }
     }
 
     public static String get(Map<String,String> map, String key, String fallback) {
