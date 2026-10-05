@@ -276,6 +276,17 @@ public class CpuActivity extends Activity {
         card.addView(thermal);
         card.addView(cooling);
 
+        LinearLayout controls=row();
+        Button minButton=button("MIN",accent,v->chooseCpuFrequency(policyName,false));
+        Button maxButton=button("MAX",accent,v->chooseCpuFrequency(policyName,true));
+        Button govButton=button("GOV",accent,v->chooseCpuGovernor(policyName));
+        LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,dp(42),1);
+        cp.setMargins(dp(2),dp(7),dp(2),0);
+        controls.addView(minButton,cp);
+        controls.addView(maxButton,cp);
+        controls.addView(govButton,cp);
+        card.addView(controls);
+
         SparklineView graph=new SparklineView(this);
         graph.setAccentColor(accent);
         LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,dp(60));
@@ -506,9 +517,115 @@ public class CpuActivity extends Activity {
         ui.graph.addValue(avg);
     }
 
+    private void chooseCpuFrequency(String policyName,boolean maximum){
+        Map<String,String> telemetry=TelemetryStore.read(this);
+        Map<String,PolicyState> policies=parsePolicies(TelemetryStore.get(telemetry,"cpu_policies",""));
+        Map<String,AvailablePolicy> available=parseAvailablePolicies(TelemetryStore.get(telemetry,"cpu_available",""));
+        PolicyState policy=policies.get(policyName);
+        AvailablePolicy choices=available.get(policyName);
+        if(policy==null||choices==null||choices.frequenciesKhz.isEmpty()){
+            Toast.makeText(this,"CPU frequency list is not available yet.",Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        List<Integer> allowed=new ArrayList<>();
+        for(int khz:choices.frequenciesKhz){
+            int mhz=khz/1000;
+            if(maximum){
+                if(mhz>=policy.min)allowed.add(khz);
+            }else{
+                if(mhz<=policy.max)allowed.add(khz);
+            }
+        }
+        if(allowed.isEmpty())return;
+
+        String[] labels=new String[allowed.size()];
+        int selected=-1;
+        int current=maximum?policy.max:policy.min;
+        for(int i=0;i<allowed.size();i++){
+            int mhz=allowed.get(i)/1000;
+            labels[i]=mhz+" MHz";
+            if(mhz==current)selected=i;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle(policyName+" • "+(maximum?"maximum":"minimum"))
+                .setSingleChoiceItems(labels,selected,(d,which)->{
+                    d.dismiss();
+                    applyCpuPolicy(policyName,maximum?"max":"min",String.valueOf(allowed.get(which)));
+                })
+                .setNegativeButton("Cancel",null)
+                .show();
+    }
+
+    private void chooseCpuGovernor(String policyName){
+        Map<String,String> telemetry=TelemetryStore.read(this);
+        Map<String,PolicyState> policies=parsePolicies(TelemetryStore.get(telemetry,"cpu_policies",""));
+        Map<String,AvailablePolicy> available=parseAvailablePolicies(TelemetryStore.get(telemetry,"cpu_available",""));
+        PolicyState policy=policies.get(policyName);
+        AvailablePolicy choices=available.get(policyName);
+        if(policy==null||choices==null||choices.governors.isEmpty()){
+            Toast.makeText(this,"CPU governor list is not available yet.",Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String[] labels=choices.governors.toArray(new String[0]);
+        int selected=choices.governors.indexOf(policy.governor);
+        new AlertDialog.Builder(this)
+                .setTitle(policyName+" • governor")
+                .setSingleChoiceItems(labels,selected,(d,which)->{
+                    d.dismiss();
+                    applyCpuPolicy(policyName,"governor",choices.governors.get(which));
+                })
+                .setNegativeButton("Cancel",null)
+                .show();
+    }
+
+    private void applyCpuPolicy(String policy,String field,String value){
+        io.execute(()->{
+            RootBridge.Result r=RootBridge.get().ctl("cpu policy "+policy+" "+field+" "+value);
+            if(r.ok())RootBridge.get().ctl("logger refresh");
+            runOnUiThread(()->{
+                if(!r.ok()){
+                    Toast.makeText(this,
+                            r.exitCode==2?"CPU setting rejected by the kernel-advertised policy limits.":"CPU setting failed.",
+                            Toast.LENGTH_LONG).show();
+                }
+                handler.postDelayed(this::refresh,250);
+            });
+        });
+    }
+
+    private Map<String,AvailablePolicy> parseAvailablePolicies(String raw){
+        Map<String,AvailablePolicy> out=new LinkedHashMap<>();
+        if(raw==null)return out;
+        for(String item:raw.split(";")){
+            int bracket=item.indexOf('[');
+            int eq=item.indexOf('=');
+            int at=item.indexOf('@',eq+1);
+            if(bracket<1||eq<bracket||at<eq)continue;
+            String name=item.substring(0,bracket).trim();
+            AvailablePolicy a=new AvailablePolicy();
+
+            for(String freq:item.substring(eq+1,at).split(",")){
+                try{
+                    int khz=Integer.parseInt(freq.trim());
+                    if(khz>0)a.frequenciesKhz.add(khz);
+                }catch(Exception ignored){}
+            }
+            for(String gov:item.substring(at+1).split(",")){
+                String g=gov.trim();
+                if(!g.isEmpty())a.governors.add(g);
+            }
+            out.put(name,a);
+        }
+        return out;
+    }
+
     private String friendlyMode(String mode){
         if("balanced".equals(mode))return "Balanced";
         if("performance".equals(mode))return "Locked Maximum";
+        if("custom".equals(mode))return "Custom";
         return "Firmware Stock";
     }
 
@@ -696,6 +813,11 @@ public class CpuActivity extends Activity {
     @Override protected void onDestroy(){
         io.shutdownNow();
         super.onDestroy();
+    }
+
+    private static final class AvailablePolicy{
+        final List<Integer> frequenciesKhz=new ArrayList<>();
+        final List<String> governors=new ArrayList<>();
     }
 
     private static final class PolicyState{
