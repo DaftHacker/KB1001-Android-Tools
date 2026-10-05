@@ -211,6 +211,29 @@ timestats_reset(){
  dumpsys SurfaceFlinger --timestats -clear -enable >/dev/null 2>&1
 }
 
+timestats_diagnose(){
+ target="$1"
+ echo "--- TimeStats parsed sample ---"
+ timestats_layer "$target"
+ echo "--- TimeStats raw package context ---"
+ dumpsys SurfaceFlinger --timestats -dump 2>/dev/null | awk -v target="$target" '
+  BEGIN{IGNORECASE=1}
+  {
+   lines[NR]=$0
+   if(index(tolower($0),tolower(target))>0){
+    start=NR-8
+    if(start<1)start=1
+    stop=NR+20
+    for(i=start;i<=stop;i++)wanted[i]=1
+   }
+  }
+  END{
+   for(i=1;i<=NR;i++)if(wanted[i])print lines[i]
+  }'
+ echo "--- TimeStats raw head ---"
+ dumpsys SurfaceFlinger --timestats -dump 2>/dev/null | head -n 80
+}
+
 candidate_layers(){
  target="$1"
  [ -n "$target" ] || return
@@ -394,6 +417,10 @@ stream(){
      candidate_tick=0
     fi
 
+    # Prefer render surfaces in compatibility mode and cap probes to two.
+    preferred="$(printf '%s\n' "$candidates" | grep -Ei 'SurfaceView|BLAST|BBQ' | head -n 2)"
+    [ -n "$preferred" ] || preferred="$(printf '%s\n' "$candidates" | head -n 2)"
+    candidates="$preferred"
     candidate_count="$(printf '%s\n' "$candidates" | awk 'NF{n++}END{print n+0}')"
     : > "$cycle_state"
 
@@ -511,6 +538,7 @@ diagnose(){
  pkg="$(foreground_package)"
  echo "foreground=${pkg:-<none>}"
 
+ timestats_diagnose "$pkg"
  echo "--- raw SurfaceFlinger matches ---"
  dumpsys SurfaceFlinger --list 2>/dev/null | grep -Fi "${pkg##*.}" || true
  echo "--- candidates ---"
