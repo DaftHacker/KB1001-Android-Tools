@@ -59,8 +59,8 @@ write_state(){
 }
 
 metrics_show() {
-    am start-foreground-service -a kb1001.auto_metrics -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 ||
-      am startservice -a kb1001.auto_metrics -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 || true
+    am start-foreground-service -a kb1001.auto_metrics -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1 && return 0
+    am startservice -a kb1001.auto_metrics -n com.dafthacker.kb1001perf/.OverlayService >/dev/null 2>&1
 }
 
 metrics_hide() {
@@ -68,8 +68,8 @@ metrics_hide() {
 }
 
 fps_show() {
-    am start-foreground-service -a kb1001.auto_fps -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1 ||
-      am startservice -a kb1001.auto_fps -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1 || true
+    am start-foreground-service -a kb1001.auto_fps -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1 && return 0
+    am startservice -a kb1001.auto_fps -n com.dafthacker.kb1001perf/.FpsOverlayService >/dev/null 2>&1
 }
 
 fps_hide() {
@@ -146,8 +146,7 @@ run_daemon() {
 
             if manual_metrics || metrics_allowed "$pkg"; then
                 if [ "$auto_metrics_visible" != 1 ] || [ "$last_pkg" != "$pkg" ]; then
-                    metrics_show
-                    auto_metrics_visible=1
+                    if metrics_show; then auto_metrics_visible=1; else auto_metrics_visible=0; fi
                 fi
             elif [ "$auto_metrics_visible" = 1 ]; then
                 metrics_hide
@@ -156,8 +155,7 @@ run_daemon() {
 
             if manual_fps || fps_allowed "$pkg"; then
                 if [ "$auto_fps_visible" != 1 ] || [ "$last_pkg" != "$pkg" ]; then
-                    fps_show
-                    auto_fps_visible=1
+                    if fps_show; then auto_fps_visible=1; else auto_fps_visible=0; fi
                 fi
             elif [ "$auto_fps_visible" = 1 ]; then
                 fps_hide
@@ -168,13 +166,17 @@ run_daemon() {
             last_pkg="$pkg"
         else
             if manual_metrics; then
-                if [ "$auto_metrics_visible" != 1 ]; then metrics_show; auto_metrics_visible=1; fi
+                if [ "$auto_metrics_visible" != 1 ]; then
+                    if metrics_show; then auto_metrics_visible=1; else auto_metrics_visible=0; fi
+                fi
             elif [ "$auto_metrics_visible" = 1 ]; then
                 metrics_hide
                 auto_metrics_visible=0
             fi
             if manual_fps; then
-                if [ "$auto_fps_visible" != 1 ]; then fps_show; auto_fps_visible=1; fi
+                if [ "$auto_fps_visible" != 1 ]; then
+                    if fps_show; then auto_fps_visible=1; else auto_fps_visible=0; fi
+                fi
             elif [ "$auto_fps_visible" = 1 ]; then
                 fps_hide
                 auto_fps_visible=0
