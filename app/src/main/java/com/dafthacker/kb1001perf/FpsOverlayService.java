@@ -277,6 +277,10 @@ public final class FpsOverlayService extends Service {
                     "FPS Counter",
                     NotificationManager.IMPORTANCE_LOW);
             c.setDescription("Minimal in-game FPS counter.");
+            c.setSound(null,null);
+            c.enableVibration(false);
+            c.enableLights(false);
+            c.setShowBadge(false);
             ((NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(c);
         }
     }
