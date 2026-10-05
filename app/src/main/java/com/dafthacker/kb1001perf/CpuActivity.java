@@ -321,14 +321,12 @@ public class CpuActivity extends Activity {
         Button target=cpuModeButtons.get(modeKey);
         if(target!=null)target.setText("REQUESTED…");
         if(modeValue!=null)modeValue.setText(friendly+" • requested");
-        if(requestValue!=null)requestValue.setText("REQUESTED");
 
         handler.postDelayed(()->{
             if(modeKey.equals(pendingCpuMode)){
                 Button b=cpuModeButtons.get(modeKey);
                 if(b!=null)b.setText("SWITCHING…");
                 if(modeValue!=null)modeValue.setText(friendly+" • switching");
-                if(requestValue!=null)requestValue.setText("SWITCHING");
             }
         },140);
 
@@ -345,13 +343,11 @@ public class CpuActivity extends Activity {
                     pendingCpuMode=null;
                     updateCpuButtons(modeKey);
                     if(modeValue!=null)modeValue.setText(friendlyMode(modeKey));
-                    if(requestValue!=null)requestValue.setText("ACTIVE");
                 }else{
                     pendingCpuMode=null;
                     confirmedCpuMode=null;
                     confirmedTelemetryMatches=0;
                     updateCpuButtons(TelemetryStore.get(TelemetryStore.read(this),"cpu_mode","stock"));
-                    if(requestValue!=null)requestValue.setText("ERROR");
                     Toast.makeText(this,"CPU profile request failed",Toast.LENGTH_LONG).show();
                 }
                 handler.postDelayed(this::refresh,350);
@@ -448,7 +444,6 @@ public class CpuActivity extends Activity {
         overallValue.setText(overall+"%");
         if(pendingCpuMode==null){
             modeValue.setText(friendlyMode(cpuMode));
-            if(requestValue!=null)requestValue.setText("ACTIVE");
         }
         primeValue.setText("Prime A73 • "+primeUtil+"% • "+primeClock+" MHz");
         if(governorValue!=null){
