@@ -147,7 +147,10 @@ public final class FpsOverlayService extends Service {
         AppStateCache.setManualFps(this,false);
         AppStateCache.notifyManualOverlayState(this,"fps",false);
         Thread t=new Thread(
-                ()->RootBridge.get().ctl("overlay fps-manual-off"),
+                ()->{
+                    RootBridge.get().ctl("overlay fps-manual-off");
+                    RootBridge.get().ctl("overlay fps-hide");
+                },
                 "KB1001-fps-close");
         t.setDaemon(true);
         t.start();
