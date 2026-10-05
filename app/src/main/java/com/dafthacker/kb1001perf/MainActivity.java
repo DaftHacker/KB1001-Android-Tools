@@ -37,6 +37,7 @@ public class MainActivity extends Activity {
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final ExecutorService scanIo = Executors.newSingleThreadExecutor();
+    private final ExecutorService updateIo = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private LinearLayout page;
@@ -937,10 +938,8 @@ public class MainActivity extends Activity {
 
                 if (autoBoostSwitch != null) autoBoostSwitch.setChecked(AppStateCache.autoBoost(this));
                 if (loggingSwitch != null) loggingSwitch.setChecked(AppStateCache.fileLogging(this));
-                boolean metricsRunning=OverlayService.isRunning() ||
-                        isOwnServiceRunning(OverlayService.class);
-                boolean fpsRunning=FpsOverlayService.isRunning() ||
-                        isOwnServiceRunning(FpsOverlayService.class);
+                boolean metricsRunning=OverlayService.isRunning();
+                boolean fpsRunning=FpsOverlayService.isRunning();
 
                 getSharedPreferences("hud",MODE_PRIVATE).edit()
                         .putBoolean("runtime_running",metricsRunning).apply();
@@ -962,19 +961,6 @@ public class MainActivity extends Activity {
                 suppressSwitchCallbacks = false;
             });
         });
-    }
-
-    private boolean isOwnServiceRunning(Class<?> serviceClass) {
-        ActivityManager am=(ActivityManager)getSystemService(ACTIVITY_SERVICE);
-        if(am==null)return false;
-        try{
-            for(ActivityManager.RunningServiceInfo info:am.getRunningServices(Integer.MAX_VALUE)){
-                if(info.service!=null && serviceClass.getName().equals(info.service.getClassName())){
-                    return true;
-                }
-            }
-        }catch(Exception ignored){}
-        return false;
     }
 
     private Map<String,String> parseStatus(String out) {
@@ -1163,7 +1149,7 @@ public class MainActivity extends Activity {
     }
 
     private void checkForUpdate(boolean quiet) {
-        io.execute(() -> {
+        updateIo.execute(() -> {
             try {
                 UpdateManager.ReleaseInfo info=UpdateManager.check(this);
                 releaseInfo=info;
@@ -1214,7 +1200,7 @@ public class MainActivity extends Activity {
         progress.setCancelable(false);
         progress.show();
 
-        io.execute(() -> {
+        updateIo.execute(() -> {
             try {
                 File apk=UpdateManager.download(this,info.app,null);
 
@@ -1526,6 +1512,7 @@ public class MainActivity extends Activity {
     @Override protected void onDestroy() {
         io.shutdownNow();
         scanIo.shutdownNow();
+        updateIo.shutdownNow();
         super.onDestroy();
     }
 
