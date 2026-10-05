@@ -71,7 +71,20 @@ public final class FpsOverlayService extends Service {
 
         wm=(WindowManager)getSystemService(WINDOW_SERVICE);
         createOverlay();
-        startSampler();
+
+        // The overlay can be launched directly by the root game hook without
+        // MainActivity ever running after an APK update. Always verify/deploy
+        // the bundled backend before executing the root sampler.
+        reader.execute(()->{
+            RootBridge.Result ready=BackendManager.ensureInstalled(this);
+            if(!ready.ok()){
+                handler.post(()->{
+                    if(fpsText!=null)fpsText.setText("Current FPS: —\nBackend update failed");
+                });
+                return;
+            }
+            handler.post(this::startSampler);
+        });
     }
 
     @Override public int onStartCommand(Intent intent,int flags,int startId){
