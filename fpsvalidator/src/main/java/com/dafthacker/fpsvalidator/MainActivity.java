@@ -5,6 +5,12 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
+import android.content.ContentValues;
+import android.net.Uri;
+
+import java.io.FileInputStream;
+import java.io.OutputStream;
 import android.view.Gravity;
 import android.view.Surface;
 import android.view.SurfaceHolder;
@@ -33,6 +39,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     private TextView logPath;
     private boolean rendering;
     private boolean autoStarted;
+    private File activeCsv;
 
     private native boolean nativeStart(Surface surface,String csvPath,int mode,float targetFps);
     private native void nativeStop();
@@ -52,7 +59,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
                 if(!nativeIsRunning()){
                     rendering=false;
-                    progress.setText("Validation complete. Both CSV logs are ready for comparison.");
+                    publishToDownloads(activeCsv,"KB1001-FPS-Validator.csv","text/csv");
+                    progress.setText("Validation complete. Latest truth log replaced in Downloads.");
                 }
             }
             handler.postDelayed(this,250);
@@ -123,8 +131,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
 
-        String stamp=new SimpleDateFormat("yyyyMMdd-HHmmss",Locale.US).format(new Date());
-        File csv=new File(dir,"validator-"+stamp+"-automatic.csv");
+        File csv=new File(dir,"validator-latest-automatic.csv");
+        activeCsv=csv;
 
         rendering=nativeStart(surface,csv.getAbsolutePath(),MODE_AUTO,0f);
         if(rendering){
@@ -133,6 +141,37 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         }else{
             status.setText("Native renderer failed to start.");
         }
+    }
+
+
+    private void publishToDownloads(File source,String name,String mime){
+        if(source==null||!source.isFile())return;
+        try{
+            android.content.ContentResolver cr=getContentResolver();
+            android.net.Uri collection=MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+            cr.delete(collection,
+                    MediaStore.MediaColumns.DISPLAY_NAME+"=? AND "+
+                            MediaStore.MediaColumns.RELATIVE_PATH+"=?",
+                    new String[]{name,"Download/"});
+
+            ContentValues values=new ContentValues();
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME,name);
+            values.put(MediaStore.MediaColumns.MIME_TYPE,mime);
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH,"Download/");
+            values.put(MediaStore.MediaColumns.IS_PENDING,1);
+            Uri uri=cr.insert(collection,values);
+            if(uri==null)return;
+            try(FileInputStream in=new FileInputStream(source);
+                OutputStream out=cr.openOutputStream(uri,"w")){
+                if(out==null)return;
+                byte[] buf=new byte[65536];
+                int n;
+                while((n=in.read(buf))>0)out.write(buf,0,n);
+            }
+            values.clear();
+            values.put(MediaStore.MediaColumns.IS_PENDING,0);
+            cr.update(uri,values,null,null);
+        }catch(Exception ignored){}
     }
 
     private void stopSession(){
