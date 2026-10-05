@@ -31,6 +31,7 @@ public final class BackendManager {
             "game_boost.sh",
             "perf_logger.sh",
             "fps_sampler.sh",
+            "renderer_recon.sh",
             "cpu_control.sh",
             "profile_switch.sh",
             "kb1001ctl"
