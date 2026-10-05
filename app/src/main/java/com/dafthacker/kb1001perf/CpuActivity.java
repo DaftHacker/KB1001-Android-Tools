@@ -33,7 +33,7 @@ public class CpuActivity extends Activity {
     private TextView modeValue;
     private TextView governorValue;
     private TextView primeModeValue;
-    private TextView requestValue;
+    private TextView defaultModeValue;
     private TextView vfValue;
     private TextView ocStage1Value;
     private TextView ocStage2Value;
@@ -47,6 +47,7 @@ public class CpuActivity extends Activity {
     private boolean ocLoaded;
     private String pendingCpuMode;
     private String confirmedCpuMode;
+    private int confirmedTelemetryMatches;
     private final Map<String,Button> cpuModeButtons=new LinkedHashMap<>();
     private final Map<String,String> cpuModeButtonLabels=new LinkedHashMap<>();
 
@@ -220,7 +221,7 @@ public class CpuActivity extends Activity {
         info.setOrientation(LinearLayout.HORIZONTAL);
         governorValue=miniStat(info,"GOVERNOR","—");
         primeModeValue=miniStat(info,"PRIME","—");
-        requestValue=miniStat(info,"STATUS","ACTIVE");
+        defaultModeValue=miniStat(info,"DEFAULT","—");
         card.addView(info);
         return card;
     }
@@ -340,6 +341,7 @@ public class CpuActivity extends Activity {
             runOnUiThread(()->{
                 if(applied){
                     confirmedCpuMode=modeKey;
+                    confirmedTelemetryMatches=0;
                     pendingCpuMode=null;
                     updateCpuButtons(modeKey);
                     if(modeValue!=null)modeValue.setText(friendlyMode(modeKey));
@@ -347,6 +349,7 @@ public class CpuActivity extends Activity {
                 }else{
                     pendingCpuMode=null;
                     confirmedCpuMode=null;
+                    confirmedTelemetryMatches=0;
                     updateCpuButtons(TelemetryStore.get(TelemetryStore.read(this),"cpu_mode","stock"));
                     if(requestValue!=null)requestValue.setText("ERROR");
                     Toast.makeText(this,"CPU profile request failed",Toast.LENGTH_LONG).show();
@@ -423,10 +426,19 @@ public class CpuActivity extends Activity {
         Map<String,String> cooling=parseDelimited(TelemetryStore.get(telemetry,"cooling_devices",""));
 
         String telemetryCpuMode=TelemetryStore.get(telemetry,"cpu_mode","stock");
-        if(confirmedCpuMode!=null && confirmedCpuMode.equals(telemetryCpuMode)){
-            confirmedCpuMode=null;
+        if(confirmedCpuMode!=null){
+            if(confirmedCpuMode.equals(telemetryCpuMode)){
+                confirmedTelemetryMatches++;
+                if(confirmedTelemetryMatches>=2){
+                    confirmedCpuMode=null;
+                    confirmedTelemetryMatches=0;
+                }
+            }else{
+                confirmedTelemetryMatches=0;
+            }
         }
-        String cpuMode=confirmedCpuMode!=null?confirmedCpuMode:telemetryCpuMode;
+        String cpuMode=pendingCpuMode!=null?pendingCpuMode:
+                (confirmedCpuMode!=null?confirmedCpuMode:telemetryCpuMode);
         updateCpuButtons(cpuMode);
 
         PolicyState primePolicy=policies.get("policy4");
@@ -445,6 +457,9 @@ public class CpuActivity extends Activity {
         }
         if(primeModeValue!=null){
             primeModeValue.setText(primePolicy==null?"—":primePolicy.governor+" • "+primeClock);
+        }
+        if(defaultModeValue!=null){
+            defaultModeValue.setText(friendlyMode(cpuMode));
         }
         overallGraph.addValue(overall);
 
