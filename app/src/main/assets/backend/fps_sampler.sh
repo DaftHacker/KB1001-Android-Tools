@@ -525,7 +525,7 @@ fps_recon(){
   echo
   echo "=== graphics services ==="
   service list 2>/dev/null | grep -Ei 'surface|display|gpu|graphic|render|game|perf' || true
-  echo "SurfaceFlinger: $(service check SurfaceFlinger 2>&1)"
+  service check SurfaceFlinger 2>&1
   echo
   echo "=== graphics processes ==="
   ps -A 2>/dev/null | grep -Ei 'surfaceflinger|composer|gpu|gralloc|render' || true
@@ -533,34 +533,14 @@ fps_recon(){
   echo "=== graphics libraries ==="
   for d in /system/lib64 /vendor/lib64 /system_ext/lib64; do
    [ -d "$d" ] || continue
-   ls "$d" 2>/dev/null | grep -Ei '^(libEGL|libGLES|libvulkan|libgui|libbinder|libsurface|libgraphics|libgralloc|libhwui|libperfetto).*\.so
- out="$1"
- [ -n "$out" ] || out="/data/local/tmp/kb1001_fps_validator_snapshot.txt"
- {
-  echo "boottime_ms=$(monotonic_ms)"
-  echo "date=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
-  echo "backend_version=$(cat /data/local/kb1001perf/backend.version 2>/dev/null)"
-  if command -v sha256sum >/dev/null 2>&1; then
-   echo "fps_sampler_sha256=$(sha256sum "$0" 2>/dev/null | awk '{print $1}')"
-  fi
-  diagnose
- } > "$out" 2>&1
- echo "$out"
-}
-
-case "$1" in
- stream) stream "$2" ;;
- diagnose) diagnose ;;
- validator-snapshot) validator_snapshot "$2" ;;
- recon) fps_recon "$2" "$3" ;;
- *) exit 2 ;;
-esac
- | sed "s#^#$d/#"
+   ls "$d" 2>/dev/null | grep -Ei '^(libEGL|libGLES|libvulkan|libgui|libbinder|libsurface|libgraphics|libgralloc|libhwui|libperfetto).*\.so$' | sed "s#^#$d/#"
   done
   echo
   echo "=== trace facilities ==="
   for x in /sys/kernel/tracing /sys/kernel/debug/tracing; do
-   echo "$x trace=$([ -r "$x/trace" ] && echo readable || echo no) events=$([ -r "$x/available_events" ] && echo readable || echo no)"
+   if [ -r "$x/trace" ]; then trace_state=readable; else trace_state=no; fi
+   if [ -r "$x/available_events" ]; then event_state=readable; else event_state=no; fi
+   echo "$x trace=$trace_state events=$event_state"
    [ -r "$x/available_events" ] && grep -Ei 'gpu|mali|surface|fence|sync|binder' "$x/available_events" | head -n 120
   done
   echo
@@ -619,5 +599,6 @@ case "$1" in
  stream) stream "$2" ;;
  diagnose) diagnose ;;
  validator-snapshot) validator_snapshot "$2" ;;
+ recon) fps_recon "$2" "$3" ;;
  *) exit 2 ;;
 esac
