@@ -278,10 +278,27 @@ public class MainActivity extends Activity {
 
     private void loadGamesInline() {
         if (gamesContainer == null) return;
-        gamesContainer.removeAllViews();
-        TextView loading = text("Loading game library…",12,MUTED,false);
-        loading.setPadding(dp(4),dp(18),0,dp(18));
-        gamesContainer.addView(loading);
+
+        AppStateCache.GameSnapshot cached=AppStateCache.gameSnapshot(this);
+        if(cached.loaded){
+            selectedGames.clear();
+            selectedGames.addAll(cached.games);
+            metricsEnabledGames.clear();
+            metricsEnabledGames.addAll(cached.metricsGames);
+            fpsEnabledGames.clear();
+            fpsEnabledGames.addAll(cached.fpsGames);
+            renderGamesInline();
+        }else{
+            gamesContainer.removeAllViews();
+            TextView loading = text("Loading game library…",12,MUTED,false);
+            loading.setPadding(dp(4),dp(18),0,dp(18));
+            gamesContainer.addView(loading);
+        }
+
+        if(AppStateCache.gamesFresh(this,2000)){
+            ensureLauncherMetadataAsync();
+            return;
+        }
 
         io.execute(() -> {
             RootBridge.Result snapshot=RootBridge.get().ctl("game snapshot");
@@ -296,16 +313,22 @@ public class MainActivity extends Activity {
                     else if(line.startsWith("metrics=")) metricsEnabledGames.add(line.substring(8));
                     else if(line.startsWith("fps=")) fpsEnabledGames.add(line.substring(4));
                 }
+                AppStateCache.updateGameSnapshot(
+                        this,selectedGames,metricsEnabledGames,fpsEnabledGames);
             }
 
             runOnUiThread(this::renderGamesInline);
+            ensureLauncherMetadataAsync();
+        });
+    }
 
-            if(launcherApps.isEmpty()){
-                scanIo.execute(() -> {
-                    scanLauncherApps();
-                    runOnUiThread(this::renderGamesInline);
-                });
-            }
+    private void ensureLauncherMetadataAsync(){
+        if(!launcherApps.isEmpty())return;
+        scanIo.execute(() -> {
+            scanLauncherApps();
+            runOnUiThread(() -> {
+                if(gamesContainer!=null)renderGamesInline();
+            });
         });
     }
 
@@ -434,6 +457,7 @@ public class MainActivity extends Activity {
             if(verified){
                 Set<String> set="metrics".equals(type)?metricsEnabledGames:fpsEnabledGames;
                 if(enabled)set.add(pkg); else set.remove(pkg);
+                AppStateCache.setGameOverlay(this,pkg,type,enabled);
             }
 
             runOnUiThread(() -> {
@@ -453,6 +477,7 @@ public class MainActivity extends Activity {
     private void removeGame(String pkg,boolean autoDetected) {
         io.execute(() -> {
             RootBridge.get().ctl("game remove " + pkg);
+            AppStateCache.removeGame(this,pkg);
             if (autoDetected) {
                 SharedPreferences prefs = getSharedPreferences("game_library",MODE_PRIVATE);
                 Set<String> ignored = new LinkedHashSet<>(prefs.getStringSet("ignored_games",Collections.emptySet()));
