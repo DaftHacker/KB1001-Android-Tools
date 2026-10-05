@@ -178,6 +178,7 @@ public class ThermalActivity extends Activity {
         card.addView(row);
 
         Button apply=button("APPLY",accent,v->{});
+        apply.setEnabled(false);
         LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(44));
         ap.setMargins(0,dp(8),0,0);
         card.addView(apply,ap);
@@ -211,8 +212,8 @@ public class ThermalActivity extends Activity {
             RootBridge.Result r=RootBridge.get().ctl("thermal set "+control.command+" "+control.current);
             if(r.ok())RootBridge.get().ctl("logger refresh");
             runOnUiThread(()->{
-                control.apply.setEnabled(true);
                 control.apply.setText("APPLY");
+                if(r.ok()) control.dirty=false;
                 if(!r.ok()){
                     Toast.makeText(this,
                             r.exitCode==2?"Requested thermal value violates the safe UI bounds or trip ordering.":"Thermal write failed.",
@@ -232,6 +233,13 @@ public class ThermalActivity extends Activity {
                     RootBridge.Result r=RootBridge.get().ctl("thermal restore");
                     if(r.ok())RootBridge.get().ctl("logger refresh");
                     runOnUiThread(()->{
+                        if(r.ok()){
+                            cpuTarget.dirty=false;
+                            cpuThrottle.dirty=false;
+                            gpuTarget.dirty=false;
+                            gpuThrottle.dirty=false;
+                            idleThrottle.dirty=false;
+                        }
                         Toast.makeText(this,r.ok()?"Stock thermal policy restored.":"Thermal restore failed.",Toast.LENGTH_LONG).show();
                         refreshStatus();
                     });
@@ -435,6 +443,7 @@ public class ThermalActivity extends Activity {
         final Button minus,plus,apply;
         int current;
         int loaded;
+        boolean dirty;
 
         ThermalControl(String command,int min,int max,TextView value,Button minus,Button plus,Button apply){
             this.command=command;
@@ -449,13 +458,14 @@ public class ThermalActivity extends Activity {
         void load(int c){
             if(c<=0)return;
             loaded=c;
-            current=c;
+            if(!dirty) current=c;
             render();
         }
 
         void step(int delta){
             if(current<=0)return;
             current=Math.max(min,Math.min(max,current+delta));
+            dirty=current!=loaded;
             render();
         }
 
