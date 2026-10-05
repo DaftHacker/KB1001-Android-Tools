@@ -35,6 +35,9 @@ public final class FpsOverlayService extends Service {
     private long lastTapUp;
     private int displayedFps=Integer.MIN_VALUE;
     private int displayedAverageFps=Integer.MIN_VALUE;
+    private final java.util.ArrayDeque<Integer> averageSamples=new java.util.ArrayDeque<>();
+    private long averageSum;
+    private static final int AVERAGE_WINDOW_SAMPLES=10;
 
     public static boolean isRunning(){return running;}
 
@@ -230,7 +233,12 @@ public final class FpsOverlayService extends Service {
                     while((line=in.readLine())!=null && running){
                         int[] parsed=parseFps(line);
                         final int fps=parsed[0];
-                        final int avg=parsed[1];
+
+                        if(fps<0)continue;
+
+                        final int avg=parsed[1]>=0
+                                ? parsed[1]
+                                : addAverageSample(fps);
 
                         if(fps==displayedFps && avg==displayedAverageFps)continue;
                         displayedFps=fps;
@@ -238,11 +246,9 @@ public final class FpsOverlayService extends Service {
 
                         handler.post(()->{
                             if(fpsText==null)return;
-                            String currentText=fps>=0?Integer.toString(fps):"—";
-                            String averageText=avg>=0?Integer.toString(avg):"—";
                             fpsText.setText(
-                                    "Current FPS: "+currentText+
-                                            "\nAverage FPS: "+averageText);
+                                    "Current FPS: "+fps+
+                                            "\nAverage FPS: "+avg);
                         });
                     }
                 }catch(Exception ignored){
@@ -273,6 +279,17 @@ public final class FpsOverlayService extends Service {
             }catch(Exception ignored){}
         }
         return out;
+    }
+
+    private int addAverageSample(int fps){
+        averageSamples.addLast(fps);
+        averageSum+=fps;
+        while(averageSamples.size()>AVERAGE_WINDOW_SAMPLES){
+            averageSum-=averageSamples.removeFirst();
+        }
+        return averageSamples.isEmpty()
+                ? fps
+                : Math.round((float)averageSum/averageSamples.size());
     }
 
     private int dp(int value){
