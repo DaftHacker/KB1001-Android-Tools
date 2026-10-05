@@ -80,7 +80,7 @@ public final class FpsOverlayService extends Service {
             RootBridge.Result ready=BackendManager.ensureInstalled(this);
             if(!ready.ok()){
                 handler.post(()->{
-                    if(fpsText!=null)fpsText.setText("Current FPS: —\nBackend update failed");
+                    if(fpsText!=null)fpsText.setText("FPS: —\nBackend update failed");
                 });
                 return;
             }
@@ -106,7 +106,7 @@ public final class FpsOverlayService extends Service {
         int textColor=prefs.getInt("color",Color.WHITE);
 
         fpsText=new TextView(this);
-        fpsText.setText("Current FPS: —\nAverage FPS: —");
+        fpsText.setText("FPS: —");
         fpsText.setTextColor(textColor);
         fpsText.setTextSize(18f*scale);
         fpsText.setShadowLayer(3f,0f,0f,Color.BLACK);
@@ -312,10 +312,7 @@ public final class FpsOverlayService extends Service {
 
                         handler.post(()->{
                             if(fpsText==null)return;
-                            String averageText=avg>=0?Integer.toString(avg):"—";
-                            fpsText.setText(
-                                    "Current FPS: "+fps+
-                                            "\nAverage FPS ("+formatWindow(windowMs)+"): "+averageText);
+                            fpsText.setText("FPS: "+fps);
                         });
                     }
                 }catch(Exception ignored){
