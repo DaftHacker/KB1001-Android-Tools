@@ -781,7 +781,7 @@ public class MainActivity extends Activity {
         samplingTitle.setPadding(0,dp(9),0,dp(2));
         card.addView(samplingTitle);
 
-        int savedPoll=Math.max(100,Math.min(1000,prefs.getInt("poll_ms",250)));
+        int savedPoll=Math.max(50,Math.min(1000,prefs.getInt("poll_ms",50)));
         LinearLayout pollHead=row();
         TextView pollHint=text("How often the compositor is sampled. Lower is faster but uses more CPU.",9,MUTED,false);
         TextView pollValue=text(savedPoll+" ms",11,CPU_COLOR,true);
@@ -791,17 +791,17 @@ public class MainActivity extends Activity {
         card.addView(pollHead);
 
         SeekBar pollSeek=new SeekBar(this);
-        pollSeek.setMax(18); // 100..1000 ms in 50 ms steps.
-        pollSeek.setProgress((savedPoll-100)/50);
+        pollSeek.setMax(19); // 50..1000 ms in 50 ms steps.
+        pollSeek.setProgress((savedPoll-50)/50);
         pollSeek.setPadding(0,dp(3),0,dp(2));
         pollSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             @Override public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
-                int ms=100+progress*50;
+                int ms=50+progress*50;
                 pollValue.setText(ms+" ms");
             }
             @Override public void onStartTrackingTouch(SeekBar bar){}
             @Override public void onStopTrackingTouch(SeekBar bar){
-                int ms=100+bar.getProgress()*50;
+                int ms=50+bar.getProgress()*50;
                 prefs.edit().putInt("poll_ms",ms).apply();
                 refreshFpsSamplingIfRunning();
             }
