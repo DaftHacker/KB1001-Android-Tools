@@ -607,6 +607,7 @@ public class GpuActivity extends Activity {
 
     @Override protected void onResume(){
         super.onResume();
+        DisplaySleepPolicy.apply(this,false);
         TelemetryDemand.activityResumed();
         active=true;
         handler.removeCallbacks(ticker);
