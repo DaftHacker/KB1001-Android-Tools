@@ -545,6 +545,10 @@ validator_snapshot(){
  {
   echo "boottime_ms=$(monotonic_ms)"
   echo "date=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
+  echo "backend_version=$(cat /data/local/kb1001perf/backend.version 2>/dev/null)"
+  if command -v sha256sum >/dev/null 2>&1; then
+   echo "fps_sampler_sha256=$(sha256sum "$0" 2>/dev/null | awk '{print $1}')"
+  fi
   diagnose
  } > "$out" 2>&1
  echo "$out"
