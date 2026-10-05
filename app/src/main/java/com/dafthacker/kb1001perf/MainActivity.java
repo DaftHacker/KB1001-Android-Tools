@@ -666,17 +666,24 @@ public class MainActivity extends Activity {
         displaySleep.setTextSize(13);
         page.addView(card(displaySleep),full());
 
-        section("SOFTWARE","Current version: "+BuildConfig.VERSION_NAME);
+        section("SOFTWARE","");
+
+        LinearLayout softwareStatus=row();
+        TextView currentVersion=text(
+                "Current version: "+BuildConfig.VERSION_NAME,
+                10,MUTED,false);
+        softwareStatus.addView(currentVersion,new LinearLayout.LayoutParams(0,-2,1));
+
+        backendHealthValue=text("Backend: Checking…",10,MUTED,false);
+        backendHealthValue.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+        softwareStatus.addView(backendHealthValue,new LinearLayout.LayoutParams(0,-2,1));
+        page.addView(softwareStatus,full());
 
         Button check=button("Check for Update",true,v -> checkForUpdate(false));
         check.setTextSize(14);
         check.setTextColor(Color.rgb(6,28,12));
         check.setBackground(tabBackground(CPU_COLOR,true));
         page.addView(card(check),full());
-
-        backendHealthValue=text("Backend: Checking…",10,MUTED,false);
-        backendHealthValue.setPadding(dp(2),dp(4),0,0);
-        page.addView(backendHealthValue);
 
         refreshBackendHealth();
     }
@@ -1392,9 +1399,11 @@ public class MainActivity extends Activity {
         t.setPadding(dp(2),dp(17),0,dp(2));
         page.addView(t);
 
-        TextView s = text(subtitle,11,MUTED,false);
-        s.setPadding(dp(2),0,0,dp(7));
-        page.addView(s);
+        if(subtitle!=null && !subtitle.isEmpty()){
+            TextView s = text(subtitle,11,MUTED,false);
+            s.setPadding(dp(2),0,0,dp(7));
+            page.addView(s);
+        }
     }
 
     private LinearLayout card(View child) {
