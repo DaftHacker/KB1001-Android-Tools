@@ -62,7 +62,14 @@ surface_fps(){
  layer="$1"
  previous="$2"
 
- dumpsys SurfaceFlinger --latency "$layer" 2>/dev/null | awk -v previous="$previous" '
+ # SurfaceFlinger presentation timestamps use a monotonic clock. /proc/uptime
+ # gives us the same kind of continuously increasing time base, so we can
+ # detect a stall even when the latency history itself has not changed.
+ now_ns="$(awk '{printf "%.0f", $1*1000000000.0}' /proc/uptime 2>/dev/null)"
+ case "$now_ns" in ''|*[!0-9]*) now_ns=0;; esac
+
+ dumpsys SurfaceFlinger --latency "$layer" 2>/dev/null | awk \
+  -v previous="$previous" -v now="$now_ns" '
   NR==1 { next }
   NF>=3 && $2 ~ /^[0-9]+$/ && $2>0 && $2<9000000000000000000 { t[++n]=$2 }
   END {
@@ -70,26 +77,62 @@ surface_fps(){
 
    last=t[n]
 
-   # History can remain unchanged between fast polls. Preserve a valid source
-   # and report 0 new FPS rather than treating the layer as missing.
-   if(previous!="" && previous!="0" && last==previous){print "0|" last;exit}
+   # If no new frame has presented, do not keep an old high FPS value alive.
+   # Convert time-since-last-present into an instantaneous upper bound instead.
+   if(previous!="" && previous!="0" && last==previous){
+    age=now-last
+    if(now>0 && age>0){
+     fps=int((1000000000.0/age)+0.5)
+     if(fps<0)fps=0
+     if(fps>240)fps=240
+     print fps "|" last
+    }else{
+     print "0|" last
+    }
+    exit
+   }
 
-   # A short rolling window reacts much more like a desktop FPS overlay.
-   # ~300 ms is responsive enough to show rapid changes without turning
-   # individual frame jitter into an unreadable counter.
-   start=n-1
-   while(start>1 && (last-t[start-1])<=300000000) start--
+   # Favor the newest frame intervals so a sudden collapse from e.g. 30 FPS
+   # to 9 FPS becomes visible after the first few slow frames rather than
+   # waiting for a long rolling average to drain.
+   first=n-4
+   if(first<1)first=1
 
-   frames=n-start
-   span=last-t[start]
-   if(span<=0 || frames<=0){print "0|" last;exit}
+   weighted=0
+   weights=0
+   w=1
+   for(i=first+1;i<=n;i++){
+    dt=t[i]-t[i-1]
+    if(dt<=0)continue
 
-   fps=int((frames*1000000000.0/span)+0.5)
+    inst=1000000000.0/dt
+    if(inst<0)inst=0
+    if(inst>240)inst=240
+
+    # Recent intervals receive progressively larger weight.
+    weighted+=inst*w
+    weights+=w
+    w++
+   }
+
+   if(weights<=0){print "0|" last;exit}
+
+   fps=int((weighted/weights)+0.5)
+
+   # A long gap since the most recent present should pull the estimate down
+   # immediately even before another frame arrives.
+   age=now-last
+   if(now>0 && age>0){
+    bound=1000000000.0/age
+    if(bound<fps)fps=int(bound+0.5)
+   }
+
    if(fps<0)fps=0
    if(fps>240)fps=240
    print fps "|" last
   }'
 }
+
 
 query_layer(){
  current_layer="$1"
@@ -285,13 +328,9 @@ stream(){
     bad_layer_count=$((bad_layer_count+1))
    else
     bad_layer_count=0
-    if [ "$fps" -gt 0 ] 2>/dev/null; then
+    if [ "$fps" -ge 0 ] 2>/dev/null; then
      last_good_fps="$fps"
      hold_ticks=0
-    elif [ "$last_good_fps" -ge 0 ] 2>/dev/null && [ "$hold_ticks" -lt 3 ]; then
-     # Avoid flashing 0 between normal frame-history refreshes.
-     fps="$last_good_fps"
-     hold_ticks=$((hold_ticks+1))
     fi
    fi
 
