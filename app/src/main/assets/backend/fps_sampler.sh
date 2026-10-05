@@ -97,11 +97,11 @@ surface_fps(){
   NR==1 { next }
   NF>=3 {
    v=0
-   # Prefer actual-present time; use completed timestamp only as a vendor
-   # fallback when actual-present is unavailable.
-   if($2 ~ /^[0-9]+$/ && $2>0 && $2<9000000000000000000)v=$2
-   else if($3 ~ /^[0-9]+$/ && $3>0 && $3<9000000000000000000)v=$3
-   if(v>0)t[++n]=v
+   if($2 ~ /^[0-9]+$/ && $2>0 && $2<9223372036854775807)v=$2
+   else if($3 ~ /^[0-9]+$/ && $3>0 && $3<9223372036854775807)v=$3
+   if(v>0){
+    if(n==0 || v!=t[n]) t[++n]=v
+   }
   }
   END {
    if(n<2){print "-1|0";exit}
@@ -109,11 +109,9 @@ surface_fps(){
    last=t[n]
    prior=t[n-1]
    dt=last-prior
+   if(dt<=0){print "-1|" last;exit}
 
-   # Live FPS is the newest actual displayed-frame interval only.
-   # No moving average, smoothing, interpolation, or scaling.
-   if(dt<=0){print "0|" last;exit}
-
+   # Live counter: newest distinct completed presentation interval only.
    fps=int((1000000000.0/dt)+0.5)
    if(fps<0)fps=0
    if(fps>240)fps=240
@@ -148,6 +146,21 @@ query_layer(){
  fi
 
  printf '%s|%s|%s\n' "-1" "0" "$current_layer"
+}
+
+
+layer_frame_count(){
+ layer="$1"
+ base="$(printf '%s' "$layer" | sed 's/#[0-9][0-9]*$//')"
+ [ -n "$base" ] || { echo -1; return; }
+ dumpsys SurfaceFlinger 2>/dev/null | awk -v target="$base" '
+  index($0,target)>0 && $0 !~ /Background for/ && match($0,/frame=[0-9]+/) {
+   s=substr($0,RSTART,RLENGTH)
+   sub(/^frame=/,"",s)
+   print s
+   exit
+  }
+  END { if(NR==0) print -1 }'
 }
 
 frametimeline_fps(){
@@ -263,6 +276,8 @@ stream(){
  last_good_fps=-1
  hold_ticks=0
  no_present_since_ms=0
+ last_layer_frame_count=-1
+ last_sample_ms="$(monotonic_ms)"
 
  while true; do
   read_state_package
@@ -295,6 +310,8 @@ stream(){
    last_good_fps=-1
    hold_ticks=0
    no_present_since_ms=0
+   last_layer_frame_count=-1
+   last_sample_ms="$(monotonic_ms)"
   fi
 
   if [ -n "$pkg_cached" ] && [ -z "$layer" ]; then
@@ -326,6 +343,27 @@ stream(){
    fi
 
    case "$fps" in ''|*[!0-9-]*) fps=-1;; esac
+
+   current_count="$(layer_frame_count "$layer")"
+   case "$current_count" in ''|*[!0-9]*) current_count=-1;; esac
+   sample_elapsed_ms=0
+   if [ "$sample_now_ms" -gt 0 ] 2>/dev/null && [ "$last_sample_ms" -gt 0 ] 2>/dev/null; then
+    sample_elapsed_ms=$((sample_now_ms-last_sample_ms))
+   fi
+
+   counter_fps=-1
+   if [ "$current_count" -ge 0 ] 2>/dev/null && [ "$last_layer_frame_count" -ge 0 ] 2>/dev/null &&
+      [ "$sample_elapsed_ms" -gt 0 ] 2>/dev/null; then
+    delta_frames=$((current_count-last_layer_frame_count))
+    [ "$delta_frames" -lt 0 ] && delta_frames=0
+    counter_fps=$(((delta_frames*1000 + sample_elapsed_ms/2)/sample_elapsed_ms))
+   fi
+   [ "$current_count" -ge 0 ] 2>/dev/null && last_layer_frame_count="$current_count"
+   [ "$sample_now_ms" -gt 0 ] 2>/dev/null && last_sample_ms="$sample_now_ms"
+
+   if [ "$fps" -lt 0 ] 2>/dev/null && [ "$counter_fps" -ge 0 ] 2>/dev/null; then
+    fps="$counter_fps"
+   fi
 
    if [ "$fps" -lt 0 ] 2>/dev/null; then
     bad_layer_count=$((bad_layer_count+1))
