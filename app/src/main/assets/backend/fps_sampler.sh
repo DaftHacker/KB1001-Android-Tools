@@ -512,19 +512,12 @@ EOF
   fi
 
   if [ "$fps" -le 0 ] 2>/dev/null; then
-   # One or two missed cycles are resolution noise, not 0 FPS. Preserve the
-   # last real value. Only a sustained lack of new foreground presents becomes
-   # a visible zero.
-   # Stall threshold is time-based so changing poll rate does not alter semantics.
-   stall_samples=$(((1000 + poll_ms - 1)/poll_ms))
-   [ "$stall_samples" -lt 2 ] 2>/dev/null && stall_samples=2
-
-   if [ "$last_good_fps" -gt 0 ] 2>/dev/null && [ "$miss_streak" -lt "$stall_samples" ] 2>/dev/null; then
+   # An absent or unchanged TimeStats counter is not proof of a stalled
+   # game: SurfaceFlinger may expose its data late or intermittently.
+   # Never manufacture a zero from an unsuccessful measurement.
+   if [ "$last_good_fps" -gt 0 ] 2>/dev/null; then
     fps="$last_good_fps"
     sample_kind="hold"
-   elif [ "$last_good_fps" -gt 0 ] 2>/dev/null && [ "$miss_streak" -ge "$stall_samples" ] 2>/dev/null; then
-    fps=0
-    sample_kind="stall"
    else
     fps=-1
     sample_kind="unresolved"
