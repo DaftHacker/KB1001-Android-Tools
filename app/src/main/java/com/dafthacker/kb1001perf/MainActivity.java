@@ -1163,10 +1163,8 @@ public class MainActivity extends Activity {
                 if(!appNew){
                     if(!quiet)runOnUiThread(() ->
                             new AlertDialog.Builder(this)
-                                    .setTitle("You're up to date")
-                                    .setMessage(
-                                            "App "+BuildConfig.VERSION_NAME+
-                                                    " is current. The privileged backend is bundled with the APK.")
+                                    .setTitle("You're already up to date!")
+                                    .setMessage("Current version: "+BuildConfig.VERSION_NAME)
                                     .setPositiveButton("OK",null)
                                     .show());
                     return;
