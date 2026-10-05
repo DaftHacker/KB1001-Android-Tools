@@ -42,6 +42,8 @@ public final class StressTestActivity extends Activity {
     private TextView stateValue;
     private TextView renderFpsValue;
     private TextView workersValue;
+    private TextView limitValue;
+    private TextView limitDetail;
     private Button testButton;
     private final Button[] modeButtons=new Button[3];
     private final Button[] durationButtons=new Button[3];
@@ -175,6 +177,17 @@ public final class StressTestActivity extends Activity {
         content.addView(cpuMetric.root,full());
         content.addView(gpuMetric.root,full());
         content.addView(tempMetric.root,full());
+
+        LinearLayout limitCard=new LinearLayout(this);
+        limitCard.setOrientation(LinearLayout.VERTICAL);
+        limitCard.setPadding(dp(13),dp(11),dp(13),dp(11));
+        limitCard.setBackground(cardBg(COMBINED,58));
+        limitValue=text("PERFORMANCE LIMIT • READY",15,COMBINED,true);
+        limitDetail=text("Start the test to identify CPU, GPU, thermal, or system limits.",10,MUTED,false);
+        limitDetail.setPadding(0,dp(3),0,0);
+        limitCard.addView(limitValue);
+        limitCard.addView(limitDetail);
+        content.addView(limitCard,full());
 
         gpuStress=new GpuStressView(this);
         gpuStress.setFpsListener(fps->renderFps=fps);
@@ -347,6 +360,7 @@ public final class StressTestActivity extends Activity {
             cpuMetric.set(cpuUtil+"% • "+cpu.current+" MHz",cpuUtil);
             gpuMetric.set(gpuUtil+"% • "+gpu+" MHz",gpuUtil);
             tempMetric.set(String.format(Locale.US,"%.1f °C%s",temp,throttling?" • THROTTLING":""),tempPct);
+            updatePerformanceLimit(m,cpuUtil,gpuUtil,temp,throttling);
 
             float scoreScale="cpu".equals(mode)?4000f:("gpu".equals(mode)?1500f:2500f);
             float gaugePct=Math.max(0f,Math.min(100f,displayedScore*100f/scoreScale));
@@ -429,12 +443,87 @@ public final class StressTestActivity extends Activity {
         }
     }
 
+    private void updatePerformanceLimit(
+            Map<String,String> telemetry,
+            int cpuUtil,
+            int gpuUtil,
+            float temp,
+            boolean throttling){
+        if(limitValue==null||limitDetail==null)return;
+
+        String coreUtil=TelemetryStore.get(telemetry,"cpu_core_util","");
+        int primeUtil=coreUtilValue(coreUtil,4);
+        int fps=Math.round(renderFps);
+
+        String label;
+        String detail;
+        int color;
+
+        if(throttling){
+            label="THERMAL LIMITED";
+            detail=String.format(Locale.US,
+                    "Kernel thermal throttling is active • %.1f °C • CPU %d%% • GPU %d%%",
+                    temp,cpuUtil,gpuUtil);
+            color=TEMP;
+        }else if(primeUtil>=90 && gpuUtil<85){
+            label="PRIME CPU LIMITED";
+            detail="A73 CPU4 "+primeUtil+"% • total CPU "+cpuUtil+"% • GPU "+gpuUtil+"%"+
+                    (fps>0?" • "+fps+" FPS":"");
+            color=CPU;
+        }else if(cpuUtil>=88 && gpuUtil<85){
+            label="CPU LIMITED";
+            detail="CPU "+cpuUtil+"% • GPU "+gpuUtil+"% • GPU still has headroom"+
+                    (fps>0?" • "+fps+" FPS":"");
+            color=CPU;
+        }else if(gpuUtil>=90 && cpuUtil<90){
+            label="GPU LIMITED";
+            detail="GPU "+gpuUtil+"% • CPU "+cpuUtil+"% • A73 "+primeUtil+"%"+
+                    (fps>0?" • "+fps+" FPS":"");
+            color=GPU;
+        }else if(cpuUtil>=88 && gpuUtil>=88){
+            label="SYSTEM SATURATED";
+            detail="CPU and GPU are both heavily loaded"+(fps>0?" • "+fps+" FPS":"");
+            color=COMBINED;
+        }else{
+            label="HEADROOM";
+            detail="CPU "+cpuUtil+"% • A73 "+primeUtil+"% • GPU "+gpuUtil+"%"+
+                    String.format(Locale.US," • %.1f °C",temp);
+            color=Color.rgb(77,210,126);
+        }
+
+        limitValue.setText("PERFORMANCE LIMIT • "+label);
+        limitValue.setTextColor(color);
+        limitDetail.setText(detail);
+    }
+
+    private int coreUtilValue(String raw,int core){
+        if(raw==null)return 0;
+        String key="cpu"+core+":";
+        for(String item:raw.split(";")){
+            if(!item.startsWith(key))continue;
+            try{
+                return Math.max(0,Math.min(100,
+                        Integer.parseInt(item.substring(key.length()).trim())));
+            }catch(Exception ignored){
+                return 0;
+            }
+        }
+        return 0;
+    }
+
     private void updateIdleState(){
         timerValue.setText(formatTime(durationSeconds*1000L));
         stateValue.setText("READY");
         renderFpsValue.setText("Render FPS —");
         workersValue.setText("Thermal cutoff "+(int)THERMAL_STOP_C+"°C");
         gauge.setGauge(0,"—","BENCH SCORE");
+        if(limitValue!=null){
+            limitValue.setText("PERFORMANCE LIMIT • READY");
+            limitValue.setTextColor(COMBINED);
+        }
+        if(limitDetail!=null){
+            limitDetail.setText("Start the test to identify CPU, GPU, thermal, or system limits.");
+        }
         if(testButton!=null){
             testButton.setText("Start Test");
             testButton.setTextColor(TEXT);
