@@ -28,8 +28,12 @@ metrics_games="$STATE_DIR/metrics_enabled.list"
 fps_games="$STATE_DIR/fps_enabled.list"
 metrics_overlay_enabled=0
 fps_overlay_enabled=0
+manual_metrics_enabled=0
+manual_fps_enabled=0
 grep -q '[^[:space:]#]' "$metrics_games" 2>/dev/null && metrics_overlay_enabled=1
 grep -q '[^[:space:]#]' "$fps_games" 2>/dev/null && fps_overlay_enabled=1
+[ "$(cat "$STATE_DIR/manual_metrics_overlay" 2>/dev/null)" = 1 ] && manual_metrics_enabled=1
+[ "$(cat "$STATE_DIR/manual_fps_overlay" 2>/dev/null)" = 1 ] && manual_fps_enabled=1
 if [ "$enabled" = 1 ]; then
     idle="$(grep -m1 '^idle_profile=' "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
     case "$idle" in stock|dynamic744|performance744) profile="$idle";; esac
@@ -40,7 +44,11 @@ while [ $tries -lt 900 ]; do
     apply_profile "$profile" 2
     rc=$?
     if [ $rc -eq 0 ]; then
-        if [ "$enabled" = 1 ] || [ "$metrics_overlay_enabled" = 1 ] || [ "$fps_overlay_enabled" = 1 ]; then
+        if [ "$enabled" = 1 ] ||
+           [ "$metrics_overlay_enabled" = 1 ] ||
+           [ "$fps_overlay_enabled" = 1 ] ||
+           [ "$manual_metrics_enabled" = 1 ] ||
+           [ "$manual_fps_enabled" = 1 ]; then
             nohup sh "$MODDIR/game_boost.sh" --daemon >/dev/null 2>&1 &
         fi
         exit 0
