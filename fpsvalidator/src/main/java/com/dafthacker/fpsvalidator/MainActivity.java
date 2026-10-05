@@ -1,7 +1,10 @@
 package com.dafthacker.fpsvalidator;
 
 import android.app.Activity;
+import android.content.ComponentName;
+import android.content.Intent;
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -11,7 +14,6 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.WindowManager;
 import android.widget.Button;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -25,173 +27,193 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         System.loadLibrary("fpsvalidator");
     }
 
-    private static final int MODE_FIXED = 0;
-    private static final int MODE_SWEEP = 1;
-    private static final int MODE_STEP = 2;
-    private static final int MODE_JITTER = 3;
-    private static final int MODE_STALL = 4;
+    private static final int MODE_AUTO = 5;
+    private static final String PERF_PACKAGE="com.dafthacker.kb1001perf";
+    private static final String PERF_FPS_SERVICE="com.dafthacker.kb1001perf.FpsOverlayService";
 
-    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Handler handler=new Handler(Looper.getMainLooper());
     private SurfaceView surfaceView;
     private Surface surface;
     private TextView status;
+    private TextView progress;
     private TextView logPath;
     private boolean rendering;
+    private boolean autoStarted;
+    private boolean monitorRequested;
 
-    private native boolean nativeStart(Surface surface, String csvPath, int mode, float targetFps);
+    private native boolean nativeStart(Surface surface,String csvPath,int mode,float targetFps);
     private native void nativeStop();
     private native String nativeStatus();
+    private native boolean nativeIsRunning();
 
-    private final Runnable statusTicker = new Runnable() {
-        @Override public void run() {
-            if (rendering) {
-                String s = nativeStatus();
-                if (s != null && !s.isEmpty()) status.setText(s);
+    private final Runnable statusTicker=new Runnable(){
+        @Override public void run(){
+            if(rendering){
+                String s=nativeStatus();
+                if(s!=null&&!s.isEmpty()){
+                    status.setText(s);
+                    progress.setText(
+                            "Automatic suite: warm-up → fixed 10/15/20/24/30/40/45/50/60 FPS → "+
+                            "sweep → step transitions → jitter → deliberate stalls");
+                }
+
+                if(!nativeIsRunning()){
+                    rendering=false;
+                    stopPerformanceMonitorValidation();
+                    progress.setText("Validation complete. Both CSV logs are ready for comparison.");
+                }
             }
-            handler.postDelayed(this, 250);
+            handler.postDelayed(this,250);
         }
     };
 
-    @Override protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    @Override protected void onCreate(Bundle state){
+        super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        LinearLayout root = new LinearLayout(this);
+        LinearLayout root=new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(14), dp(10), dp(14), dp(10));
-        root.setBackgroundColor(Color.rgb(8, 13, 18));
+        root.setPadding(dp(14),dp(10),dp(14),dp(10));
+        root.setBackgroundColor(Color.rgb(8,13,18));
 
-        TextView title = text("KB1001 GPU / FPS Validation Harness", 20, Color.WHITE, true);
-        root.addView(title);
+        root.addView(text("KB1001 GPU / FPS Validation Harness",20,Color.WHITE,true));
 
-        TextView help = text(
-                "Native OpenGL ES workload with independent per-frame timing. " +
-                        "Use fixed rates or controlled patterns, then compare this CSV against Performance Manager.",
-                11, Color.rgb(170, 185, 200), false);
-        help.setPadding(0, dp(3), 0, dp(8));
+        TextView help=text(
+                "One-launch validation. The app automatically starts Performance Manager's normal FPS "+
+                        "overlay/logger, runs the complete native OpenGL ES timing suite, then stops the "+
+                        "validation session. The validator never sends expected FPS values to the monitor.",
+                11,Color.rgb(170,185,200),false);
+        help.setPadding(0,dp(3),0,dp(8));
         root.addView(help);
 
-        surfaceView = new SurfaceView(this);
+        surfaceView=new SurfaceView(this);
         surfaceView.getHolder().addCallback(this);
-        root.addView(surfaceView, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(surfaceView,new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,0,1f));
 
-        status = text("Surface initializing…", 15, Color.rgb(105, 235, 170), true);
-        status.setPadding(0, dp(7), 0, dp(4));
+        status=text("Surface initializing…",15,Color.rgb(105,235,170),true);
+        status.setPadding(0,dp(7),0,dp(3));
         root.addView(status);
 
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.setGravity(Gravity.CENTER_VERTICAL);
+        progress=text("The full validation suite will start automatically.",10,
+                Color.rgb(175,190,205),false);
+        root.addView(progress);
 
-        int[] fixed = {10, 15, 20, 24, 30, 40, 45, 50, 60};
-        for (int fps : fixed) {
-            buttons.addView(modeButton(fps + " FPS", () -> startSession(MODE_FIXED, fps)));
-        }
-        buttons.addView(modeButton("Sweep", () -> startSession(MODE_SWEEP, 0)));
-        buttons.addView(modeButton("Step", () -> startSession(MODE_STEP, 0)));
-        buttons.addView(modeButton("Jitter", () -> startSession(MODE_JITTER, 60)));
-        buttons.addView(modeButton("Stalls", () -> startSession(MODE_STALL, 60)));
-        buttons.addView(modeButton("Stop", this::stopSession));
+        Button restart=new Button(this);
+        restart.setText("Restart Full Validation");
+        restart.setAllCaps(false);
+        restart.setOnClickListener(v->startAutomaticSuite());
+        LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,dp(48));
+        rp.setMargins(0,dp(6),0,0);
+        root.addView(restart,rp);
 
-        scroll.addView(buttons);
-        root.addView(scroll, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)));
-
-        logPath = text("No session log yet.", 10, Color.rgb(160, 175, 190), false);
-        logPath.setPadding(0, dp(4), 0, 0);
+        logPath=text("No session log yet.",9,Color.rgb(150,165,180),false);
+        logPath.setPadding(0,dp(4),0,0);
+        logPath.setTextIsSelectable(true);
         root.addView(logPath);
 
         setContentView(root);
         handler.post(statusTicker);
     }
 
-    private Button modeButton(String label, Runnable action) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setAllCaps(false);
-        b.setTextSize(11);
-        b.setOnClickListener(v -> action.run());
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(92), dp(46));
-        lp.setMargins(dp(2), dp(2), dp(2), dp(2));
-        b.setLayoutParams(lp);
-        return b;
-    }
-
-    private void startSession(int mode, float targetFps) {
-        if (surface == null || !surface.isValid()) {
+    private void startAutomaticSuite(){
+        if(surface==null||!surface.isValid()){
             status.setText("Surface is not ready.");
             return;
         }
 
         stopSession();
 
-        File dir = new File(getExternalFilesDir(null), "fps-validation");
-        if (!dir.exists() && !dir.mkdirs()) {
+        File dir=new File(getExternalFilesDir(null),"fps-validation");
+        if(!dir.exists()&&!dir.mkdirs()){
             status.setText("Could not create validation log directory.");
             return;
         }
 
-        String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
-        String modeName = modeName(mode, targetFps);
-        File csv = new File(dir, "validator-" + stamp + "-" + modeName + ".csv");
+        String stamp=new SimpleDateFormat("yyyyMMdd-HHmmss",Locale.US).format(new Date());
+        File csv=new File(dir,"validator-"+stamp+"-automatic.csv");
 
-        rendering = nativeStart(surface, csv.getAbsolutePath(), mode, targetFps);
-        if (rendering) {
-            logPath.setText("Truth log: " + csv.getAbsolutePath());
-        } else {
+        startPerformanceMonitorValidation();
+
+        rendering=nativeStart(surface,csv.getAbsolutePath(),MODE_AUTO,0f);
+        if(rendering){
+            logPath.setText("Truth log: "+csv.getAbsolutePath());
+            progress.setText("Automatic suite starting…");
+        }else{
+            stopPerformanceMonitorValidation();
             status.setText("Native renderer failed to start.");
         }
     }
 
-    private void stopSession() {
-        if (rendering) nativeStop();
-        rendering = false;
-    }
-
-    private String modeName(int mode, float targetFps) {
-        switch (mode) {
-            case MODE_SWEEP: return "sweep";
-            case MODE_STEP: return "step";
-            case MODE_JITTER: return "jitter";
-            case MODE_STALL: return "stalls";
-            default: return "fixed-" + Math.round(targetFps);
+    private void startPerformanceMonitorValidation(){
+        try{
+            Intent i=new Intent();
+            i.setComponent(new ComponentName(PERF_PACKAGE,PERF_FPS_SERVICE));
+            i.setAction("kb1001.validation.start");
+            if(Build.VERSION.SDK_INT>=26)startForegroundService(i);
+            else startService(i);
+            monitorRequested=true;
+        }catch(Exception e){
+            monitorRequested=false;
+            status.setText("Performance Manager FPS service could not be started automatically.");
         }
     }
 
-    @Override public void surfaceCreated(SurfaceHolder holder) {
-        surface = holder.getSurface();
-        status.setText("Ready. Select a validation pattern.");
+    private void stopPerformanceMonitorValidation(){
+        if(!monitorRequested)return;
+        monitorRequested=false;
+        try{
+            Intent i=new Intent();
+            i.setComponent(new ComponentName(PERF_PACKAGE,PERF_FPS_SERVICE));
+            i.setAction("kb1001.validation.stop");
+            if(Build.VERSION.SDK_INT>=26)startForegroundService(i);
+            else startService(i);
+        }catch(Exception ignored){}
     }
 
-    @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-        surface = holder.getSurface();
+    private void stopSession(){
+        if(rendering)nativeStop();
+        rendering=false;
+        stopPerformanceMonitorValidation();
     }
 
-    @Override public void surfaceDestroyed(SurfaceHolder holder) {
+    @Override public void surfaceCreated(SurfaceHolder holder){
+        surface=holder.getSurface();
+        status.setText("Ready.");
+        if(!autoStarted){
+            autoStarted=true;
+            // Give the window/compositor a short moment to settle before the truth run begins.
+            handler.postDelayed(this::startAutomaticSuite,750);
+        }
+    }
+
+    @Override public void surfaceChanged(SurfaceHolder holder,int format,int width,int height){
+        surface=holder.getSurface();
+    }
+
+    @Override public void surfaceDestroyed(SurfaceHolder holder){
         stopSession();
-        surface = null;
+        surface=null;
         status.setText("Surface destroyed.");
     }
 
-    @Override protected void onDestroy() {
+    @Override protected void onDestroy(){
         stopSession();
         handler.removeCallbacks(statusTicker);
         super.onDestroy();
     }
 
-    private TextView text(String value, int sp, int color, boolean bold) {
-        TextView v = new TextView(this);
+    private TextView text(String value,int sp,int color,boolean bold){
+        TextView v=new TextView(this);
         v.setText(value);
         v.setTextSize(sp);
         v.setTextColor(color);
-        if (bold) v.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+        if(bold)v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
         return v;
     }
 
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+    private int dp(int value){
+        return Math.round(value*getResources().getDisplayMetrics().density);
     }
 }
