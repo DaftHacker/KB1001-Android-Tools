@@ -159,26 +159,27 @@ candidate_layers(){
  [ -n "$target" ] || return
 
  layers="$(dumpsys SurfaceFlinger --list 2>/dev/null)"
- matches="$(printf '%s\n' "$layers" |
-  grep -F "$target" |
-  grep -Ev 'ActivityRecord|InputSink|Background for|Bounds for|Dim layer|Snapshot|Transition|leash|Task=')"
+ short="${target##*.}"
 
- if [ -z "$matches" ]; then
-  short="${target##*.}"
-  if [ "${#short}" -ge 4 ]; then
-   matches="$(printf '%s\n' "$layers" |
-    grep -Fi "$short" |
-    grep -Ev 'ActivityRecord|InputSink|Background for|Bounds for|Dim layer|Snapshot|Transition|leash|Task=')"
-  fi
- fi
+ # Preserve the exact SurfaceFlinger layer string. --latency takes a layer
+ # name, and normalizing RequestedLayerState/Layer wrappers can make a valid
+ # Android 15 layer impossible to query.
+ printf '%s\n' "$layers" | awk -v target="$target" -v short="$short" '
+  function lower(s){return tolower(s)}
+  {
+   raw=$0
+   sub(/^[ \t]+/,"",raw)
+   sub(/[ \t]+$/,"",raw)
+   if(raw=="")next
 
- while IFS= read -r raw; do
-  [ -n "$raw" ] || continue
-  clean_sf_layer "$raw"
-  printf '\n'
- done <<EOF | awk 'NF && !seen[$0]++'
-$matches
-EOF
+   l=lower(raw)
+   t=lower(target)
+   s=lower(short)
+   if(index(l,t)==0 && (length(s)<4 || index(l,s)==0))next
+
+   if(l ~ /activityrecord|inputsink|background for|bounds for|dim layer|snapshot|transition|leash|task=/)next
+   if(!seen[raw]++)print raw
+  }'
 }
 
 layer_cycle_fps(){
@@ -234,7 +235,7 @@ stream(){
 
  foreground_every=$(((1000 + poll_ms - 1)/poll_ms))
  candidate_every=$(((1500 + poll_ms - 1)/poll_ms))
- fallback_every=$(((500 + poll_ms - 1)/poll_ms))
+ fallback_every=$(((1500 + poll_ms - 1)/poll_ms))
  [ "$foreground_every" -lt 1 ] && foreground_every=1
  [ "$candidate_every" -lt 1 ] && candidate_every=1
  [ "$fallback_every" -lt 1 ] && fallback_every=1
@@ -250,6 +251,8 @@ stream(){
  miss_streak=0
 
  while true; do
+  cycle_start_ms="$(monotonic_ms)"
+  candidate_count=0
   read_state_package
   next_pkg="$pkg"
 
@@ -287,6 +290,7 @@ stream(){
     candidate_tick=0
    fi
 
+   candidate_count="$(printf '%s\n' "$candidates" | awk 'NF{n++}END{print n+0}')"
    : > "$cycle_state"
 
    while IFS= read -r candidate; do
@@ -395,13 +399,17 @@ EOF
    fi
   fi
 
+  cycle_end_ms="$(monotonic_ms)"
+  cycle_ms=$((cycle_end_ms-cycle_start_ms))
+  [ "$cycle_ms" -lt 0 ] 2>/dev/null && cycle_ms=0
+
   # Stream contract:
-  # fps|foreground_package|kind|selected_layer|new_frames
-  # selected_layer/new_frames describe the primary live SurfaceFlinger election.
-  # Fallback/hold/stall samples retain an empty/zero primary provenance when no
-  # live layer won this cycle.
-  printf '%s|%s|%s|%s|%s\n' \
-    "$fps" "$pkg_cached" "$sample_kind" "$best_layer" "$best_frames" || exit 0
+  # fps|package|kind|selected_layer|new_frames|candidate_count|cycle_ms
+  # candidate_count and cycle_ms make resolver failures and blocking dumpsys
+  # work directly observable in validation logs.
+  printf '%s|%s|%s|%s|%s|%s|%s\n' \
+    "$fps" "$pkg_cached" "$sample_kind" "$best_layer" "$best_frames" \
+    "$candidate_count" "$cycle_ms" || exit 0
   sleep_sec="$(awk -v ms="$poll_ms" 'BEGIN{printf "%.3f",ms/1000.0}')"
   sleep "$sleep_sec"
  done
