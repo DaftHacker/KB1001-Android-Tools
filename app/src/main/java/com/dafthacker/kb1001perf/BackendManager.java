@@ -6,6 +6,8 @@ import android.content.res.AssetManager;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Locale;
 
 public final class BackendManager {
     public static final String ROOT = "/data/local/kb1001perf";
@@ -19,7 +21,7 @@ public final class BackendManager {
     public static final String LEGACY_STATE =
             "/data/adb/kb1001_gpu_profiles";
 
-    private static final String VERSION_FILE = ROOT + "/backend.version";
+    public static final String VERSION_FILE = ROOT + "/backend.version";
     private static final String MIGRATION_MARKER = ROOT + "/.legacy_state_migrated";
     private static final String ROOT_BOOT_HOOK = "/data/adb/service.d/kb1001perf.sh";
 
@@ -36,6 +38,7 @@ public final class BackendManager {
 
     private static Context appContext;
     private static boolean processReady;
+    private static String processReadyStamp;
 
     private BackendManager() {}
 
@@ -49,7 +52,23 @@ public final class BackendManager {
 
     public static synchronized RootBridge.Result ensureInstalled(Context context) {
         initialize(context);
-        if (processReady) return new RootBridge.Result(0, "backend=ready");
+
+        String backendDigest;
+        try {
+            backendDigest = bundledBackendDigest(appContext);
+        } catch (Exception e) {
+            return new RootBridge.Result(
+                    -1,
+                    "Could not fingerprint bundled backend: " +
+                            e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+
+        String expectedVersion =
+                BuildConfig.VERSION_CODE + "|" + BuildConfig.VERSION_NAME + "|" + backendDigest;
+
+        if (processReady && expectedVersion.equals(processReadyStamp)) {
+            return new RootBridge.Result(0, "backend=ready\nversion=" + expectedVersion);
+        }
 
         RootBridge bridge = RootBridge.get();
         RootBridge.Result root = bridge.exec("id -u");
@@ -58,8 +77,6 @@ public final class BackendManager {
                     root.exitCode,
                     root.output.isEmpty() ? "Root access is required for the privileged backend." : root.output);
         }
-
-        String expectedVersion = BuildConfig.VERSION_CODE + "|" + BuildConfig.VERSION_NAME;
 
         RootBridge.Result prepare = bridge.exec(
                 "mkdir -p " + RootBridge.shellQuote(BACKEND_DIR) + " " +
@@ -95,7 +112,14 @@ public final class BackendManager {
                         " && test \"$(cat " + RootBridge.shellQuote(VERSION_FILE) +
                         " 2>/dev/null)\" = " + RootBridge.shellQuote(expectedVersion));
 
-        if (!current.ok()) {
+        boolean backendChanged = !current.ok();
+
+        if (backendChanged) {
+            // APK replacement does not guarantee that root-owned shell daemons die.
+            // Stop every app-owned backend process before replacing scripts so no
+            // old interpreter can continue executing a stale revision.
+            stopAppOwnedBackendProcesses(bridge);
+
             try {
                 AssetManager assets = appContext.getAssets();
                 for (String name : BACKEND_FILES) {
@@ -130,9 +154,9 @@ public final class BackendManager {
                         "touch " + RootBridge.shellQuote(LEGACY_MODULE + "/disable") + " " +
                         RootBridge.shellQuote(LEGACY_MODULE + "/remove") + "; fi");
 
-        // Old daemons and the app-owned daemons share legacy runtime PID filenames.
-        // If a migration happened this process, clear stale PID files before bootstrap.
-        if ("migrated".equals(migrated.output.trim())) {
+        // Clear runtime ownership markers whenever backend code changes.
+        // This prevents a surviving/stale PID file from blocking a new daemon.
+        if (backendChanged || "migrated".equals(migrated.output.trim())) {
             bridge.exec(
                     "rm -f /data/local/tmp/kb1001_game_boost.pid " +
                             "/data/local/tmp/kb1001_perf_logger.pid " +
@@ -145,8 +169,10 @@ public final class BackendManager {
         if (!boot.ok()) return boot;
 
         processReady = true;
+        processReadyStamp = expectedVersion;
         return new RootBridge.Result(0,
-                "backend=ready\nstate=" + migrated.output.trim());
+                "backend=ready\nstate=" + migrated.output.trim() +
+                        "\nversion=" + expectedVersion);
     }
 
     private static RootBridge.Result installRootBootHook(RootBridge bridge) {
@@ -208,7 +234,41 @@ public final class BackendManager {
                 "if [ -r " + RootBridge.shellQuote(CONTROLLER) + " ] && " +
                         "[ -x " + RootBridge.shellQuote(ROOT_BOOT_HOOK) + " ]; then " +
                         "echo 'ready|boot-hook'; " +
+                        "cat " + RootBridge.shellQuote(VERSION_FILE) + " 2>/dev/null; " +
                         "else echo 'missing'; exit 1; fi");
+    }
+
+    private static void stopAppOwnedBackendProcesses(RootBridge bridge) {
+        bridge.exec(
+                "for f in /data/local/tmp/kb1001_game_boost.pid " +
+                        "/data/local/tmp/kb1001_perf_logger.pid; do " +
+                        "p=\$(cat \"\$f\" 2>/dev/null); " +
+                        "case \"\$p\" in ''|*[!0-9]*) ;; *) kill \"\$p\" 2>/dev/null || true ;; esac; " +
+                        "done; " +
+                        "ps -A -o PID,ARGS 2>/dev/null | " +
+                        "grep " + RootBridge.shellQuote(BACKEND_DIR + "/") + " | " +
+                        "grep -E 'game_boost[.]sh|perf_logger[.]sh|fps_sampler[.]sh' | " +
+                        "grep -v grep | while read p rest; do " +
+                        "case \"\$p\" in ''|*[!0-9]*) ;; *) kill \"\$p\" 2>/dev/null || true ;; esac; " +
+                        "done");
+    }
+
+    private static String bundledBackendDigest(Context context) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        AssetManager assets = context.getAssets();
+        for (String name : BACKEND_FILES) {
+            digest.update(name.getBytes(StandardCharsets.UTF_8));
+            digest.update((byte)0);
+            byte[] data = readAll(assets.open("backend/" + name));
+            digest.update(data);
+            digest.update((byte)0);
+        }
+
+        StringBuilder out = new StringBuilder();
+        for (byte b : digest.digest()) {
+            out.append(String.format(Locale.US, "%02x", b));
+        }
+        return out.toString();
     }
 
     private static byte[] readAll(InputStream input) throws Exception {
