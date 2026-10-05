@@ -35,12 +35,16 @@ public class GpuActivity extends Activity {
     private volatile String pendingProfile;
     private volatile String pendingMode;
     private boolean active;
+    private long lastStatusRefresh;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         TelemetryStore.ensureSnapshot(this);
+        AppStateCache.initialize(this);
         setContentView(buildUi());
-        refreshStatus();
+        renderTelemetry();
+        applyCachedStatus();
+        refreshControlStatus();
     }
 
     private View buildUi() {
@@ -364,8 +368,8 @@ public class GpuActivity extends Activity {
                 if(!r.ok()){
                     Toast.makeText(this,"GPU profile request failed",Toast.LENGTH_LONG).show();
                 }
-                refreshStatus();
-                handler.postDelayed(this::refreshStatus,250);
+                refreshControlStatus();
+                handler.postDelayed(this::refreshControlStatus,250);
             });
         });
     }
@@ -382,9 +386,9 @@ public class GpuActivity extends Activity {
                 if(!r.ok()){
                     Toast.makeText(this,"GPU command failed",Toast.LENGTH_LONG).show();
                 }
-                refreshStatus();
-                handler.postDelayed(this::refreshStatus,250);
-                handler.postDelayed(this::refreshStatus,750);
+                refreshControlStatus();
+                handler.postDelayed(this::refreshControlStatus,250);
+                handler.postDelayed(this::refreshControlStatus,750);
             });
         });
     }
@@ -418,62 +422,88 @@ public class GpuActivity extends Activity {
                 "performance792".equals(profile);
     }
 
-    private void refreshStatus(){
+    private void applyCachedStatus(){
+        applyControlStatus(AppStateCache.statusSnapshot(this));
+    }
+
+    private void refreshControlStatus(){
+        lastStatusRefresh=SystemClock.elapsedRealtime();
         io.execute(() -> {
             RootBridge.Result r=RootBridge.get().ctl("status");
+            if(!r.ok())return;
             Map<String,String> status=parseStatus(r.output);
-            Map<String,String> telemetry=TelemetryStore.read(this);
-
-            runOnUiThread(() -> {
-                String persistent=status.get("Persistent profile");
-                String runtime=status.get("Runtime profile");
-                String requestState=status.get("Profile request state");
-                String requested=status.get("Requested profile");
-
-                if(runtime==null||runtime.isEmpty()) runtime=TelemetryStore.get(telemetry,"profile","—");
-
-                if(pendingProfile!=null){
-                    if(pendingProfile.equals(runtime) && !"waiting".equals(requestState) && !"applying".equals(requestState)){
-                        pendingProfile=null;
-                        pendingMode=null;
-                    }else if("error".equals(requestState) && pendingProfile.equals(requested)){
-                        pendingProfile=null;
-                        pendingMode=null;
-                    }
-                }
-
-                if(defaultValue!=null){
-                    if(pendingProfile!=null && "persist".equals(pendingMode)){
-                        defaultValue.setText(displayProfile(pendingProfile)+" • requested");
-                    }else{
-                        defaultValue.setText(displayProfile(persistent));
-                    }
-                }
-
-                if(gameValue!=null) gameValue.setText(displayProfile(status.get("Game profile")));
-                if(outsideValue!=null) outsideValue.setText(displayProfile(status.get("Idle profile")));
-
-                int mhz=parseInt(TelemetryStore.get(telemetry,"gpu_clock_mhz","0"));
-                int util=Math.max(0,Math.min(100,parseInt(TelemetryStore.get(telemetry,"gpu_util_pct","0"))));
-                if(clockValue!=null) clockValue.setText(util+"% • "+(mhz>0?mhz+" MHz":"— MHz"));
-                if(graph!=null) graph.addValue(util);
-                if(governorValue!=null) governorValue.setText(TelemetryStore.get(telemetry,"gpu_governor","—"));
-                if(dvfsValue!=null) dvfsValue.setText("0".equals(TelemetryStore.get(telemetry,"gpu_dvfs",""))?"Pinned":"Dynamic");
-                if(runtimeValue!=null){
-                    String uiTarget=pendingProfile;
-                    if(uiTarget==null && ("waiting".equals(requestState)||"applying".equals(requestState))){
-                        uiTarget=requested;
-                    }
-
-                    if(uiTarget!=null && !uiTarget.isEmpty() && !uiTarget.equals(runtime)){
-                        runtimeValue.setText(displayProfile(uiTarget)+
-                                ("waiting".equals(requestState) ? " • waiting for GPU idle" : " • switching"));
-                    }else{
-                        runtimeValue.setText(displayProfile(runtime));
-                    }
-                }
-            });
+            AppStateCache.updateStatus(this,status);
+            runOnUiThread(() -> applyControlStatus(status));
         });
+    }
+
+    private void applyControlStatus(Map<String,String> status){
+        if(status==null||status.isEmpty())return;
+
+        String persistent=status.get("Persistent profile");
+        String runtime=status.get("Runtime profile");
+        String requestState=status.get("Profile request state");
+        String requested=status.get("Requested profile");
+
+        if(runtime==null||runtime.isEmpty()){
+            runtime=TelemetryStore.get(TelemetryStore.read(this),"profile","—");
+        }
+
+        if(pendingProfile!=null){
+            if(pendingProfile.equals(runtime) &&
+                    !"waiting".equals(requestState) &&
+                    !"applying".equals(requestState)){
+                pendingProfile=null;
+                pendingMode=null;
+            }else if("error".equals(requestState) && pendingProfile.equals(requested)){
+                pendingProfile=null;
+                pendingMode=null;
+            }
+        }
+
+        if(defaultValue!=null){
+            if(pendingProfile!=null && "persist".equals(pendingMode)){
+                defaultValue.setText(displayProfile(pendingProfile)+" • requested");
+            }else{
+                defaultValue.setText(displayProfile(persistent));
+            }
+        }
+
+        if(gameValue!=null)gameValue.setText(displayProfile(status.get("Game profile")));
+        if(outsideValue!=null)outsideValue.setText(displayProfile(status.get("Idle profile")));
+
+        if(runtimeValue!=null){
+            String uiTarget=pendingProfile;
+            if(uiTarget==null && ("waiting".equals(requestState)||"applying".equals(requestState))){
+                uiTarget=requested;
+            }
+
+            if(uiTarget!=null && !uiTarget.isEmpty() && !uiTarget.equals(runtime)){
+                runtimeValue.setText(displayProfile(uiTarget)+
+                        ("waiting".equals(requestState) ? " • waiting for GPU idle" : " • switching"));
+            }else{
+                runtimeValue.setText(displayProfile(runtime));
+            }
+        }
+    }
+
+    private void renderTelemetry(){
+        Map<String,String> telemetry=TelemetryStore.read(this);
+        int mhz=parseInt(TelemetryStore.get(telemetry,"gpu_clock_mhz","0"));
+        int util=Math.max(0,Math.min(100,
+                parseInt(TelemetryStore.get(telemetry,"gpu_util_pct","0"))));
+
+        if(clockValue!=null)clockValue.setText(util+"% • "+(mhz>0?mhz+" MHz":"— MHz"));
+        if(graph!=null)graph.addValue(util);
+        if(governorValue!=null)governorValue.setText(
+                TelemetryStore.get(telemetry,"gpu_governor","—"));
+        if(dvfsValue!=null)dvfsValue.setText(
+                "0".equals(TelemetryStore.get(telemetry,"gpu_dvfs",""))?"Pinned":"Dynamic");
+
+        if(runtimeValue!=null && pendingProfile==null){
+            String profile=TelemetryStore.get(telemetry,"profile","—");
+            runtimeValue.setText(displayProfile(profile));
+        }
     }
 
     private Map<String,String> parseStatus(String out){
@@ -567,7 +597,10 @@ public class GpuActivity extends Activity {
     private final Runnable ticker=new Runnable(){
         @Override public void run(){
             if(!active)return;
-            refreshStatus();
+            renderTelemetry();
+            if(SystemClock.elapsedRealtime()-lastStatusRefresh>=5000){
+                refreshControlStatus();
+            }
             handler.postDelayed(this,1000);
         }
     };
