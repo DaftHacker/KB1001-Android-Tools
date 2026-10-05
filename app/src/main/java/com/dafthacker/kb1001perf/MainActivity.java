@@ -501,27 +501,37 @@ public class MainActivity extends Activity {
             gamesContainer.addView(scanning);
         }
 
-        io.execute(() -> {
-            Set<String> before=new LinkedHashSet<>(selectedGames);
+        Set<String> before=new LinkedHashSet<>(selectedGames);
+        scanIo.execute(() -> {
             launcherApps.clear();
             scanLauncherApps();
-            autoDetectGames();
 
-            RootBridge.Result snapshot=RootBridge.get().ctl("game snapshot");
-            Set<String> after=new LinkedHashSet<>();
-            if(snapshot.ok()){
-                for(String line:snapshot.output.split("\\R")){
-                    if(line.startsWith("game=")) after.add(line.substring(5));
+            io.execute(() -> {
+                autoDetectGames();
+
+                RootBridge.Result snapshot=RootBridge.get().ctl("game snapshot");
+                Set<String> after=new LinkedHashSet<>();
+                Set<String> metrics=new LinkedHashSet<>();
+                Set<String> fps=new LinkedHashSet<>();
+                if(snapshot.ok()){
+                    for(String line:snapshot.output.split("\\R")){
+                        if(line.startsWith("game=")) after.add(line.substring(5));
+                        else if(line.startsWith("metrics=")) metrics.add(line.substring(8));
+                        else if(line.startsWith("fps=")) fps.add(line.substring(4));
+                    }
+                    AppStateCache.updateGameSnapshot(this,after,metrics,fps);
                 }
-            }
-            after.removeAll(before);
-            int added=after.size();
 
-            runOnUiThread(() -> {
-                Toast.makeText(this,
-                        added>0 ? "Detected "+added+" new game"+(added==1?"":"s") : "Game scan complete",
-                        Toast.LENGTH_SHORT).show();
-                loadGamesInline();
+                Set<String> addedGames=new LinkedHashSet<>(after);
+                addedGames.removeAll(before);
+                int added=addedGames.size();
+
+                runOnUiThread(() -> {
+                    Toast.makeText(this,
+                            added>0 ? "Detected "+added+" new game"+(added==1?"":"s") : "Game scan complete",
+                            Toast.LENGTH_SHORT).show();
+                    loadGamesInline();
+                });
             });
         });
     }
