@@ -217,6 +217,16 @@ apply_profile() {
             fi
             return $rc
             ;;
+        performance696)
+            rm -f "$SESSION_EXTREME"
+            ensure_stock_table "$timeout" || return $?
+            [ -e "$SCENE" ] && echo 0 > "$SCENE" 2>>"$LOG"
+            echo 0 > "$DVFS" 2>>"$LOG" || return 1
+            echo 696 > "$FREQ" 2>>"$LOG" || return 1
+            echo performance696 > "$RUNTIME_PROFILE"
+            log "Applied Performance 696 profile (validated stock OPP pinned, vendor DVFS off)."
+            return 0
+            ;;
         dynamic744)
             rm -f "$SESSION_EXTREME"
             ensure_744_table "$timeout"
@@ -259,8 +269,8 @@ apply_profile() {
             return $?
             ;;
         *)
-            log "Unknown profile '$profile'; falling back to Dynamic 744."
-            apply_profile dynamic744 "$timeout"
+            log "Unknown profile '$profile'; falling back to validated Stock 696."
+            apply_profile stock "$timeout"
             ;;
     esac
 }
