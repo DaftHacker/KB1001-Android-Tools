@@ -390,21 +390,29 @@ stream(){
 
    if [ "$ts_frames" -ge 0 ] 2>/dev/null; then
     candidate_count=1
+
+    # The A523 SurfaceFlinger publishes averageFPS for the selected BLAST
+    # presentation layer. That is already a compositor-derived FPS value, so
+    # display it directly instead of estimating FPS from our polling interval.
+    ts_fps="$(awk -v v="$ts_avg" 'BEGIN{
+     if(v ~ /^[0-9]+([.][0-9]+)?$/ && v>0){
+      n=int(v+0.5); if(n>240)n=240; if(n<1)n=1; print n
+     }else print -1
+    }')"
+    if [ "$ts_fps" -gt 0 ] 2>/dev/null; then
+     fps="$ts_fps"
+     best_fps="$ts_fps"
+     best_layer="$ts_layer"
+     sample_kind="live"
+    fi
+
+    # Frame deltas remain diagnostic metadata only. TimeStats is published in
+    # batches on this vendor build, making poll-to-poll delta FPS misleading.
     if [ "$ts_last_frames" -ge 0 ] 2>/dev/null &&
        [ "$ts_frames" -ge "$ts_last_frames" ] 2>/dev/null &&
-       [ "$ts_last_ms" -gt 0 ] 2>/dev/null &&
        [ "$ts_layer" = "$ts_last_layer" ]; then
-     dt_ms=$((ts_now_ms-ts_last_ms))
      df=$((ts_frames-ts_last_frames))
-     if [ "$dt_ms" -gt 0 ] 2>/dev/null && [ "$df" -gt 0 ] 2>/dev/null; then
-      fps=$(((df*1000 + dt_ms/2)/dt_ms))
-      [ "$fps" -gt 240 ] 2>/dev/null && fps=240
-      [ "$fps" -lt 1 ] 2>/dev/null && fps=1
-      best_fps="$fps"
-      best_frames="$df"
-      best_layer="$ts_layer"
-      sample_kind="live"
-     fi
+     [ "$df" -gt 0 ] 2>/dev/null && best_frames="$df"
     fi
     ts_last_frames="$ts_frames"
     ts_last_ms="$ts_now_ms"
@@ -422,7 +430,8 @@ stream(){
    # Legacy compatibility is only a periodic rescue path after repeated
    # TimeStats misses. TimeStats is retried every cycle so a late BLAST layer
    # is adopted as soon as SurfaceFlinger starts reporting it.
-   if [ "$ts_miss_streak" -ge 3 ] 2>/dev/null &&
+   if [ "$fps" -le 0 ] 2>/dev/null &&
+      [ "$ts_miss_streak" -ge 3 ] 2>/dev/null &&
       [ $((ts_miss_streak%4)) -eq 0 ] 2>/dev/null; then
     candidate_tick=$((candidate_tick+1))
     if [ "$candidate_tick" -ge "$candidate_every" ] || [ -z "$candidates" ]; then
