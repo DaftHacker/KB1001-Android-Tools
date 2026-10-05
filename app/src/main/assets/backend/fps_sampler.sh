@@ -38,7 +38,18 @@ monotonic_ms(){
 }
 
 clean_sf_layer(){
- printf '%s' "$1" | sed   -e 's/^RequestedLayerState{//'   -e 's/ parentId=.*$//'   -e 's/ relativeParentId=.*$//'   -e 's/ z=.*$//'   -e 's/}$//'
+ raw="$(printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+ case "$raw" in
+  RequestedLayerState\{*)
+   printf '%s' "$raw" | sed     -e 's/^RequestedLayerState{//'     -e 's/ parentId=.*$//'     -e 's/ relativeParentId=.*$//'     -e 's/ z=.*$//'     -e 's/}$//'
+   ;;
+  Layer\ \[*)
+   printf '%s' "$raw" | sed 's/^Layer \[[^]]*\][[:space:]]*//'
+   ;;
+  *)
+   printf '%s' "$raw"
+   ;;
+ esac
 }
 
 discover_layer(){
@@ -271,8 +282,10 @@ stream(){
  layer=""
  last_present=0
  bad_layer_count=0
+ zero_fps_count=0
  discover_tick=0
  gfx_tick=0
+ frame_counter_tick=0
  last_good_fps=-1
  hold_ticks=0
  no_present_since_ms=0
@@ -307,6 +320,8 @@ stream(){
    layer=""
    last_present=0
    bad_layer_count=0
+   zero_fps_count=0
+   frame_counter_tick=0
    last_good_fps=-1
    hold_ticks=0
    no_present_since_ms=0
@@ -317,6 +332,8 @@ stream(){
   if [ -n "$pkg_cached" ] && [ -z "$layer" ]; then
    layer="$(discover_layer "$pkg_cached")"
    last_present=0
+   zero_fps_count=0
+   last_layer_frame_count=-1
   fi
 
   fps=-1
@@ -344,22 +361,35 @@ stream(){
 
    case "$fps" in ''|*[!0-9-]*) fps=-1;; esac
 
-   current_count="$(layer_frame_count "$layer")"
-   case "$current_count" in ''|*[!0-9]*) current_count=-1;; esac
-   sample_elapsed_ms=0
-   if [ "$sample_now_ms" -gt 0 ] 2>/dev/null && [ "$last_sample_ms" -gt 0 ] 2>/dev/null; then
-    sample_elapsed_ms=$((sample_now_ms-last_sample_ms))
-   fi
-
+   frame_counter_tick=$((frame_counter_tick+1))
    counter_fps=-1
-   if [ "$current_count" -ge 0 ] 2>/dev/null && [ "$last_layer_frame_count" -ge 0 ] 2>/dev/null &&
-      [ "$sample_elapsed_ms" -gt 0 ] 2>/dev/null; then
-    delta_frames=$((current_count-last_layer_frame_count))
-    [ "$delta_frames" -lt 0 ] && delta_frames=0
-    counter_fps=$(((delta_frames*1000 + sample_elapsed_ms/2)/sample_elapsed_ms))
+
+   # Full SurfaceFlinger dumps are expensive. Use the frame counter only as a
+   # slow fallback/cross-check, not on the 10 Hz latency fast path.
+   if [ "$fps" -lt 0 ] 2>/dev/null || [ "$zero_fps_count" -ge 2 ]; then
+    if [ "$frame_counter_tick" -ge 10 ]; then
+     current_count="$(layer_frame_count "$layer")"
+     case "$current_count" in ''|*[!0-9]*) current_count=-1;; esac
+
+     sample_elapsed_ms=0
+     if [ "$sample_now_ms" -gt 0 ] 2>/dev/null && [ "$last_sample_ms" -gt 0 ] 2>/dev/null; then
+      sample_elapsed_ms=$((sample_now_ms-last_sample_ms))
+     fi
+
+     if [ "$current_count" -ge 0 ] 2>/dev/null && [ "$last_layer_frame_count" -ge 0 ] 2>/dev/null &&
+        [ "$sample_elapsed_ms" -gt 0 ] 2>/dev/null; then
+      delta_frames=$((current_count-last_layer_frame_count))
+      [ "$delta_frames" -lt 0 ] && delta_frames=0
+      counter_fps=$(((delta_frames*1000 + sample_elapsed_ms/2)/sample_elapsed_ms))
+     fi
+
+     [ "$current_count" -ge 0 ] 2>/dev/null && last_layer_frame_count="$current_count"
+     [ "$sample_now_ms" -gt 0 ] 2>/dev/null && last_sample_ms="$sample_now_ms"
+     frame_counter_tick=0
+    fi
+   else
+    [ "$sample_now_ms" -gt 0 ] 2>/dev/null && last_sample_ms="$sample_now_ms"
    fi
-   [ "$current_count" -ge 0 ] 2>/dev/null && last_layer_frame_count="$current_count"
-   [ "$sample_now_ms" -gt 0 ] 2>/dev/null && last_sample_ms="$sample_now_ms"
 
    if [ "$fps" -lt 0 ] 2>/dev/null && [ "$counter_fps" -ge 0 ] 2>/dev/null; then
     fps="$counter_fps"
@@ -369,16 +399,24 @@ stream(){
     bad_layer_count=$((bad_layer_count+1))
    else
     bad_layer_count=0
-    if [ "$fps" -ge 0 ] 2>/dev/null; then
+    if [ "$fps" -eq 0 ] 2>/dev/null; then
+     zero_fps_count=$((zero_fps_count+1))
+    else
+     zero_fps_count=0
      last_good_fps="$fps"
      hold_ticks=0
     fi
    fi
 
-   if [ "$bad_layer_count" -ge 2 ]; then
+   # A valid-but-zero latency result often means the selected SurfaceFlinger
+   # layer is stale/inactive. Re-resolve it just like dedicated FPS tools do.
+   if [ "$bad_layer_count" -ge 2 ] || [ "$zero_fps_count" -ge 3 ]; then
     layer=""
     last_present=0
+    last_layer_frame_count=-1
     bad_layer_count=0
+    zero_fps_count=0
+    frame_counter_tick=0
    fi
   fi
 
