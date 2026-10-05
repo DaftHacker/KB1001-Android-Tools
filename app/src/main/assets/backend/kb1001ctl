@@ -49,6 +49,24 @@ EOC
  set_conf "$AUTO_CONF" overlay_auto 0
  set_conf "$AUTO_CONF" metrics_overlay_auto 0
  set_conf "$AUTO_CONF" fps_overlay_auto 0
+
+ current_profile="$(cat "$CONFIG" 2>/dev/null)"
+ case "$current_profile" in
+  stock|performance696) ;;
+  *) echo stock > "$CONFIG" ;;
+ esac
+
+ current_game_profile="$(get_conf "$AUTO_CONF" game_profile performance696)"
+ case "$current_game_profile" in
+  stock|performance696) ;;
+  *) set_conf "$AUTO_CONF" game_profile performance696 ;;
+ esac
+
+ current_idle_profile="$(get_conf "$AUTO_CONF" idle_profile stock)"
+ case "$current_idle_profile" in
+  stock|performance696) ;;
+  *) set_conf "$AUTO_CONF" idle_profile stock ;;
+ esac
 }
 
 set_conf(){ file="$1"; key="$2"; value="$3"; tmp="$file.tmp.$$"; grep -v "^${key}=" "$file" 2>/dev/null > "$tmp"; echo "${key}=${value}" >> "$tmp"; mv "$tmp" "$file"; }
