@@ -80,7 +80,7 @@ public class OverlayService extends Service {
         if(intent!=null&&intent.getAction()!=null){
             String action=intent.getAction();
             if("kb1001.stop_hud".equals(action)){
-                stopSelf();
+                closeManualOverlay();
                 return START_NOT_STICKY;
             }
             if("kb1001.refresh_metrics_appearance".equals(action)){
@@ -122,11 +122,7 @@ public class OverlayService extends Service {
         head.addView(fold);
 
         Button close=mini("×");
-        close.setOnClickListener(v->{
-            AppStateCache.setManualMetrics(this,false);
-            io.execute(()->RootBridge.get().ctl("overlay metrics-manual-off"));
-            stopSelf();
-        });
+        close.setOnClickListener(v->closeManualOverlay());
         head.addView(close);
 
         overlay.addView(head);
@@ -342,6 +338,12 @@ public class OverlayService extends Service {
         bg.setCornerRadius(dp(18));
         bg.setStroke(dp(1),Color.argb(125,Color.red(accent),Color.green(accent),Color.blue(accent)));
         return bg;
+    }
+
+    private void closeManualOverlay(){
+        AppStateCache.setManualMetrics(this,false);
+        io.execute(()->RootBridge.get().ctl("overlay metrics-manual-off"));
+        stopSelf();
     }
 
     private void ctl(String command){
