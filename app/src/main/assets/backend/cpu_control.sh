@@ -84,6 +84,66 @@ balanced(){
  return $rc
 }
 
+policy_path(){
+ name="$1"
+ case "$name" in policy[0-9]*) ;; *) return 1;; esac
+ p="/sys/devices/system/cpu/cpufreq/$name"
+ [ -d "$p" ] || return 1
+ echo "$p"
+}
+
+policy_set(){
+ name="$1"; field="$2"; value="$3"
+ save_stock || return 1
+ p="$(policy_path "$name")" || return 2
+
+ case "$field" in
+  min|max)
+   case "$value" in ''|*[!0-9]*) return 2;; esac
+   policy_has_freq "$p" "$value" || return 2
+   cur_min="$(cat "$p/scaling_min_freq" 2>/dev/null)"
+   cur_max="$(cat "$p/scaling_max_freq" 2>/dev/null)"
+   case "$cur_min:$cur_max" in *[!0-9:]*|'':*) return 1;; esac
+
+   if [ "$field" = min ]; then
+    [ "$value" -le "$cur_max" ] 2>/dev/null || return 2
+    node="$p/scaling_min_freq"
+   else
+    [ "$value" -ge "$cur_min" ] 2>/dev/null || return 2
+    node="$p/scaling_max_freq"
+   fi
+
+   old="$(cat "$node" 2>/dev/null)"
+   echo "$value" > "$node" 2>/dev/null || return 1
+   actual="$(cat "$node" 2>/dev/null)"
+   if [ "$actual" != "$value" ]; then
+    echo "$old" > "$node" 2>/dev/null
+    return 1
+   fi
+   ;;
+  governor)
+   grep -qw "$value" "$p/scaling_available_governors" 2>/dev/null || return 2
+   node="$p/scaling_governor"
+   old="$(cat "$node" 2>/dev/null)"
+   echo "$value" > "$node" 2>/dev/null || return 1
+   actual="$(cat "$node" 2>/dev/null)"
+   if [ "$actual" != "$value" ]; then
+    echo "$old" > "$node" 2>/dev/null
+    return 1
+   fi
+   ;;
+  *) return 2 ;;
+ esac
+
+ echo custom > "$CPU_MODE"
+ echo "state=applied"
+ echo "mode=custom"
+ echo "policy=$name"
+ echo "field=$field"
+ echo "value=$value"
+ return 0
+}
+
 policy_has_freq(){
  policy="$1"
  wanted="$2"
@@ -139,7 +199,8 @@ case "$1" in
  status) status ;;
  balanced) balanced ;;
  performance) performance ;;
+ policy) policy_set "$2" "$3" "$4" ;;
  oc-status) oc_status ;;
  stock|restore) restore_stock ;;
- *) echo "cpu_control.sh init|status|balanced|performance|oc-status|restore"; exit 2 ;;
+ *) echo "cpu_control.sh init|status|balanced|performance|policy POLICY min|max|governor VALUE|oc-status|restore"; exit 2 ;;
 esac
