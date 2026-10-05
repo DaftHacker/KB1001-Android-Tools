@@ -333,7 +333,7 @@ stream(){
  fallback_tick="$fallback_every"
  last_good_fps=-1
  miss_streak=0
- timestats_supported=1
+ ts_miss_streak=0
  ts_last_frames=-1
  ts_last_ms=0
  ts_last_layer=""
@@ -364,7 +364,7 @@ stream(){
    ts_last_frames=-1
    ts_last_ms=0
    ts_last_layer=""
-   timestats_supported=1
+   ts_miss_streak=0
    timestats_reset
    : > "$state_file"
   fi
@@ -409,13 +409,21 @@ stream(){
     ts_last_frames="$ts_frames"
     ts_last_ms="$ts_now_ms"
     ts_last_layer="$ts_layer"
+    ts_miss_streak=0
    else
-    timestats_supported=0
+    # A layer can be absent for the first few hundred milliseconds after an
+    # Activity/SurfaceView appears. Do not permanently disable TimeStats.
+    ts_miss_streak=$((ts_miss_streak+1))
+    ts_last_frames=-1
+    ts_last_ms=0
+    ts_last_layer=""
    fi
 
-   # Compatibility path for devices whose SurfaceFlinger lacks usable
-   # TimeStats. It is intentionally skipped when TimeStats is available.
-   if [ "$timestats_supported" -eq 0 ] 2>/dev/null; then
+   # Legacy compatibility is only a periodic rescue path after repeated
+   # TimeStats misses. TimeStats is retried every cycle so a late BLAST layer
+   # is adopted as soon as SurfaceFlinger starts reporting it.
+   if [ "$ts_miss_streak" -ge 3 ] 2>/dev/null &&
+      [ $((ts_miss_streak%4)) -eq 0 ] 2>/dev/null; then
     candidate_tick=$((candidate_tick+1))
     if [ "$candidate_tick" -ge "$candidate_every" ] || [ -z "$candidates" ]; then
      candidates="$(candidate_layers "$pkg_cached")"
