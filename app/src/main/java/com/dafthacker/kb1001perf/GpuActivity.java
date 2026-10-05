@@ -34,6 +34,9 @@ public class GpuActivity extends Activity {
     private TextView outsideValue;
     private volatile String pendingProfile;
     private volatile String pendingMode;
+    private volatile String pendingRequestSeq;
+    private volatile String confirmedProfile;
+    private int confirmedTelemetryMatches;
     private boolean active;
     private long lastStatusRefresh;
 
@@ -363,9 +366,19 @@ public class GpuActivity extends Activity {
 
         io.execute(()->{
             RootBridge.Result r=RootBridge.get().ctl("profile request "+mode+" "+profile);
-            if(r.ok()) RootBridge.get().ctl("logger refresh");
+            Map<String,String> accepted=parseEquals(r.output);
+            if(r.ok() && profile.equals(accepted.get("requested"))){
+                pendingRequestSeq=accepted.get("seq");
+            }
+            if(r.ok())RootBridge.get().ctl("logger refresh");
+
             runOnUiThread(()->{
                 if(!r.ok()){
+                    pendingProfile=null;
+                    pendingMode=null;
+                    pendingRequestSeq=null;
+                    confirmedProfile=null;
+                    confirmedTelemetryMatches=0;
                     Toast.makeText(this,"GPU profile request failed",Toast.LENGTH_LONG).show();
                 }
                 refreshControlStatus();
@@ -443,6 +456,7 @@ public class GpuActivity extends Activity {
         String persistent=status.get("Persistent profile");
         String runtime=status.get("Runtime profile");
         String requestState=status.get("Profile request state");
+        String requestSeq=status.get("Profile request seq");
         String requested=status.get("Requested profile");
 
         if(runtime==null||runtime.isEmpty()){
@@ -450,20 +464,31 @@ public class GpuActivity extends Activity {
         }
 
         if(pendingProfile!=null){
-            if(pendingProfile.equals(runtime) &&
-                    !"waiting".equals(requestState) &&
-                    !"applying".equals(requestState)){
+            boolean sameRequest=pendingProfile.equals(requested) &&
+                    (pendingRequestSeq==null || pendingRequestSeq.isEmpty() ||
+                            pendingRequestSeq.equals(requestSeq));
+
+            if(sameRequest && "applied".equals(requestState)){
+                confirmedProfile=pendingProfile;
+                confirmedTelemetryMatches=0;
                 pendingProfile=null;
                 pendingMode=null;
-            }else if("error".equals(requestState) && pendingProfile.equals(requested)){
+                pendingRequestSeq=null;
+            }else if(sameRequest && "error".equals(requestState)){
                 pendingProfile=null;
                 pendingMode=null;
+                pendingRequestSeq=null;
+                confirmedProfile=null;
+                confirmedTelemetryMatches=0;
+                Toast.makeText(this,"GPU profile request failed",Toast.LENGTH_LONG).show();
             }
         }
 
         if(defaultValue!=null){
             if(pendingProfile!=null && "persist".equals(pendingMode)){
                 defaultValue.setText(displayProfile(pendingProfile)+" • requested");
+            }else if(confirmedProfile!=null){
+                defaultValue.setText(displayProfile(confirmedProfile));
             }else{
                 defaultValue.setText(displayProfile(persistent));
             }
@@ -473,14 +498,11 @@ public class GpuActivity extends Activity {
         if(outsideValue!=null)outsideValue.setText(displayProfile(status.get("Idle profile")));
 
         if(runtimeValue!=null){
-            String uiTarget=pendingProfile;
-            if(uiTarget==null && ("waiting".equals(requestState)||"applying".equals(requestState))){
-                uiTarget=requested;
-            }
-
-            if(uiTarget!=null && !uiTarget.isEmpty() && !uiTarget.equals(runtime)){
-                runtimeValue.setText(displayProfile(uiTarget)+
-                        ("waiting".equals(requestState) ? " • waiting for GPU idle" : " • switching"));
+            if(pendingProfile!=null){
+                String state="waiting".equals(requestState)?" • waiting for GPU idle":" • switching";
+                runtimeValue.setText(displayProfile(pendingProfile)+state);
+            }else if(confirmedProfile!=null){
+                runtimeValue.setText(displayProfile(confirmedProfile));
             }else{
                 runtimeValue.setText(displayProfile(runtime));
             }
@@ -500,10 +522,38 @@ public class GpuActivity extends Activity {
         if(dvfsValue!=null)dvfsValue.setText(
                 "0".equals(TelemetryStore.get(telemetry,"gpu_dvfs",""))?"Pinned":"Dynamic");
 
-        if(runtimeValue!=null && pendingProfile==null){
-            String profile=TelemetryStore.get(telemetry,"profile","—");
-            runtimeValue.setText(displayProfile(profile));
+        String telemetryProfile=TelemetryStore.get(telemetry,"profile","—");
+        if(confirmedProfile!=null){
+            if(confirmedProfile.equals(telemetryProfile)){
+                confirmedTelemetryMatches++;
+                if(confirmedTelemetryMatches>=2){
+                    confirmedProfile=null;
+                    confirmedTelemetryMatches=0;
+                }
+            }else{
+                confirmedTelemetryMatches=0;
+            }
         }
+
+        if(runtimeValue!=null){
+            if(pendingProfile!=null){
+                // The request state owns the UI until the backend confirms it.
+            }else if(confirmedProfile!=null){
+                runtimeValue.setText(displayProfile(confirmedProfile));
+            }else{
+                runtimeValue.setText(displayProfile(telemetryProfile));
+            }
+        }
+    }
+
+    private Map<String,String> parseEquals(String out){
+        Map<String,String> map=new HashMap<>();
+        if(out==null)return map;
+        for(String line:out.split("\\R")){
+            int i=line.indexOf('=');
+            if(i>0)map.put(line.substring(0,i).trim(),line.substring(i+1).trim());
+        }
+        return map;
     }
 
     private Map<String,String> parseStatus(String out){
