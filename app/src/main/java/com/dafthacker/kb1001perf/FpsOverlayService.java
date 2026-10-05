@@ -36,6 +36,10 @@ public final class FpsOverlayService extends Service {
     private WindowManager.LayoutParams params;
     private TextView fpsText;
     private PerfettoFpsCollector sampler;
+    private volatile java.lang.Process legacySampler;
+    private volatile Thread legacySamplerThread;
+    private volatile long lastPerfettoLiveMs;
+    private volatile boolean legacyFallbackStarted;
 
     private float downX,downY;
     private int startX,startY;
@@ -262,19 +266,102 @@ public final class FpsOverlayService extends Service {
         String targetCommand="sh "+RootBridge.shellQuote(FPS_SAMPLER)+" target-stream 250";
         sampler=new PerfettoFpsCollector(targetCommand,this::handlePerfettoSample);
         sampler.start();
+
+        // Some SurfaceView/BLAST producers do not emit attributable
+        // FrameTimeline SurfaceFrame events on this Android build. Give the
+        // zero-overhead event path a short chance, then recover automatically
+        // with the last known-working compositor sampler instead of leaving
+        // the HUD unresolved forever.
+        handler.postDelayed(this::ensureLegacyFallbackIfNeeded,1500L);
     }
 
     private void handlePerfettoSample(PerfettoFpsCollector.Sample raw){
         if(!running || raw==null)return;
 
-        FpsSample sample=new FpsSample(
+        if(raw.fps>=0){
+            lastPerfettoLiveMs=SystemClock.elapsedRealtime();
+            stopLegacyFallback();
+        }else if(!legacyFallbackStarted){
+            handler.postDelayed(this::ensureLegacyFallbackIfNeeded,500L);
+        }
+
+        handleFpsSample(new FpsSample(
                 raw.fps,
                 raw.packageName,
                 raw.kind,
                 raw.layer,
                 raw.newFrames,
                 raw.candidateCount,
-                raw.cycleMs);
+                raw.cycleMs),100);
+    }
+
+    private void ensureLegacyFallbackIfNeeded(){
+        if(!running || legacyFallbackStarted)return;
+        long now=SystemClock.elapsedRealtime();
+        if(lastPerfettoLiveMs>0 && now-lastPerfettoLiveMs<1000L)return;
+        startLegacyFallback();
+    }
+
+    private synchronized void startLegacyFallback(){
+        if(!running || legacyFallbackStarted || legacySampler!=null)return;
+        legacyFallbackStarted=true;
+
+        Thread t=new Thread(()->{
+            java.lang.Process p=null;
+            try{
+                p=new ProcessBuilder(
+                        "su","-c",
+                        "sh "+RootBridge.shellQuote(FPS_SAMPLER)+" stream 250")
+                        .redirectErrorStream(true)
+                        .start();
+                legacySampler=p;
+
+                try(BufferedReader in=new BufferedReader(
+                        new InputStreamReader(p.getInputStream(),StandardCharsets.UTF_8))){
+                    String line;
+                    while(running && legacySampler==p && (line=in.readLine())!=null){
+                        FpsSample sample=parseFps(line);
+                        if(sample.source.isEmpty())continue;
+
+                        // If Perfetto has become healthy again, stop consuming
+                        // fallback samples. Otherwise this is the authoritative
+                        // source for SurfaceView/BLAST games.
+                        long now=SystemClock.elapsedRealtime();
+                        if(lastPerfettoLiveMs>0 && now-lastPerfettoLiveMs<1000L)break;
+                        handleFpsSample(sample,250);
+                    }
+                }
+            }catch(Exception ignored){
+            }finally{
+                if(p!=null){
+                    try{p.destroy();}catch(Exception ignored){}
+                }
+                if(legacySampler==p)legacySampler=null;
+                legacyFallbackStarted=false;
+            }
+        },"KB1001-fps-legacy-fallback");
+        t.setDaemon(true);
+        legacySamplerThread=t;
+        t.start();
+    }
+
+    private synchronized void stopLegacyFallback(){
+        java.lang.Process p=legacySampler;
+        legacySampler=null;
+        legacyFallbackStarted=false;
+        if(p!=null){
+            try{p.destroy();}catch(Exception ignored){}
+            if(Build.VERSION.SDK_INT>=26){
+                try{p.destroyForcibly();}catch(Exception ignored){}
+            }
+        }
+        Thread t=legacySamplerThread;
+        legacySamplerThread=null;
+        if(t!=null)t.interrupt();
+    }
+
+    private void handleFpsSample(FpsSample sample,int publishMs){
+        if(!running || sample==null)return;
 
         synchronized(this){
             boolean sourceChanged=!sample.source.isEmpty() &&
@@ -288,14 +375,10 @@ public final class FpsOverlayService extends Service {
                 });
             }
 
-            // Diagnostics remain available, but are deliberately outside the
-            // live measurement path. The FPS value now comes only from the
-            // persistent Perfetto SurfaceFlinger FrameTimeline session.
             syncValidationLogger(sample.source);
             captureValidatorResolverSnapshot(sample.source);
             captureValidatorArchitectureRecon(sample.source);
 
-            final int publishMs=100;
             final int windowMs=getAverageWindowMs();
 
             if(sample.fps<0){
@@ -307,7 +390,7 @@ public final class FpsOverlayService extends Service {
             final long now=SystemClock.elapsedRealtime();
 
             final int avg;
-            if("live".equals(sample.kind)){
+            if("live".equals(sample.kind) || "fallback".equals(sample.kind)){
                 averageHasLiveSample=true;
                 avg=addAverageSample(fps,now,windowMs);
             }else if("stall".equals(sample.kind) && averageHasLiveSample){
@@ -643,6 +726,7 @@ public final class FpsOverlayService extends Service {
                 sampler=null;
             }
         }catch(Exception ignored){}
+        stopLegacyFallback();
 
         if(fpsText!=null&&wm!=null){
             try{wm.removeView(fpsText);}catch(Exception ignored){}
