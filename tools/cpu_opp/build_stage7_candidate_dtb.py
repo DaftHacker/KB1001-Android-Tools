@@ -79,15 +79,32 @@ def get_node(text: str, table: str, hz: int) -> str:
     return text[a:b]
 
 
-def require_property(node: str, prop: str, expected: str | None = None) -> None:
-    marker = prop + " = "
+def require_property(node: str, prop: str, expected: int | None = None) -> None:
+    import re
+
     if expected is None:
-        if marker not in node and (prop + ";") not in node:
+        if (prop + ";") not in node and (prop + " = ") not in node:
             raise SystemExit(f"Required property missing: {prop}")
         return
-    exact = f"{prop} = <{expected}>;"
-    if exact not in node:
-        raise SystemExit(f"Required property mismatch: expected {exact}")
+
+    match = re.search(
+        rf"^\\s*{re.escape(prop)}\\s*=\\s*<([^>]+)>;",
+        node,
+        re.M,
+    )
+    if not match:
+        raise SystemExit(f"Required numeric property missing: {prop}")
+
+    token = match.group(1).strip().split()[0]
+    try:
+        actual = int(token, 0)
+    except ValueError as exc:
+        raise SystemExit(f"Could not parse {prop} value: {token}") from exc
+
+    if actual != expected:
+        raise SystemExit(
+            f"Required property mismatch: {prop}={actual}, expected {expected}"
+        )
 
 
 def set_u32_property(node: str, prop: str, value: int) -> str:
@@ -135,18 +152,18 @@ def main() -> int:
 
         # Gate on the already-validated CPU4 1560 patch.
         n1560 = get_node(text, "cluster2-opp-table", 1560000000)
-        require_property(n1560, "opp-microvolt-vf0403", "0x00118c30")
+        require_property(n1560, "opp-microvolt-vf0403", VALIDATED_1560_UV)
         require_property(n1560, "turbo-mode")
 
         # The next candidate nodes must still be untouched for vf0403.
         n1608 = get_node(text, "cluster2-opp-table", 1608000000)
-        require_property(n1608, "opp-microvolt-vf0403", "0x00")
+        require_property(n1608, "opp-microvolt-vf0403", 0)
         n1608 = set_u32_property(n1608, "opp-microvolt-vf0403", CANDIDATE_1608_UV)
         n1608 = ensure_boolean_property(n1608, "turbo-mode")
         text = replace_node(text, "cluster2-opp-table", 1608000000, n1608)
 
         n1776 = get_node(text, "cluster1-opp-table", 1776000000)
-        require_property(n1776, "opp-microvolt-vf0403", "0x00")
+        require_property(n1776, "opp-microvolt-vf0403", 0)
         n1776 = set_u32_property(n1776, "opp-microvolt-vf0403", CANDIDATE_1776_UV)
         n1776 = ensure_boolean_property(n1776, "turbo-mode")
         text = replace_node(text, "cluster1-opp-table", 1776000000, n1776)
@@ -165,7 +182,7 @@ def main() -> int:
             ("cluster1-opp-table", 1776000000, CANDIDATE_1776_UV),
         ):
             node = get_node(verified, table, hz)
-            require_property(node, "opp-microvolt-vf0403", f"0x{uv:08x}")
+            require_property(node, "opp-microvolt-vf0403", uv)
             require_property(node, "turbo-mode")
 
     print("KB1001 next-stage OPP candidate DTB created.")
