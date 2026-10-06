@@ -728,10 +728,13 @@ public class MainActivity extends Activity {
             String out=r.output==null?"":r.output;
 
             if(!r.ok()){
-                String detail=compactBackendError(out);
+                final boolean rootRequired=r.superuserRequired();
+                final String detail=rootRequired?"Superuser access required":compactBackendError(out);
                 runOnUiThread(()->{
                     if(cpuOcSupportValue==null)return;
-                    cpuOcSupportValue.setText("CPU OC support: Backend unavailable • "+detail);
+                    cpuOcSupportValue.setText(rootRequired
+                            ?"CPU OC support: Superuser access required"
+                            :"CPU OC support: Backend unavailable • "+detail);
                     cpuOcSupportValue.setTextColor(BATTERY_WARN);
                 });
                 return;
@@ -763,15 +766,22 @@ public class MainActivity extends Activity {
             String out=r.output==null?"":r.output;
 
             if(!r.ok()){
+                if(r.superuserRequired()){
+                    runOnUiThread(()->new AlertDialog.Builder(this)
+                            .setTitle("CPU OC Support")
+                            .setMessage("Superuser access required")
+                            .setPositiveButton("Close",null)
+                            .show());
+                    return;
+                }
                 String detail=out.trim();
                 if(detail.isEmpty())detail=BackendManager.lastInstallError(this).trim();
                 if(detail.isEmpty())detail="No diagnostic output was returned.";
                 final String failure=detail;
                 runOnUiThread(()->new AlertDialog.Builder(this)
                         .setTitle("CPU OC Support")
-                        .setMessage(
-                                "The privileged backend is not ready, so CPU OC state was not evaluated.\n\n"+
-                                        failure)
+                        .setMessage("Backend error. Details were saved to the app data diagnostics folder.\n\n"+
+                                failure)
                         .setPositiveButton("Close",null)
                         .show());
                 return;
@@ -1471,8 +1481,9 @@ public class MainActivity extends Activity {
                     backendHealthValue.setText(label);
                     backendHealthValue.setTextColor(Color.rgb(77,210,126));
                 }else{
-                    backendHealthValue.setText(
-                            "Backend: Needs attention • "+compactBackendError(output));
+                    backendHealthValue.setText(r.superuserRequired()
+                            ?"Backend: Superuser access required"
+                            :"Backend: Needs attention • "+compactBackendError(output));
                     backendHealthValue.setTextColor(Color.rgb(255,170,92));
                 }
             });
