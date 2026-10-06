@@ -198,8 +198,17 @@ vf_profile(){
 oc_status(){
  echo "vf_profile=$(vf_profile)"
  echo "vf_profile_source=runtime_opp_signature"
- echo "vf_version=$(cat /sys/class/cpufreq/vf_version 2>/dev/null)"
- echo "dvfs_code=$(cat /sys/class/cpufreq/dvfs_code 2>/dev/null)"
+
+ vf_ver="$(cat /sys/class/cpufreq/vf_version 2>/dev/null)"
+ if [ -z "$vf_ver" ] && [ -r /sys/firmware/devicetree/base/vf_mapping_table/vf-version ]; then
+  vf_ver="$(tr -d '\000' < /sys/firmware/devicetree/base/vf_mapping_table/vf-version 2>/dev/null)"
+ fi
+ [ -n "$vf_ver" ] || vf_ver=unknown
+ echo "vf_version=$vf_ver"
+
+ dvfs_code="$(cat /sys/class/cpufreq/dvfs_code 2>/dev/null)"
+ [ -n "$dvfs_code" ] || dvfs_code=unreadable
+ echo "dvfs_code=$dvfs_code"
  [ -d /sys/kernel/debug/opp ] && echo "opp_debugfs=1" || echo "opp_debugfs=0"
 
  echo "a53_efficiency_stock_max_khz=$(cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq 2>/dev/null)"
@@ -210,6 +219,21 @@ oc_status(){
  echo "policy2_opp_map=$(opp_map cpu2)"
  echo "policy4_opp_map=$(opp_map cpu4)"
  echo "gpu_opp_map=$(opp_map soc@3000000-1800000.gpu)"
+
+ echo "boot_opp_carrier=vendor_boot_a"
+ known_vendor_boot_sha256="11efaf3483b2ef4250ab78b6a160e64adf80d82d3965f156554189ec8083d402"
+ current_vendor_boot_sha256="$(sha256sum /dev/block/by-name/vendor_boot_a 2>/dev/null | awk '{print $1}')"
+ echo "vendor_boot_known_sha256=$known_vendor_boot_sha256"
+ echo "vendor_boot_current_sha256=$current_vendor_boot_sha256"
+ if [ "$current_vendor_boot_sha256" = "$known_vendor_boot_sha256" ]; then
+  echo "vendor_boot_state=verified_stock_20251018"
+  echo "vendor_boot_embedded_avb=hash_footer_algorithm_none"
+ else
+  echo "vendor_boot_state=unknown_or_modified"
+  echo "vendor_boot_embedded_avb=unknown"
+ fi
+ echo "boot_opp_install_supported=0"
+ echo "boot_opp_install_blocker=top_level_vbmeta_chain_verification_pending"
 
  if policy_has_freq /sys/devices/system/cpu/cpufreq/policy4 1560000; then echo "a73_stage1_1560=available"; else echo "a73_stage1_1560=boot_opp_required"; fi
  if policy_has_freq /sys/devices/system/cpu/cpufreq/policy4 1608000; then echo "a73_stage2_1608=available"; else echo "a73_stage2_1608=boot_opp_required"; fi
