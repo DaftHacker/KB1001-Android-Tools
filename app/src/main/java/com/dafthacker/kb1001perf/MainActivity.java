@@ -81,6 +81,15 @@ public class MainActivity extends Activity {
     private boolean fpsTogglePending;
     private String pendingOverlayPermissionType;
 
+    // Fresh-install root startup is deliberately serialized. Android runtime
+    // permission dialogs (notably POST_NOTIFICATIONS) can temporarily own the
+    // foreground window; launching MagiskSU underneath them can cause the
+    // Superuser request to fail without ever presenting its dialog.
+    private boolean rootStartupComplete;
+    private boolean rootStartupInFlight;
+    private boolean rootStartupRequested;
+    private boolean hasWindowFocus;
+
     private final BroadcastReceiver overlayStateReceiver=new BroadcastReceiver(){
         @Override public void onReceive(Context context,Intent intent){
             if(intent==null)return;
@@ -113,6 +122,10 @@ public class MainActivity extends Activity {
         applyMainKeepAwake();
         showTab(0);
 
+        // Do not touch the privileged backend here. Root acquisition is
+        // deferred until this Activity owns the foreground window and any
+        // Android runtime-permission dialog has completed.
+        rootStartupRequested=true;
 
         startupUpdateCheck();
     }
@@ -195,7 +208,9 @@ public class MainActivity extends Activity {
         }
 
         refreshTelemetry();
-        if(!AppStateCache.statusFresh(this,5000))refreshBackendState();
+        if(rootStartupComplete && !AppStateCache.statusFresh(this,5000)){
+            refreshBackendState();
+        }
     }
 
     private void dashboardPage() {
@@ -1164,6 +1179,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshBackendState() {
+        if(!rootStartupComplete)return;
         backendIo.execute(() -> {
             RootBridge.Result r = RootBridge.get().ctl("status");
 
@@ -1818,8 +1834,84 @@ public class MainActivity extends Activity {
         }
 
         restoreManualOverlaysIfNeeded();
-        if(!AppStateCache.statusFresh(this,5000)) refreshBackendState();
-        if (tab == 1) loadGamesInline();
+        if(rootStartupComplete && !AppStateCache.statusFresh(this,5000)){
+            refreshBackendState();
+        }
+        if (tab == 1 && rootStartupComplete) loadGamesInline();
+
+        maybeStartForegroundRoot();
+    }
+
+    @Override public void onWindowFocusChanged(boolean focused){
+        super.onWindowFocusChanged(focused);
+        hasWindowFocus=focused;
+        if(focused)maybeStartForegroundRoot();
+    }
+
+    @Override public void onRequestPermissionsResult(
+            int requestCode,String[] permissions,int[] grantResults){
+        super.onRequestPermissionsResult(requestCode,permissions,grantResults);
+        if(requestCode==41){
+            // The notification decision itself does not affect root. It only
+            // tells us Android's permission dialog is gone; wait for focus and
+            // then perform the single foreground Magisk request.
+            rootStartupRequested=true;
+            handler.post(this::maybeStartForegroundRoot);
+        }
+    }
+
+    private void maybeStartForegroundRoot(){
+        if(rootStartupComplete || rootStartupInFlight || !rootStartupRequested)return;
+        if(!active || !hasWindowFocus)return;
+
+        // On Android 13+ a fresh install may still be waiting for the
+        // notification permission result. Do not launch MagiskSU underneath it.
+        if(Build.VERSION.SDK_INT>=33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED){
+            // A denial is also a completed decision, but onRequestPermissionsResult
+            // will re-enter here after the dialog closes. Window focus is the
+            // authoritative foreground gate.
+        }
+
+        rootStartupRequested=false;
+        rootStartupInFlight=true;
+
+        backendIo.execute(() -> {
+            RootBridge.Result ready=BackendManager.ensureInstalled(this);
+
+            runOnUiThread(() -> {
+                rootStartupInFlight=false;
+
+                if(ready.ok()){
+                    rootStartupComplete=true;
+                    TelemetryDemand.setPrivilegedReady(true);
+                    refreshBackendState();
+                    if(tab==1)loadGamesInline();
+                    return;
+                }
+
+                TelemetryDemand.setPrivilegedReady(false);
+
+                // Do not create a retry storm. A failed foreground request is
+                // retried only when the user returns to the Activity or invokes
+                // another explicit privileged action.
+                rootStartupRequested=true;
+
+                String detail=ready.output==null?"":ready.output.trim();
+                if(detail.contains("retry suppressed briefly")){
+                    // This should only be reachable when an older in-process
+                    // request raced us. Avoid surfacing the internal backoff as
+                    // the primary user-facing error.
+                    detail="Root authorization did not complete. Return to the app to retry the Magisk Superuser request.";
+                }
+
+                if(backendHealthValue!=null){
+                    backendHealthValue.setText(
+                            detail.isEmpty()?"Root authorization required":detail);
+                }
+            });
+        });
     }
 
     @Override protected void onPause() {
