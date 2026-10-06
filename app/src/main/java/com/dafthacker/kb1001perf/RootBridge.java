@@ -190,6 +190,18 @@ public final class RootBridge {
         return new Result(0,"written="+path+"\nbytes="+data.length);
     }
 
+    /**
+     * User explicitly requested another foreground authorization attempt.
+     * This clears only our local anti-spam timer; it does not alter Magisk's
+     * Superuser policy.
+     */
+    public synchronized void clearRetryBackoff() {
+        retryAfterElapsed=0;
+        retryMessage="";
+        lastSuDiagnostic="explicit_root_retry_requested";
+        resetProcess();
+    }
+
     public synchronized String rootDiagnostic() {
         return lastSuDiagnostic==null?"":lastSuDiagnostic;
     }
