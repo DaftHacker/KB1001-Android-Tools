@@ -38,6 +38,7 @@ public class CpuActivity extends Activity {
     private TextView vfCodeValue;
     private TextView oppMapValue;
     private TextView bootCarrierValue;
+    private TextView ocRuntimeValue;
     private TextView ocStage1Value;
     private TextView ocStage2Value;
     private TextView a53OcValue;
@@ -179,6 +180,7 @@ public class CpuActivity extends Activity {
         vfCodeValue=text("VF selector • checking…",10,MUTED,false);
         oppMapValue=text("Kernel OPP map • checking…",10,MUTED,false);
         bootCarrierValue=text("Boot OPP carrier • checking…",10,MUTED,false);
+        ocRuntimeValue=text("Live OC • waiting for telemetry",11,TEXT,true);
         ocStage1Value=text("A73 Stage 1 • 1560 MHz • checking…",11,MUTED,false);
         ocStage2Value=text("A73 Stage 2 • 1608 MHz • checking…",11,MUTED,false);
         a53OcValue=text("Fast A53 Stage 1 • 1776 MHz • checking…",11,MUTED,false);
@@ -186,6 +188,8 @@ public class CpuActivity extends Activity {
         oc.addView(vfCodeValue);
         oc.addView(oppMapValue);
         oc.addView(bootCarrierValue);
+        ocRuntimeValue.setPadding(0,dp(6),0,0);
+        oc.addView(ocRuntimeValue);
         addGap(oc,4);
         oc.addView(ocStage1Value);
         oc.addView(ocStage2Value);
@@ -206,7 +210,7 @@ public class CpuActivity extends Activity {
         oc.addView(ocDisableButton,ocOff);
 
         TextView warning=text(
-                "CPU4 1560 MHz at 1.15 V passed the staged vendor_boot, transition, idle, and short CPU4-only load validation. It remains an overclock rather than a factory VF0403 point. CPU4 1608 MHz and CPU2-3 1776 MHz remain locked pending separate validation.",
+                "CPU4 1560 MHz at 1.15 V passed staged boot, transition, idle, and short CPU4-only load validation. CPU4 1608 MHz and CPU2-3 1776 MHz are the next 1.15 V boot-OPP candidates, but remain locked until their own staged physical validation passes.",
                 10,MUTED,false);
         warning.setPadding(0,dp(8),0,0);
         oc.addView(warning);
@@ -237,8 +241,13 @@ public class CpuActivity extends Activity {
         primeValue=text("Prime core • waiting for telemetry",11,MUTED,false);
         card.addView(primeValue);
 
+        TextView overallGraphLabel=text("UTILIZATION HISTORY",9,MUTED,true);
+        overallGraphLabel.setPadding(0,dp(7),0,0);
+        card.addView(overallGraphLabel);
+
         overallGraph=new SparklineView(this);
         overallGraph.setAccentColor(GREEN);
+        overallGraph.setScaleMax(100f);
         LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,dp(104));
         gp.setMargins(0,dp(8),0,dp(8));
         card.addView(overallGraph,gp);
@@ -313,15 +322,20 @@ public class CpuActivity extends Activity {
         controls.addView(govButton,cp);
         card.addView(controls);
 
+        TextView graphLabel=text("CLOCK HISTORY • waiting",9,MUTED,true);
+        graphLabel.setPadding(0,dp(7),0,0);
+        card.addView(graphLabel);
+
         SparklineView graph=new SparklineView(this);
         graph.setAccentColor(accent);
+        graph.setScaleMax(2000f);
         LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,dp(60));
         gp.setMargins(0,dp(6),0,0);
         card.addView(graph,gp);
 
         parent.addView(card,full());
         return new ClusterUi(policyName,cores,knownCapacity,thermalPrefix,coolingType,
-                util,coreUtil,clock,governor,thermal,cooling,graph);
+                util,coreUtil,clock,governor,thermal,cooling,graphLabel,graph);
     }
 
     private View profileCard(
@@ -456,7 +470,8 @@ public class CpuActivity extends Activity {
         String carrier=m.getOrDefault("boot_opp_carrier","unknown");
         String carrierState=m.getOrDefault("vendor_boot_state","unknown");
         String blocker=m.getOrDefault("boot_opp_install_blocker","unknown");
-        boolean verified="verified_stock_20251018".equals(carrierState);
+        boolean patched="verified_cpu4_1560_patch".equals(carrierState);
+        boolean stock="verified_stock".equals(carrierState);
         String installState;
         if("vendor_boot_patcher_not_implemented".equals(blocker)){
             installState="patcher pending";
@@ -465,11 +480,12 @@ public class CpuActivity extends Activity {
         }else{
             installState="install blocked";
         }
+        String carrierLabel=patched?"VALIDATED 1560 PATCH":(stock?"VERIFIED STOCK":"UNVERIFIED");
         bootCarrierValue.setText(
                 "Boot OPP carrier • "+carrier+
-                " • "+(verified?"VERIFIED STOCK":"UNVERIFIED")+
+                " • "+carrierLabel+
                 " • "+installState);
-        bootCarrierValue.setTextColor(verified?YELLOW:MUTED);
+        bootCarrierValue.setTextColor(patched?GREEN:(stock?YELLOW:MUTED));
 
         setOcLine(ocStage1Value,"A73 Stage 1","1560 MHz",m.get("a73_stage1_1560"));
         setOcLine(ocStage2Value,"A73 Stage 2","1608 MHz",m.get("a73_stage2_1608"));
@@ -524,11 +540,13 @@ public class CpuActivity extends Activity {
 
     private void setOcLine(TextView view,String label,String clock,String state){
         boolean validated="validated_available".equals(state);
-        boolean available=validated||"available".equals(state)||"present_unverified".equals(state);
+        boolean candidate="candidate_available".equals(state);
+        boolean present=candidate||validated||"available".equals(state)||"present_unverified".equals(state);
         String suffix=validated?"VALIDATED / READY":
-                (available?"PRESENT / NOT VALIDATED":"BOOT OPP REQUIRED");
+                (candidate?"BOOT CANDIDATE / VALIDATION REQUIRED":
+                        (present?"PRESENT / VALIDATION REQUIRED":"NOT ENABLED / BOOT PATCH REQUIRED"));
         view.setText(label+" • "+clock+" • "+suffix);
-        view.setTextColor(validated?GREEN:(available?YELLOW:MUTED));
+        view.setTextColor(validated?GREEN:(present?YELLOW:MUTED));
     }
 
 
@@ -567,6 +585,16 @@ public class CpuActivity extends Activity {
             modeValue.setText(friendlyMode(cpuMode));
         }
         primeValue.setText("Prime A73 • "+primeUtil+"% • "+primeClock+" MHz");
+        if(ocRuntimeValue!=null){
+            String liveGov=primePolicy==null?"—":primePolicy.governor;
+            int liveMax=primePolicy==null?0:primePolicy.max;
+            boolean boosted=primeClock>1512 || liveMax>1512 ||
+                    "oc_dynamic1560".equals(cpuMode) || "oc_performance1560".equals(cpuMode);
+            ocRuntimeValue.setText(
+                    "Live OC • CPU4 "+primeClock+" / "+liveMax+" MHz • "+liveGov+
+                            (boosted?" • BOOST PATH ACTIVE":" • stock ceiling"));
+            ocRuntimeValue.setTextColor(boosted?GREEN:TEXT);
+        }
         if(governorValue!=null){
             PolicyState p0=policies.get("policy0");
             governorValue.setText(p0==null?"—":p0.governor);
@@ -610,9 +638,13 @@ public class CpuActivity extends Activity {
         if(p!=null){
             ui.clock.setText("Clock • "+p.current+" MHz / "+p.max+" MHz max • min "+p.min+" MHz");
             ui.governor.setText("Governor • "+p.governor);
+            ui.graphLabel.setText("CLOCK HISTORY • "+p.current+" MHz • scale "+p.max+" MHz");
+            ui.graph.setScaleMax(Math.max(1f,p.max));
+            ui.graph.addValue(p.current);
         }else{
             ui.clock.setText("Clock • unavailable");
             ui.governor.setText("Governor • unavailable");
+            ui.graphLabel.setText("CLOCK HISTORY • unavailable");
         }
 
         int measuredCapacity=0;
@@ -624,7 +656,6 @@ public class CpuActivity extends Activity {
         String cool=findCooling(cooling,ui.coolingType);
         ui.cooling.setText("Cooling • "+(cool==null?"not reported":cool));
         ui.cooling.setTextColor(cool!=null && !cool.startsWith("0/")?RED:MUTED);
-        ui.graph.addValue(avg);
     }
 
     private void chooseCpuFrequency(String policyName,boolean maximum){
@@ -955,12 +986,13 @@ public class CpuActivity extends Activity {
         final TextView governor;
         final TextView thermal;
         final TextView cooling;
+        final TextView graphLabel;
         final SparklineView graph;
 
         ClusterUi(
                 String policy,int[] cores,int knownCapacity,String thermalPrefix,String coolingType,
                 TextView util,TextView coreUtil,TextView clock,TextView governor,
-                TextView thermal,TextView cooling,SparklineView graph){
+                TextView thermal,TextView cooling,TextView graphLabel,SparklineView graph){
             this.policy=policy;
             this.cores=cores;
             this.knownCapacity=knownCapacity;
@@ -972,6 +1004,7 @@ public class CpuActivity extends Activity {
             this.governor=governor;
             this.thermal=thermal;
             this.cooling=cooling;
+            this.graphLabel=graphLabel;
             this.graph=graph;
         }
     }

@@ -94,3 +94,30 @@ The feature is ready to integrate into the app only when all of the following ar
 - requested OPP appears in the running kernel
 - stock restore returns the exact original behavior
 - no regression to thermal protection, boot reliability, or recovery
+
+
+## Current staged candidate targets
+
+The validated CPU4 1560 MHz patch remains the only higher CPU OPP currently approved for app activation.
+
+The next physical-validation candidates are:
+
+| Domain | Candidate | Proposed VF0403 voltage | Reason for candidate |
+| --- | ---: | ---: | --- |
+| `policy4` / CPU4 Cortex-A73 | 1608 MHz | 1,150,000 uV | hidden node exists; matching Allwinner source shows 1608 at 1.15 V for vf0300, while this device already validates 1512/1560 at the same 1.15 V ceiling |
+| `policy2` / CPU2-3 Cortex-A53 | 1776 MHz | 1,150,000 uV | hidden node exists only 24 MHz above the vf0403 stock 1752 MHz point, which already runs at 1.15 V |
+
+Stage 7 must patch **only CPU4 1608 MHz**. CPU2-3 1776 MHz is reserved for a later Stage 8. This separation is required because the Linux cpufreq boost switch is global; marking both new points as turbo OPPs at once could expose both when boost is enabled, defeating one-OPP-at-a-time validation.
+
+These values are **validation candidates, not validated OPPs**. They must remain unavailable to user-selectable OC profiles until each target passes the same staged process used for CPU4 1560:
+
+- deterministic DTB semantic patch
+- deterministic vendor_boot repack and component verification
+- preflash recovery gate
+- passive first boot with higher OPP unselected
+- no-load transition check
+- short targeted load
+- thermal / regulator / PLL / kernel-error review
+- sustained validation before normal exposure
+
+The app may display these candidate stages and their readiness state, but must fail closed unless the live OPP table reports the expected frequency and 1.15 V target and the stage has been explicitly marked validated.
