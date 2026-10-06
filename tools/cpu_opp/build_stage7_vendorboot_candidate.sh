@@ -176,7 +176,6 @@ check_node() {
 
 check_node 1560000000 1
 check_node 1608000000 1
-check_node 1776000000 1
 
 echo
 echo "[7/7] Pull verified candidate"
@@ -198,8 +197,8 @@ echo "embedded_dtb_sha256=$DTB_SHA"
 echo
 echo "NO FLASH WAS PERFORMED."
 echo
-echo "UNVALIDATED TARGETS:"
+echo "UNVALIDATED STAGE-7 TARGET:"
 echo "  CPU4 / A73       1608 MHz @ 1.15 V turbo"
-echo "  CPU2-3 / A53     1776 MHz @ 1.15 V turbo"
 echo
-echo "These remain locked in Performance Manager until staged physical validation passes."
+echo "CPU2-3 / A53 1776 MHz is intentionally left unchanged for later Stage 8."
+echo "CPU4 1608 remains locked in Performance Manager until staged physical validation passes."
