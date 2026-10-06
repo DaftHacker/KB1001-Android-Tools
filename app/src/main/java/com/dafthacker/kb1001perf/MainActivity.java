@@ -113,7 +113,7 @@ public class MainActivity extends Activity {
         showTab(0);
 
 
-        quietUpdateCheck();
+        startupUpdateCheck();
     }
 
     private View buildUi() {
@@ -1295,7 +1295,10 @@ public class MainActivity extends Activity {
         return new CpuPolicies(peakCurrent,peakMax,percent,android.text.TextUtils.join(" • ",parts));
     }
 
-    private void quietUpdateCheck() {
+    // Update policy: one quiet check when MainActivity is created, plus the
+    // explicit Check for Update button. No resume timer, retry timer, or
+    // background polling.
+    private void startupUpdateCheck() {
         checkForUpdate(true);
     }
 
@@ -1361,7 +1364,7 @@ public class MainActivity extends Activity {
                 .setMessage(
                         "Current version: "+BuildConfig.VERSION_NAME+
                                 "\nNew version: "+info.appVersionName)
-                .setNegativeButton("Later",null)
+                .setNegativeButton("Cancel",null)
                 .setPositiveButton("Install",(d,w) -> performAppUpdate(info))
                 .show();
     }
