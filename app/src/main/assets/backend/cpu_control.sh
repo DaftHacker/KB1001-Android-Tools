@@ -243,8 +243,13 @@ oc_status(){
   echo "vendor_boot_state=unknown_or_modified"
   echo "vendor_boot_embedded_avb=unknown"
  fi
+ echo "avb_top_level_vendor_boot_hash=present"
+ echo "avb_top_level_flags=0x3"
+ echo "avb_hashtree_verification=disabled"
+ echo "avb_descriptor_verification=disabled"
+ echo "avb_vendor_boot_embedded_footer=algorithm_none_hash"
  echo "boot_opp_install_supported=0"
- echo "boot_opp_install_blocker=top_level_vbmeta_chain_verification_pending"
+ echo "boot_opp_install_blocker=vendor_boot_patcher_not_implemented"
 
  if policy_has_freq /sys/devices/system/cpu/cpufreq/policy4 1560000; then echo "a73_stage1_1560=available"; else echo "a73_stage1_1560=boot_opp_required"; fi
  if policy_has_freq /sys/devices/system/cpu/cpufreq/policy4 1608000; then echo "a73_stage2_1608=available"; else echo "a73_stage2_1608=boot_opp_required"; fi
