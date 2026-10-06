@@ -89,6 +89,7 @@ public class MainActivity extends Activity {
     private boolean rootStartupInFlight;
     private boolean rootStartupRequested;
     private boolean hasWindowFocus;
+    private boolean startupUpdateCheckStarted;
 
     private final BroadcastReceiver overlayStateReceiver=new BroadcastReceiver(){
         @Override public void onReceive(Context context,Intent intent){
@@ -1420,6 +1421,11 @@ public class MainActivity extends Activity {
     // explicit Check for Update button. No resume timer, retry timer, or
     // background polling.
     private void startupUpdateCheck() {
+        // Exactly one automatic version check per MainActivity creation.
+        // The only other version-check entry point is the explicit
+        // "Check for Update" button in Settings.
+        if(startupUpdateCheckStarted)return;
+        startupUpdateCheckStarted=true;
         checkForUpdate(true);
     }
 
@@ -1894,24 +1900,52 @@ public class MainActivity extends Activity {
                 TelemetryDemand.setPrivilegedReady(false);
 
                 // Do not create a retry storm. A failed foreground request is
-                // retried only when the user returns to the Activity or invokes
-                // another explicit privileged action.
+                // retried only by an explicit Retry action or a later return to
+                // the foreground.
                 rootStartupRequested=true;
 
                 String detail=ready.output==null?"":ready.output.trim();
+                String lower=detail.toLowerCase(Locale.US);
+                boolean denied=
+                        lower.contains("permission denied") ||
+                        lower.contains("superuser rights") && lower.contains("denied") ||
+                        lower.contains("request rejected");
+
                 if(detail.contains("retry suppressed briefly")){
-                    // This should only be reachable when an older in-process
-                    // request raced us. Avoid surfacing the internal backoff as
-                    // the primary user-facing error.
-                    detail="Root authorization did not complete. Return to the app to retry the Magisk Superuser request.";
+                    detail="Root authorization did not complete.";
                 }
 
                 if(backendHealthValue!=null){
                     backendHealthValue.setText(
-                            detail.isEmpty()?"Root authorization required":detail);
+                            denied
+                                    ?"Backend: Superuser access required"
+                                    :(detail.isEmpty()?"Root authorization required":detail));
+                    backendHealthValue.setTextColor(BATTERY_WARN);
+                }
+
+                if(denied){
+                    showRootAuthorizationRequired();
                 }
             });
         });
+    }
+
+    private void showRootAuthorizationRequired(){
+        if(isFinishing() || isDestroyed())return;
+
+        new AlertDialog.Builder(this)
+                .setTitle("Superuser access required")
+                .setMessage(
+                        "KB1001 Performance Manager needs Magisk Superuser access for the privileged backend.\n\n"+
+                        "If this app has no Magisk policy yet, Retry will issue a fresh foreground root request and Magisk should show its Grant prompt.\n\n"+
+                        "If the app is already listed as denied/off in Magisk, enable it in Magisk first; Android apps cannot override a stored Magisk denial.")
+                .setNegativeButton("Later",null)
+                .setPositiveButton("Retry",(d,w)->{
+                    RootBridge.get().clearRetryBackoff();
+                    rootStartupRequested=true;
+                    handler.post(this::maybeStartForegroundRoot);
+                })
+                .show();
     }
 
     @Override protected void onPause() {
