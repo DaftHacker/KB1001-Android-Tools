@@ -150,7 +150,41 @@ policy_has_freq(){
  grep -qw "$wanted" "$policy/scaling_available_frequencies" 2>/dev/null
 }
 
+opp_target_uv(){
+ table="$1"; hz="$2"
+ f="/sys/kernel/debug/opp/$table/opp:$hz/supply-0/u_volt_target"
+ cat "$f" 2>/dev/null
+}
+
+opp_map(){
+ table="$1"
+ root="/sys/kernel/debug/opp/$table"
+ [ -d "$root" ] || return 0
+ out=""
+ for d in "$root"/opp:*; do
+  [ -d "$d" ] || continue
+  rate="$(cat "$d/rate_hz" 2>/dev/null)"
+  available="$(cat "$d/available" 2>/dev/null)"
+  volt="$(cat "$d/supply-0/u_volt_target" 2>/dev/null)"
+  case "$rate" in ''|*[!0-9]*) continue;; esac
+  [ -n "$out" ] && out="$out,"
+  out="$out$rate:${available:-?}:${volt:-0}"
+ done
+ echo "$out"
+}
+
 vf_profile(){
+ # Strong runtime signature from the OPP framework. These three stock points
+ # uniquely match the verified vf0403 voltage curve on this KB1001/A333.
+ p0_912="$(opp_target_uv cpu0 912000000)"
+ p2_1296="$(opp_target_uv cpu2 1296000000)"
+ p4_1392="$(opp_target_uv cpu4 1392000000)"
+ if [ "$p0_912" = 940000 ] && [ "$p2_1296" = 940000 ] && [ "$p4_1392" = 1070000 ]; then
+  echo vf0403
+  return
+ fi
+
+ # Fallback for kernels without OPP debugfs.
  p0="$(cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq 2>/dev/null)"
  p2="$(cat /sys/devices/system/cpu/cpufreq/policy2/cpuinfo_max_freq 2>/dev/null)"
  p4="$(cat /sys/devices/system/cpu/cpufreq/policy4/cpuinfo_max_freq 2>/dev/null)"
@@ -163,13 +197,25 @@ vf_profile(){
 
 oc_status(){
  echo "vf_profile=$(vf_profile)"
+ echo "vf_profile_source=runtime_opp_signature"
+ echo "vf_version=$(cat /sys/class/cpufreq/vf_version 2>/dev/null)"
+ echo "dvfs_code=$(cat /sys/class/cpufreq/dvfs_code 2>/dev/null)"
+ [ -d /sys/kernel/debug/opp ] && echo "opp_debugfs=1" || echo "opp_debugfs=0"
+
  echo "a53_efficiency_stock_max_khz=$(cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq 2>/dev/null)"
  echo "a53_performance_stock_max_khz=$(cat /sys/devices/system/cpu/cpufreq/policy2/cpuinfo_max_freq 2>/dev/null)"
  echo "a73_prime_stock_max_khz=$(cat /sys/devices/system/cpu/cpufreq/policy4/cpuinfo_max_freq 2>/dev/null)"
+
+ echo "policy0_opp_map=$(opp_map cpu0)"
+ echo "policy2_opp_map=$(opp_map cpu2)"
+ echo "policy4_opp_map=$(opp_map cpu4)"
+ echo "gpu_opp_map=$(opp_map soc@3000000-1800000.gpu)"
+
  if policy_has_freq /sys/devices/system/cpu/cpufreq/policy4 1560000; then echo "a73_stage1_1560=available"; else echo "a73_stage1_1560=boot_opp_required"; fi
  if policy_has_freq /sys/devices/system/cpu/cpufreq/policy4 1608000; then echo "a73_stage2_1608=available"; else echo "a73_stage2_1608=boot_opp_required"; fi
  if policy_has_freq /sys/devices/system/cpu/cpufreq/policy2 1776000; then echo "a53_stage1_1776=available"; else echo "a53_stage1_1776=boot_opp_required"; fi
  echo "oc_apply_supported=0"
+ echo "boot_opp_patch_state=not_installed"
 }
 
 status(){
