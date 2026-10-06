@@ -37,6 +37,7 @@ public class CpuActivity extends Activity {
     private TextView vfValue;
     private TextView vfCodeValue;
     private TextView oppMapValue;
+    private TextView bootCarrierValue;
     private TextView ocStage1Value;
     private TextView ocStage2Value;
     private TextView a53OcValue;
@@ -174,12 +175,14 @@ public class CpuActivity extends Activity {
         vfValue=text("Silicon profile • checking…",14,TEXT,true);
         vfCodeValue=text("VF selector • checking…",10,MUTED,false);
         oppMapValue=text("Kernel OPP map • checking…",10,MUTED,false);
+        bootCarrierValue=text("Boot OPP carrier • checking…",10,MUTED,false);
         ocStage1Value=text("A73 Stage 1 • 1560 MHz • checking…",11,MUTED,false);
         ocStage2Value=text("A73 Stage 2 • 1608 MHz • checking…",11,MUTED,false);
         a53OcValue=text("Fast A53 Stage 1 • 1776 MHz • checking…",11,MUTED,false);
         oc.addView(vfValue);
         oc.addView(vfCodeValue);
         oc.addView(oppMapValue);
+        oc.addView(bootCarrierValue);
         addGap(oc,4);
         oc.addView(ocStage1Value);
         oc.addView(ocStage2Value);
@@ -409,6 +412,7 @@ public class CpuActivity extends Activity {
             vfValue.setText("OC readiness • unavailable");
             vfCodeValue.setText("VF selector • unavailable");
             oppMapValue.setText("Kernel OPP map • unavailable");
+            bootCarrierValue.setText("Boot OPP carrier • unavailable");
             ocStage1Value.setText("A73 Stage 1 • status unavailable");
             ocStage2Value.setText("A73 Stage 2 • status unavailable");
             a53OcValue.setText("Fast A53 Stage 1 • status unavailable");
@@ -428,6 +432,16 @@ public class CpuActivity extends Activity {
         int p4=countOpps(m.get("policy4_opp_map"));
         int gpu=countOpps(m.get("gpu_opp_map"));
         oppMapValue.setText("Kernel OPP entries • P0 "+p0+" • P2 "+p2+" • P4 "+p4+" • GPU "+gpu);
+
+        String carrier=m.getOrDefault("boot_opp_carrier","unknown");
+        String carrierState=m.getOrDefault("vendor_boot_state","unknown");
+        String blocker=m.getOrDefault("boot_opp_install_blocker","unknown");
+        boolean verified="verified_stock_20251018".equals(carrierState);
+        bootCarrierValue.setText(
+                "Boot OPP carrier • "+carrier+
+                " • "+(verified?"VERIFIED STOCK":"UNVERIFIED")+
+                ("none".equals(blocker)?"":" • install blocked"));
+        bootCarrierValue.setTextColor(verified?YELLOW:MUTED);
 
         setOcLine(ocStage1Value,"A73 Stage 1","1560 MHz",m.get("a73_stage1_1560"));
         setOcLine(ocStage2Value,"A73 Stage 2","1608 MHz",m.get("a73_stage2_1608"));
