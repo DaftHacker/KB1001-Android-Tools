@@ -97,142 +97,186 @@ public final class BackendManager {
         }
     }
 
+
+    private static String requiredBackendFilesTest() {
+        StringBuilder command=new StringBuilder();
+        for(String name:BACKEND_FILES){
+            if(command.length()>0)command.append(" && ");
+            command.append("test -s ")
+                    .append(RootBridge.shellQuote(BACKEND_DIR+"/"+name));
+        }
+        return command.toString();
+    }
+
+    private static RootBridge.Result verifyBackendFiles(RootBridge bridge) {
+        StringBuilder command=new StringBuilder(requiredBackendFilesTest());
+
+        // Validate shell syntax before any bootstrap code can execute. This is
+        // intentionally read-only and catches truncated/corrupt deployments.
+        for(String name:BACKEND_FILES){
+            if(name.endsWith(".sh") || "kb1001ctl".equals(name)){
+                command.append(" && sh -n ")
+                        .append(RootBridge.shellQuote(BACKEND_DIR+"/"+name));
+            }
+        }
+
+        return bridge.exec(command.toString());
+    }
+
     public static synchronized RootBridge.Result ensureInstalled(Context context) {
         initialize(context);
-        Context ctx = appContext != null ? appContext : context;
+        Context ctx=appContext!=null?appContext:context;
 
         String backendDigest;
         try {
-            backendDigest = bundledBackendDigest(ctx);
-        } catch (Exception e) {
-            return installResult(ctx, new RootBridge.Result(
+            backendDigest=bundledBackendDigest(ctx);
+        } catch(Exception e) {
+            return installResult(ctx,new RootBridge.Result(
                     -1,
-                    "stage=bundle_fingerprint\nCould not fingerprint bundled backend: " +
-                            e.getClass().getSimpleName() + ": " + e.getMessage()));
+                    "stage=bundle_fingerprint\nCould not fingerprint bundled backend: "+
+                            e.getClass().getSimpleName()+": "+e.getMessage()));
         }
 
-        String expectedVersion =
-                BuildConfig.VERSION_CODE + "|" + BuildConfig.VERSION_NAME + "|" + backendDigest;
+        String expectedVersion=
+                BuildConfig.VERSION_CODE+"|"+BuildConfig.VERSION_NAME+"|"+backendDigest;
 
-        if (processReady && expectedVersion.equals(processReadyStamp)) {
+        if(processReady && expectedVersion.equals(processReadyStamp)){
             return installResult(ctx,
-                    new RootBridge.Result(0, "backend=ready\nversion=" + expectedVersion));
+                    new RootBridge.Result(0,"backend=ready\nversion="+expectedVersion));
         }
 
-        RootBridge bridge = RootBridge.get();
+        RootBridge bridge=RootBridge.get();
 
-        RootBridge.Result root = bridge.exec("id -u");
-        if (!root.ok() || !"0".equals(root.output.trim())) {
-            RootBridge.Result reason = root.ok()
-                    ? new RootBridge.Result(1, "Root shell returned uid=" + root.output.trim())
+        RootBridge.Result root=bridge.exec("id -u");
+        if(!root.ok() || !"0".equals(root.output.trim())){
+            RootBridge.Result reason=root.ok()
+                    ? new RootBridge.Result(1,"Root shell returned uid="+root.output.trim())
                     : root;
-            return installResult(ctx, stageFailure("root_check", reason));
+            return installResult(ctx,stageFailure("root_check",reason));
         }
 
-        RootBridge.Result prepare = bridge.exec(
-                "mkdir -p " + RootBridge.shellQuote(BACKEND_DIR) + " " +
-                        RootBridge.shellQuote(STATE_DIR) +
-                        " && chmod 0700 " + RootBridge.shellQuote(ROOT) + " " +
-                        RootBridge.shellQuote(BACKEND_DIR) + " " +
+        RootBridge.Result prepare=bridge.exec(
+                "mkdir -p "+RootBridge.shellQuote(BACKEND_DIR)+" "+
+                        RootBridge.shellQuote(STATE_DIR)+
+                        " && chmod 0700 "+RootBridge.shellQuote(ROOT)+" "+
+                        RootBridge.shellQuote(BACKEND_DIR)+" "+
                         RootBridge.shellQuote(STATE_DIR));
-        if (!prepare.ok()) {
-            return installResult(ctx, stageFailure("prepare_directories", prepare));
+        if(!prepare.ok()){
+            return installResult(ctx,stageFailure("prepare_directories",prepare));
         }
 
         bridge.exec(
-                "ps -A -o PID,ARGS 2>/dev/null | " +
-                        "grep " + RootBridge.shellQuote(LEGACY_MODULE + "/") + " | " +
-                        "grep -v grep | while read p rest; do " +
-                        "case \"$p\" in ''|*[!0-9]*) ;; *) kill \"$p\" 2>/dev/null || true ;; esac; " +
+                "ps -A -o PID,ARGS 2>/dev/null | "+
+                        "grep "+RootBridge.shellQuote(LEGACY_MODULE+"/")+" | "+
+                        "grep -v grep | while read p rest; do "+
+                        "case \"$p\" in ''|*[!0-9]*) ;; *) kill \"$p\" 2>/dev/null || true ;; esac; "+
                         "done");
 
-        RootBridge.Result migrated = bridge.exec(
-                "if [ -d " + RootBridge.shellQuote(LEGACY_STATE) + " ] && " +
-                        "[ ! -e " + RootBridge.shellQuote(MIGRATION_MARKER) + " ]; then " +
-                        "cp -a " + RootBridge.shellQuote(LEGACY_STATE + "/.") + " " +
-                        RootBridge.shellQuote(STATE_DIR + "/") + " 2>/dev/null || " +
-                        "cp -R " + RootBridge.shellQuote(LEGACY_STATE + "/.") + " " +
-                        RootBridge.shellQuote(STATE_DIR + "/") + "; " +
-                        "touch " + RootBridge.shellQuote(MIGRATION_MARKER) + "; " +
-                        "echo migrated; " +
+        RootBridge.Result migrated=bridge.exec(
+                "if [ -d "+RootBridge.shellQuote(LEGACY_STATE)+" ] && "+
+                        "[ ! -e "+RootBridge.shellQuote(MIGRATION_MARKER)+" ]; then "+
+                        "cp -a "+RootBridge.shellQuote(LEGACY_STATE+"/.")+" "+
+                        RootBridge.shellQuote(STATE_DIR+"/")+" 2>/dev/null || "+
+                        "cp -R "+RootBridge.shellQuote(LEGACY_STATE+"/.")+" "+
+                        RootBridge.shellQuote(STATE_DIR+"/")+"; "+
+                        "touch "+RootBridge.shellQuote(MIGRATION_MARKER)+"; "+
+                        "echo migrated; "+
                         "else echo unchanged; fi");
-        if (!migrated.ok()) {
-            return installResult(ctx, stageFailure("migrate_legacy_state", migrated));
+        if(!migrated.ok()){
+            return installResult(ctx,stageFailure("migrate_legacy_state",migrated));
         }
 
-        RootBridge.Result current = bridge.exec(
-                "test -r " + RootBridge.shellQuote(CONTROLLER) +
-                        " && test \"$(cat " + RootBridge.shellQuote(VERSION_FILE) +
-                        " 2>/dev/null)\" = " + RootBridge.shellQuote(expectedVersion));
+        // A matching version stamp is not enough. Every required backend file
+        // must still exist and be non-empty before a deployment can be skipped.
+        RootBridge.Result current=bridge.exec(
+                requiredBackendFilesTest()+
+                        " && test \"$(cat "+RootBridge.shellQuote(VERSION_FILE)+
+                        " 2>/dev/null)\" = "+RootBridge.shellQuote(expectedVersion));
 
-        boolean backendChanged = !current.ok();
+        boolean backendChanged=!current.ok();
 
-        if (backendChanged) {
-            processReady = false;
-            processReadyStamp = null;
+        if(backendChanged){
+            processReady=false;
+            processReadyStamp=null;
 
             stopAppOwnedBackendProcesses(bridge);
 
             try {
-                AssetManager assets = ctx.getAssets();
-                for (String name : BACKEND_FILES) {
-                    byte[] data = readAll(assets.open("backend/" + name));
-                    RootBridge.Result written = bridge.writeRootFile(
-                            BACKEND_DIR + "/" + name,
+                AssetManager assets=ctx.getAssets();
+                for(String name:BACKEND_FILES){
+                    byte[] data=readAll(assets.open("backend/"+name));
+                    RootBridge.Result written=bridge.writeRootFile(
+                            BACKEND_DIR+"/"+name,
                             data,
                             "0700");
-                    if (!written.ok()) {
+                    if(!written.ok()){
                         return installResult(
                                 ctx,
-                                stageFailure("deploy_backend/" + name, written));
+                                stageFailure("deploy_backend/"+name,written));
                     }
                 }
-
-                RootBridge.Result version = bridge.writeRootFile(
-                        VERSION_FILE,
-                        (expectedVersion + "\n").getBytes(StandardCharsets.UTF_8),
-                        "0600");
-                if (!version.ok()) {
-                    return installResult(ctx, stageFailure("write_backend_version", version));
-                }
-            } catch (Exception e) {
-                return installResult(ctx, new RootBridge.Result(
+            } catch(Exception e) {
+                return installResult(ctx,new RootBridge.Result(
                         -1,
-                        "stage=deploy_backend\nBackend deployment failed: " +
-                                e.getClass().getSimpleName() + ": " + e.getMessage()));
+                        "stage=deploy_backend\nBackend deployment failed: "+
+                                e.getClass().getSimpleName()+": "+e.getMessage()));
             }
         }
 
-        RootBridge.Result hook = installRootBootHook(bridge);
-        if (!hook.ok()) {
-            return installResult(ctx, stageFailure("install_boot_hook", hook));
+        // Verify the complete file set even when no deployment was needed.
+        RootBridge.Result verified=verifyBackendFiles(bridge);
+        if(!verified.ok()){
+            // Never preserve a success stamp for an incomplete/corrupt backend.
+            bridge.exec("rm -f "+RootBridge.shellQuote(VERSION_FILE));
+            return installResult(ctx,stageFailure("verify_backend_files",verified));
+        }
+
+        RootBridge.Result hook=installRootBootHook(bridge);
+        if(!hook.ok()){
+            bridge.exec("rm -f "+RootBridge.shellQuote(VERSION_FILE));
+            return installResult(ctx,stageFailure("install_boot_hook",hook));
         }
 
         bridge.exec(
-                "if [ -d " + RootBridge.shellQuote(LEGACY_MODULE) + " ]; then " +
-                        "touch " + RootBridge.shellQuote(LEGACY_MODULE + "/disable") + " " +
-                        RootBridge.shellQuote(LEGACY_MODULE + "/remove") + "; fi");
+                "if [ -d "+RootBridge.shellQuote(LEGACY_MODULE)+" ]; then "+
+                        "touch "+RootBridge.shellQuote(LEGACY_MODULE+"/disable")+" "+
+                        RootBridge.shellQuote(LEGACY_MODULE+"/remove")+"; fi");
 
-        if (backendChanged || "migrated".equals(migrated.output.trim())) {
+        if(backendChanged || "migrated".equals(migrated.output.trim())){
             bridge.exec(
-                    "rm -f /data/local/tmp/kb1001_game_boost.pid " +
-                            "/data/local/tmp/kb1001_perf_logger.pid " +
-                            "/data/local/tmp/kb1001_manual_profile.pid " +
+                    "rm -f /data/local/tmp/kb1001_game_boost.pid "+
+                            "/data/local/tmp/kb1001_perf_logger.pid "+
+                            "/data/local/tmp/kb1001_manual_profile.pid "+
                             "/data/local/tmp/kb1001_cpu_stat.* 2>/dev/null || true");
         }
 
-        RootBridge.Result boot = bridge.exec(
-                "sh " + RootBridge.shellQuote(CONTROLLER) + " bootstrap");
-        if (!boot.ok()) {
-            return installResult(ctx, stageFailure("bootstrap_backend", boot));
+        RootBridge.Result boot=bridge.exec(
+                "sh "+RootBridge.shellQuote(CONTROLLER)+" bootstrap");
+        if(!boot.ok()){
+            // A backend that cannot bootstrap must never be stamped current.
+            bridge.exec("rm -f "+RootBridge.shellQuote(VERSION_FILE));
+            return installResult(ctx,stageFailure("bootstrap_backend",boot));
         }
 
-        processReady = true;
-        processReadyStamp = expectedVersion;
-        return installResult(ctx, new RootBridge.Result(0,
-                "backend=ready\nstate=" + migrated.output.trim() +
-                        "\nversion=" + expectedVersion));
+        // Commit the version stamp only after the complete backend has passed
+        // file verification, boot-hook installation, and bootstrap.
+        RootBridge.Result version=bridge.writeRootFile(
+                VERSION_FILE,
+                (expectedVersion+"\n").getBytes(StandardCharsets.UTF_8),
+                "0600");
+        if(!version.ok()){
+            return installResult(ctx,stageFailure("commit_backend_version",version));
+        }
+
+        processReady=true;
+        processReadyStamp=expectedVersion;
+
+        return installResult(ctx,new RootBridge.Result(
+                0,
+                "backend=ready\nstate="+migrated.output.trim()+
+                        "\nversion="+expectedVersion));
     }
+
 
 
     private static RootBridge.Result installRootBootHook(RootBridge bridge) {
