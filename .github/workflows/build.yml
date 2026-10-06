@@ -3,7 +3,7 @@ name: Build KB1001 Performance Manager
 on:
   workflow_dispatch:
   push:
-    branches: [ main, a333-thermal-controls ]
+    branches: [ main ]
     paths:
       - 'app/**'
       - 'fpsvalidator/**'
@@ -13,7 +13,7 @@ on:
   pull_request:
 
 concurrency:
-  group: kb1001-dev-${{ github.ref_name }}-v5
+  group: kb1001-dev-main-v4
   cancel-in-progress: true
 
 jobs:
