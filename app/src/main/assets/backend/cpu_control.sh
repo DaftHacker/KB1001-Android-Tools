@@ -174,8 +174,14 @@ opp_map(){
 }
 
 vf_profile(){
- # Strong runtime signature from the OPP framework. These three stock points
- # uniquely match the verified vf0403 voltage curve on this KB1001/A333.
+ # Primary source: vendor cpufreq class exposes the raw DVFS selector.
+ # Verified on this KB1001: dvfs_code 0x0034 -> vf_mapping_table index 0x0403.
+ code="$(cat /sys/class/cpufreq/dvfs_code 2>/dev/null | tr 'A-F' 'a-f')"
+ case "$code" in
+  0x0034|0x34) echo vf0403; return ;;
+ esac
+
+ # Fallback: match the runtime OPP voltage signature.
  p0_912="$(opp_target_uv cpu0 912000000)"
  p2_1296="$(opp_target_uv cpu2 1296000000)"
  p4_1392="$(opp_target_uv cpu4 1392000000)"
@@ -184,7 +190,7 @@ vf_profile(){
   return
  fi
 
- # Fallback for kernels without OPP debugfs.
+ # Last fallback for kernels without selector/OPP debugfs.
  p0="$(cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq 2>/dev/null)"
  p2="$(cat /sys/devices/system/cpu/cpufreq/policy2/cpuinfo_max_freq 2>/dev/null)"
  p4="$(cat /sys/devices/system/cpu/cpufreq/policy4/cpuinfo_max_freq 2>/dev/null)"
@@ -197,7 +203,12 @@ vf_profile(){
 
 oc_status(){
  echo "vf_profile=$(vf_profile)"
- echo "vf_profile_source=runtime_opp_signature"
+ dvfs_code_now="$(cat /sys/class/cpufreq/dvfs_code 2>/dev/null | tr 'A-F' 'a-f')"
+ if [ "$dvfs_code_now" = "0x0034" ] || [ "$dvfs_code_now" = "0x34" ]; then
+  echo "vf_profile_source=dvfs_code"
+ else
+  echo "vf_profile_source=runtime_opp_signature"
+ fi
 
  vf_ver="$(cat /sys/class/cpufreq/vf_version 2>/dev/null)"
  if [ -z "$vf_ver" ] && [ -r /sys/firmware/devicetree/base/vf_mapping_table/vf-version ]; then
