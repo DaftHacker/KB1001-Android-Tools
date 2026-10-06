@@ -107,6 +107,8 @@ The next physical-validation candidates are:
 | `policy4` / CPU4 Cortex-A73 | 1608 MHz | 1,150,000 uV | hidden node exists; matching Allwinner source shows 1608 at 1.15 V for vf0300, while this device already validates 1512/1560 at the same 1.15 V ceiling |
 | `policy2` / CPU2-3 Cortex-A53 | 1776 MHz | 1,150,000 uV | hidden node exists only 24 MHz above the vf0403 stock 1752 MHz point, which already runs at 1.15 V |
 
+Stage 7 must patch **only CPU4 1608 MHz**. CPU2-3 1776 MHz is reserved for a later Stage 8. This separation is required because the Linux cpufreq boost switch is global; marking both new points as turbo OPPs at once could expose both when boost is enabled, defeating one-OPP-at-a-time validation.
+
 These values are **validation candidates, not validated OPPs**. They must remain unavailable to user-selectable OC profiles until each target passes the same staged process used for CPU4 1560:
 
 - deterministic DTB semantic patch
