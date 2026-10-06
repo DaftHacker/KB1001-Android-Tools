@@ -224,5 +224,22 @@ public final class RootBridge {
         }
 
         public boolean ok() { return exitCode==0; }
+
+        /** True when the failure is simply that privileged/superuser access is unavailable. */
+        public boolean superuserRequired() {
+            if(ok())return false;
+            String s=output==null?"":output.toLowerCase(java.util.Locale.US);
+            return s.contains("stage=root_check") ||
+                    s.contains("denied superuser") ||
+                    s.contains("superuser rights") ||
+                    s.contains("root shell returned uid=") ||
+                    s.contains("root request failed") ||
+                    s.contains("root shell exited") ||
+                    (s.contains("cannot run program \\\"su\\\"") && s.contains("no such file"));
+        }
+
+        public String userMessage() {
+            return superuserRequired()?"Superuser access required":"Backend error";
+        }
     }
 }
