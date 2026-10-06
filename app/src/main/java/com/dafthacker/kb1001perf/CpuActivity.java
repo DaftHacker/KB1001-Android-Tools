@@ -437,10 +437,18 @@ public class CpuActivity extends Activity {
         String carrierState=m.getOrDefault("vendor_boot_state","unknown");
         String blocker=m.getOrDefault("boot_opp_install_blocker","unknown");
         boolean verified="verified_stock_20251018".equals(carrierState);
+        String installState;
+        if("vendor_boot_patcher_not_implemented".equals(blocker)){
+            installState="patcher pending";
+        }else if("none".equals(blocker)){
+            installState="install path ready";
+        }else{
+            installState="install blocked";
+        }
         bootCarrierValue.setText(
                 "Boot OPP carrier • "+carrier+
                 " • "+(verified?"VERIFIED STOCK":"UNVERIFIED")+
-                ("none".equals(blocker)?"":" • install blocked"));
+                " • "+installState);
         bootCarrierValue.setTextColor(verified?YELLOW:MUTED);
 
         setOcLine(ocStage1Value,"A73 Stage 1","1560 MHz",m.get("a73_stage1_1560"));
