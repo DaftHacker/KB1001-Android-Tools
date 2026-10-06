@@ -35,6 +35,8 @@ public class CpuActivity extends Activity {
     private TextView primeModeValue;
     private TextView defaultModeValue;
     private TextView vfValue;
+    private TextView vfCodeValue;
+    private TextView oppMapValue;
     private TextView ocStage1Value;
     private TextView ocStage2Value;
     private TextView a53OcValue;
@@ -170,10 +172,14 @@ public class CpuActivity extends Activity {
 
         LinearLayout oc=card(PURPLE);
         vfValue=text("Silicon profile • checking…",14,TEXT,true);
+        vfCodeValue=text("VF selector • checking…",10,MUTED,false);
+        oppMapValue=text("Kernel OPP map • checking…",10,MUTED,false);
         ocStage1Value=text("A73 Stage 1 • 1560 MHz • checking…",11,MUTED,false);
         ocStage2Value=text("A73 Stage 2 • 1608 MHz • checking…",11,MUTED,false);
         a53OcValue=text("Fast A53 Stage 1 • 1776 MHz • checking…",11,MUTED,false);
         oc.addView(vfValue);
+        oc.addView(vfCodeValue);
+        oc.addView(oppMapValue);
         addGap(oc,4);
         oc.addView(ocStage1Value);
         oc.addView(ocStage2Value);
@@ -401,6 +407,8 @@ public class CpuActivity extends Activity {
         if(vfValue==null)return;
         if(!ok){
             vfValue.setText("OC readiness • unavailable");
+            vfCodeValue.setText("VF selector • unavailable");
+            oppMapValue.setText("Kernel OPP map • unavailable");
             ocStage1Value.setText("A73 Stage 1 • status unavailable");
             ocStage2Value.setText("A73 Stage 2 • status unavailable");
             a53OcValue.setText("Fast A53 Stage 1 • status unavailable");
@@ -411,9 +419,26 @@ public class CpuActivity extends Activity {
         vfValue.setText("Observed VF profile • "+vf.toUpperCase(Locale.US));
         vfValue.setTextColor("vf0403".equals(vf)?YELLOW:PURPLE);
 
+        String vfVersion=m.getOrDefault("vf_version","—");
+        String dvfsCode=m.getOrDefault("dvfs_code","—");
+        vfCodeValue.setText("VF version "+vfVersion+" • DVFS code "+dvfsCode);
+
+        int p0=countOpps(m.get("policy0_opp_map"));
+        int p2=countOpps(m.get("policy2_opp_map"));
+        int p4=countOpps(m.get("policy4_opp_map"));
+        int gpu=countOpps(m.get("gpu_opp_map"));
+        oppMapValue.setText("Kernel OPP entries • P0 "+p0+" • P2 "+p2+" • P4 "+p4+" • GPU "+gpu);
+
         setOcLine(ocStage1Value,"A73 Stage 1","1560 MHz",m.get("a73_stage1_1560"));
         setOcLine(ocStage2Value,"A73 Stage 2","1608 MHz",m.get("a73_stage2_1608"));
         setOcLine(a53OcValue,"Fast A53 Stage 1","1776 MHz",m.get("a53_stage1_1776"));
+    }
+
+    private int countOpps(String raw){
+        if(raw==null||raw.trim().isEmpty())return 0;
+        int n=0;
+        for(String item:raw.split(",")) if(!item.trim().isEmpty()) n++;
+        return n;
     }
 
     private void setOcLine(TextView view,String label,String clock,String state){
