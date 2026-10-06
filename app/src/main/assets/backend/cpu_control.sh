@@ -364,8 +364,29 @@ oc_status(){
   fi
  fi
 
- if policy_has_freq "$POLICY4" 1608000; then echo "a73_stage2_1608=available"; else echo "a73_stage2_1608=boot_opp_required"; fi
- if policy_has_freq "$CPUFREQ_ROOT/policy2" 1776000; then echo "a53_stage1_1776=available"; else echo "a53_stage1_1776=boot_opp_required"; fi
+ if policy_has_freq "$POLICY4" 1608000; then
+  if [ "$(opp_target_uv cpu4 1608000000)" = 1150000 ]; then
+   echo "a73_stage2_1608=candidate_available"
+  else
+   echo "a73_stage2_1608=present_unverified"
+  fi
+ else
+  echo "a73_stage2_1608=boot_opp_required"
+ fi
+
+ if policy_has_freq "$CPUFREQ_ROOT/policy2" 1776000; then
+  if [ "$(opp_target_uv cpu2 1776000000)" = 1150000 ]; then
+   echo "a53_stage1_1776=candidate_available"
+  else
+   echo "a53_stage1_1776=present_unverified"
+  fi
+ else
+  echo "a53_stage1_1776=boot_opp_required"
+ fi
+
+ echo "a73_stage2_candidate_voltage_uv=1150000"
+ echo "a53_stage1_candidate_voltage_uv=1150000"
+ echo "higher_opp_validation_required=1"
 }
 
 
