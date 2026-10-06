@@ -8,7 +8,10 @@ Input:
 Output:
   a candidate DTB that keeps the validated CPU4 1560 changes and additionally:
     - CPU4 / cluster2 1608 MHz: vf0403 -> 1.15 V, turbo-mode
-    - CPU2-3 / cluster1 1776 MHz: vf0403 -> 1.15 V, turbo-mode
+
+A53 1776 is intentionally NOT patched in Stage 7 because cpufreq boost is
+global; introducing two new turbo OPPs at once would defeat one-step-at-a-time
+physical validation.
 
 This tool NEVER flashes anything. It only edits a DTB file supplied by the user.
 It fails closed unless the input already contains the validated 1560 semantics.
@@ -25,7 +28,6 @@ import tempfile
 
 VALIDATED_1560_UV = 1_150_000
 CANDIDATE_1608_UV = 1_150_000
-CANDIDATE_1776_UV = 1_150_000
 
 
 def run(*args: str) -> subprocess.CompletedProcess[str]:
@@ -162,12 +164,6 @@ def main() -> int:
         n1608 = ensure_boolean_property(n1608, "turbo-mode")
         text = replace_node(text, "cluster2-opp-table", 1608000000, n1608)
 
-        n1776 = get_node(text, "cluster1-opp-table", 1776000000)
-        require_property(n1776, "opp-microvolt-vf0403", 0)
-        n1776 = set_u32_property(n1776, "opp-microvolt-vf0403", CANDIDATE_1776_UV)
-        n1776 = ensure_boolean_property(n1776, "turbo-mode")
-        text = replace_node(text, "cluster1-opp-table", 1776000000, n1776)
-
         source_dts.write_text(text, encoding="utf-8", newline="\n")
         args.output_dtb.parent.mkdir(parents=True, exist_ok=True)
         compile_dts(source_dts, args.output_dtb)
@@ -179,7 +175,6 @@ def main() -> int:
         for table, hz, uv in (
             ("cluster2-opp-table", 1560000000, VALIDATED_1560_UV),
             ("cluster2-opp-table", 1608000000, CANDIDATE_1608_UV),
-            ("cluster1-opp-table", 1776000000, CANDIDATE_1776_UV),
         ):
             node = get_node(verified, table, hz)
             require_property(node, "opp-microvolt-vf0403", uv)
@@ -188,9 +183,9 @@ def main() -> int:
     print("KB1001 next-stage OPP candidate DTB created.")
     print("  CPU4 1560 MHz: validated patch preserved @ 1.15 V turbo")
     print("  CPU4 1608 MHz: candidate @ 1.15 V turbo")
-    print("  CPU2-3 1776 MHz: candidate @ 1.15 V turbo")
+    print("  CPU2-3 1776 MHz: intentionally unchanged for later Stage 8")
     print("NO FLASH WAS PERFORMED.")
-    print("The 1608/1776 points remain UNVALIDATED until physical staged testing passes.")
+    print("CPU4 1608 remains UNVALIDATED until physical staged testing passes.")
     return 0
 
 
