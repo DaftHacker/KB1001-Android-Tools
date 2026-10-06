@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.res.AssetManager;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -66,7 +68,9 @@ public final class BackendManager {
     private static RootBridge.Result installResult(Context context, RootBridge.Result result) {
         if (context != null) {
             try {
-                if (result != null && result.ok()) {
+                if (result != null && (result.ok() || result.superuserRequired())) {
+                    // Missing/denied root is self-explanatory. Do not create a
+                    // backend diagnostic for it, and clear any stale error.
                     context.getSharedPreferences(DIAG_PREFS, Context.MODE_PRIVATE)
                             .edit()
                             .remove(DIAG_LAST_ERROR)
@@ -76,15 +80,31 @@ public final class BackendManager {
                             ? "Backend installation returned no result."
                             : "exit=" + result.exitCode + "\n" +
                               (result.output == null ? "" : result.output.trim());
+                    detail=detail.trim();
                     context.getSharedPreferences(DIAG_PREFS, Context.MODE_PRIVATE)
                             .edit()
-                            .putString(DIAG_LAST_ERROR, detail.trim())
+                            .putString(DIAG_LAST_ERROR, detail)
                             .apply();
+                    appendDiagnosticLog(context,detail);
                 }
             } catch (Exception ignored) {
             }
         }
         return result;
+    }
+
+    private static void appendDiagnosticLog(Context context,String detail) {
+        if(context==null || detail==null || detail.trim().isEmpty())return;
+        try {
+            File dir=new File(context.getFilesDir(),"diagnostics");
+            if(!dir.exists() && !dir.mkdirs())return;
+            File log=new File(dir,"backend-errors.log");
+            String entry="["+System.currentTimeMillis()+"]\n"+detail.trim()+"\n\n";
+            try(FileOutputStream out=new FileOutputStream(log,true)){
+                out.write(entry.getBytes(StandardCharsets.UTF_8));
+            }
+        } catch(Exception ignored) {
+        }
     }
 
     public static String lastInstallError(Context context) {
