@@ -165,6 +165,42 @@ ensure_792_table() {
     set_dynamic_policy 792000000
 }
 
+verify_gpu_dynamic() {
+    mhz="$1"
+    hz=$((mhz * 1000000))
+    available_has "$hz" || return 1
+    [ "$(cat "$DVFS" 2>/dev/null)" = 1 ] || return 1
+    [ "$(cat "$DEVFREQ/max_freq" 2>/dev/null)" = "$hz" ] || return 1
+    return 0
+}
+
+verify_gpu_pinned() {
+    mhz="$1"
+    available_has $((mhz * 1000000)) || return 1
+    [ "$(cat "$DVFS" 2>/dev/null)" = 0 ] || return 1
+    actual="$(cat "$FREQ" 2>/dev/null | head -1 | tr -dc '0-9')"
+    [ "$actual" = "$mhz" ] || return 1
+    return 0
+}
+
+verify_gpu_dynamic(){
+ mhz="$1"
+ hz=$((mhz * 1000000))
+ available_has "$hz" || return 1
+ [ "$(cat "$DVFS" 2>/dev/null)" = 1 ] || return 1
+ [ "$(cat "$DEVFREQ/max_freq" 2>/dev/null)" = "$hz" ] || return 1
+ return 0
+}
+
+verify_gpu_pinned(){
+ mhz="$1"
+ available_has $((mhz * 1000000)) || return 1
+ [ "$(cat "$DVFS" 2>/dev/null)" = 0 ] || return 1
+ actual="$(cat "$FREQ" 2>/dev/null | head -1 | tr -dc '0-9')"
+ [ "$actual" = "$mhz" ] || return 1
+ return 0
+}
+
 apply_custom_mhz() {
     mhz="$1"
     timeout="${2:-2}"
@@ -190,6 +226,11 @@ apply_custom_mhz() {
     [ -e "$SCENE" ] && echo 0 > "$SCENE" 2>>"$LOG"
     echo 0 > "$DVFS" 2>>"$LOG" || return 1
     echo "$mhz" > "$FREQ" 2>>"$LOG" || return 1
+    verify_gpu_pinned "$mhz" || {
+        log "Pinned GPU ${mhz}MHz read-back verification failed; restoring stock."
+        restore_runtime_stock
+        return 1
+    }
 
     if [ "$mhz" = 792 ]; then
         touch "$SESSION_EXTREME"
@@ -211,9 +252,12 @@ apply_profile() {
             rm -f "$SESSION_EXTREME"
             ensure_stock_table "$timeout"
             rc=$?
-            if [ $rc -eq 0 ]; then
+            if [ $rc -eq 0 ] && verify_gpu_dynamic 696; then
                 echo stock > "$RUNTIME_PROFILE"
                 log "Applied Stock 696 profile."
+            elif [ $rc -eq 0 ]; then
+                log "Stock 696 read-back verification failed."
+                rc=1
             fi
             return $rc
             ;;
@@ -223,6 +267,7 @@ apply_profile() {
             [ -e "$SCENE" ] && echo 0 > "$SCENE" 2>>"$LOG"
             echo 0 > "$DVFS" 2>>"$LOG" || return 1
             echo 696 > "$FREQ" 2>>"$LOG" || return 1
+            verify_gpu_pinned 696 || return 1
             echo performance696 > "$RUNTIME_PROFILE"
             log "Applied Performance 696 profile (validated stock OPP pinned, vendor DVFS off)."
             return 0
@@ -231,9 +276,13 @@ apply_profile() {
             rm -f "$SESSION_EXTREME"
             ensure_744_table "$timeout"
             rc=$?
-            if [ $rc -eq 0 ]; then
+            if [ $rc -eq 0 ] && verify_gpu_dynamic 744; then
+                verify_gpu_dynamic 744 || return 1
                 echo dynamic744 > "$RUNTIME_PROFILE"
                 log "Applied Dynamic 744 profile."
+            elif [ $rc -eq 0 ]; then
+                log "Dynamic 744 read-back verification failed."
+                rc=1
             fi
             return $rc
             ;;
@@ -243,13 +292,16 @@ apply_profile() {
             [ -e "$SCENE" ] && echo 0 > "$SCENE" 2>>"$LOG"
             echo 0 > "$DVFS" 2>>"$LOG" || return 1
             echo 744 > "$FREQ" 2>>"$LOG" || return 1
+            verify_gpu_pinned 744 || return 1
             echo performance744 > "$RUNTIME_PROFILE"
             log "Applied Performance 744 profile (744 MHz pinned, vendor DVFS off)."
             return 0
             ;;
         extreme792|extreme792_dynamic)
             ensure_792_table "$timeout" || return $?
+            verify_gpu_dynamic 792 || return 1
             touch "$SESSION_EXTREME"
+            verify_gpu_dynamic 792 || return 1
             echo extreme792_dynamic > "$RUNTIME_PROFILE"
             log "Applied SESSION-ONLY Extreme 792 Dynamic profile."
             return 0
@@ -259,6 +311,7 @@ apply_profile() {
             [ -e "$SCENE" ] && echo 0 > "$SCENE" 2>>"$LOG"
             echo 0 > "$DVFS" 2>>"$LOG" || return 1
             echo 792 > "$FREQ" 2>>"$LOG" || return 1
+            verify_gpu_pinned 792 || return 1
             touch "$SESSION_EXTREME"
             echo extreme792_full > "$RUNTIME_PROFILE"
             log "Applied SESSION-ONLY Extreme 792 Full Throttle profile (792 MHz pinned)."
@@ -274,6 +327,7 @@ apply_profile() {
             ;;
     esac
 }
+
 
 show_status() {
     echo "Available: $(cat "$DEVFREQ/available_frequencies" 2>/dev/null)"

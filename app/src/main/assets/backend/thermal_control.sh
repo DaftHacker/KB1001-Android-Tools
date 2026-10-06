@@ -118,6 +118,7 @@ write_trip_c(){
  z="$(zone_for_type "$type")" || return 1
  [ "$(trip_type "$z" "$idx")" != critical ] || return 1
  node="$(trip_node "$z" "$idx")" || return 1
+ [ -w "$node" ] || return 1
  old="$(cat "$node" 2>/dev/null)"
  case "$old" in ''|*[!0-9-]*) return 1;; esac
  printf '%s|%s\n' "$node" "$old" >> "$TX"
@@ -210,6 +211,7 @@ status(){
  save_stock >/dev/null 2>&1 || true
  echo "mode=$(cat "$THERMAL_MODE" 2>/dev/null)"
  echo "stock_boot=$(cat "$THERMAL_BOOT" 2>/dev/null)"
+ echo "control_path=linux_thermal_sysfs_verified"
  echo "critical_locked=1"
  echo "hysteresis_writable=0"
  echo "android_hot_thresholds_c=75,80,85,100,105,110"

@@ -70,6 +70,14 @@ This project is device-specific. Do not flash the module on unrelated hardware.
 <!-- UI redesign work in progress -->
 
 
-### Persistent hidden CPU OPP work
+### CPU4 1560 MHz boot OPP
 
-The remaining boot-image work for activating hidden CPU OPPs is documented in [`docs/VENDOR_BOOT_OPP_HANDOFF.md`](docs/VENDOR_BOOT_OPP_HANDOFF.md). Runtime CPU/thermal controls and OPP diagnostics are integrated; persistent hidden-OPP activation remains an external/manual workflow until its image-build and recovery path is independently validated.
+The CPU4 1560 MHz VF0403 path completed staged DTB/repack, patched boot, boost-transition, and short-load validation. The validated one-time `vendor_boot_a` enablement remains an explicit operation; Performance Manager detects its exact installed state and only then enables the 1560 MHz controls. Higher hidden CPU OPPs remain locked pending separate validation.
+
+
+## Validated A333 overclock controls
+
+- **CPU:** normal MIN/MAX/governor controls stay on non-boost frequencies. CPU4 1560 MHz is a separate explicit overclock path using the validated `vendor_boot_a` turbo OPP, Linux cpufreq boost, VF0403, and 1.15 V.
+- **GPU:** 200/300/400/600/696 MHz are factory OPPs. 744/792 MHz remain session-only runtime OPP experiments through Allwinner `gpu_opp_ops`; read-back checks verify the requested state.
+- **Thermal:** controls map to writable Linux thermal trip points for CPU/GPU/idle cooling. Critical shutdown trips are not modified.
+- **Settings:** CPU OC support reports the exact validated boot/OPP state; unknown configurations fail closed.

@@ -62,6 +62,7 @@ public class MainActivity extends Activity {
     private TextView limitValue;
     private TextView limitDetail;
     private TextView backendHealthValue;
+    private TextView cpuOcSupportValue;
 
     private LinearLayout gamesContainer;
     private final Set<String> selectedGames = new LinkedHashSet<>();
@@ -686,7 +687,14 @@ public class MainActivity extends Activity {
         backendHealthValue=text("Backend: Checking…",10,MUTED,false);
         backendHealthValue.setPadding(0,dp(2),0,0);
         softwareStatus.addView(backendHealthValue);
+        cpuOcSupportValue=text("CPU OC support: Checking…",10,MUTED,false);
+        cpuOcSupportValue.setPadding(0,dp(2),0,0);
+        softwareStatus.addView(cpuOcSupportValue);
         page.addView(softwareStatus,full());
+
+        Button ocSupport=button("CPU OC Support",true,v -> showCpuOcSupportStatus());
+        ocSupport.setTextSize(13);
+        page.addView(card(ocSupport),full());
 
         Button check=button("Check for Update",true,v -> checkForUpdate(false));
         check.setTextSize(14);
@@ -695,7 +703,92 @@ public class MainActivity extends Activity {
         page.addView(card(check),full());
 
         refreshBackendHealth();
+        refreshCpuOcSupport();
     }
+
+    private void refreshCpuOcSupport(){
+        io.execute(()->{
+            RootBridge.Result r=RootBridge.get().ctl("cpu oc-status");
+            String out=r.output==null?"":r.output;
+
+            if(!r.ok()){
+                String detail=compactBackendError(out);
+                runOnUiThread(()->{
+                    if(cpuOcSupportValue==null)return;
+                    cpuOcSupportValue.setText("CPU OC support: Backend unavailable • "+detail);
+                    cpuOcSupportValue.setTextColor(BATTERY_WARN);
+                });
+                return;
+            }
+
+            boolean installed=out.contains("oc_apply_supported=1") &&
+                    out.contains("vendor_boot_state=verified_cpu4_1560_patch");
+            boolean stock=out.contains("vendor_boot_state=verified_stock");
+            runOnUiThread(()->{
+                if(cpuOcSupportValue==null)return;
+                if(installed){
+                    cpuOcSupportValue.setText("CPU OC support: Installed • CPU4 1560 MHz validated");
+                    cpuOcSupportValue.setTextColor(CPU_COLOR);
+                }else if(stock){
+                    cpuOcSupportValue.setText("CPU OC support: One-time vendor_boot enablement required");
+                    cpuOcSupportValue.setTextColor(BATTERY_WARN);
+                }else{
+                    cpuOcSupportValue.setText("CPU OC support: Unverified / unavailable");
+                    cpuOcSupportValue.setTextColor(MUTED);
+                }
+            });
+        });
+    }
+
+
+    private void showCpuOcSupportStatus(){
+        io.execute(()->{
+            RootBridge.Result r=RootBridge.get().ctl("cpu oc-status");
+            String out=r.output==null?"":r.output;
+
+            if(!r.ok()){
+                String detail=out.trim();
+                if(detail.isEmpty())detail=BackendManager.lastInstallError(this).trim();
+                if(detail.isEmpty())detail="No diagnostic output was returned.";
+                final String failure=detail;
+                runOnUiThread(()->new AlertDialog.Builder(this)
+                        .setTitle("CPU OC Support")
+                        .setMessage(
+                                "The privileged backend is not ready, so CPU OC state was not evaluated.\n\n"+
+                                        failure)
+                        .setPositiveButton("Close",null)
+                        .show());
+                return;
+            }
+
+            boolean installed=out.contains("oc_apply_supported=1") &&
+                    out.contains("vendor_boot_state=verified_cpu4_1560_patch");
+            boolean stock=out.contains("vendor_boot_state=verified_stock");
+            String message;
+            if(installed){
+                message="Validated CPU OC support is installed.\n\n"+
+                        "CPU4: 1560 MHz turbo OPP\nVoltage: 1.15 V\n"+
+                        "Validation: Stage 6C short CPU4 load PASS\n\n"+
+                        "Use the CPU Manager to select Dynamic 1560 or Performance 1560.";
+            }else if(stock){
+                message="This tablet is on the exact verified stock vendor_boot. "+
+                        "The one-time CPU4 1560 vendor_boot enablement has not been installed.\n\n"+
+                        "The boot-partition write remains an explicit one-time operation.";
+            }else{
+                message="The current vendor_boot/OPP state does not match the verified stock or validated 1560 configuration. "+
+                        "CPU OC controls remain disabled.";
+            }
+            runOnUiThread(()->{
+                AlertDialog.Builder dialog=new AlertDialog.Builder(this)
+                        .setTitle("CPU OC Support")
+                        .setMessage(message)
+                        .setNegativeButton("Close",null);
+                if(installed)dialog.setPositiveButton("Open CPU Manager",(d,w)->showCpuMenu());
+                dialog.show();
+            });
+        });
+    }
+
 
     private View overlayScaleCard() {
         LinearLayout card = new LinearLayout(this);
@@ -909,10 +1002,6 @@ public class MainActivity extends Activity {
     private void setManualOverlay(String type,boolean enabled,Switch control){
         if(control==null)return;
 
-        // A fresh install does not have SYSTEM_ALERT_WINDOW yet. Manual overlay
-        // requests originate from the foreground activity, so handle permission
-        // here instead of asking the root daemon to start a service that cannot
-        // create its window.
         if(enabled && !Settings.canDrawOverlays(this)){
             pendingOverlayPermissionType=type;
             setSwitchStateSilently(control,false);
@@ -928,44 +1017,48 @@ public class MainActivity extends Activity {
             AppStateCache.setManualFps(this,enabled);
         }
 
+        // Manual overlays are Android UI services and must not be held hostage
+        // by an unavailable root backend. Apply the local UI state immediately.
+        if(enabled){
+            if("metrics".equals(type))showHud();
+            else showFpsHud();
+        }else{
+            Intent service=new Intent(this,
+                    "metrics".equals(type)?OverlayService.class:FpsOverlayService.class);
+            try{stopService(service);}catch(Exception ignored){}
+        }
+
+        setSwitchStateSilently(control,enabled);
         control.setEnabled(false);
 
+        // Root-backed persistence is best-effort. If Magisk is unavailable to
+        // the app process, keep the overlay running/stopped according to the
+        // user's local choice instead of rolling the switch back.
         io.execute(()->{
             String command="overlay "+type+"-manual-"+(enabled?"on":"off");
             RootBridge.Result r=RootBridge.get().ctl(command);
-            boolean saved=r.ok() && (enabled?"enabled":"disabled").equals(r.output.trim());
+            boolean saved=r.ok() &&
+                    (enabled?"enabled":"disabled").equals(r.output.trim());
 
             runOnUiThread(()->{
                 if("metrics".equals(type))metricsTogglePending=false;
                 else fpsTogglePending=false;
 
                 if(!saved){
-                    if("metrics".equals(type))AppStateCache.setManualMetrics(this,!enabled);
-                    else AppStateCache.setManualFps(this,!enabled);
-                    setSwitchStateSilently(control,!enabled);
-                    Toast.makeText(this,
-                            "Could not verify manual "+type.toUpperCase(Locale.US)+" overlay state.",
-                            Toast.LENGTH_SHORT).show();
-                    refreshBackendState();
-                    control.setEnabled(true);
-                    return;
+                    String detail=compactBackendError(r.output);
+                    Toast.makeText(
+                            this,
+                            (enabled?"Overlay enabled locally. ":"Overlay disabled locally. ")+
+                                    "Privileged backend sync unavailable: "+detail,
+                            Toast.LENGTH_LONG).show();
                 }
 
-                // Do not depend on the root game daemon for a manual UI action.
-                // Start/stop the Android service directly from this foreground app.
-                if(enabled){
-                    if("metrics".equals(type))showHud();
-                    else showFpsHud();
-                }else{
-                    Intent service=new Intent(this,
-                            "metrics".equals(type)?OverlayService.class:FpsOverlayService.class);
-                    try{stopService(service);}catch(Exception ignored){}
-                }
-
+                setSwitchStateSilently(control,enabled);
                 control.setEnabled(true);
             });
         });
     }
+
 
     private Button stressButton(String label,int color) {
         Button b = new Button(this);
@@ -1073,7 +1166,18 @@ public class MainActivity extends Activity {
     private void refreshBackendState() {
         backendIo.execute(() -> {
             RootBridge.Result r = RootBridge.get().ctl("status");
-            if (!r.ok()) return;
+
+            if (!r.ok()) {
+                runOnUiThread(() -> {
+                    if (hudSwitch != null && !metricsTogglePending)
+                        setSwitchStateSilently(hudSwitch,AppStateCache.manualMetrics(this));
+                    if (fpsHudSwitch != null && !fpsTogglePending)
+                        setSwitchStateSilently(fpsHudSwitch,AppStateCache.manualFps(this));
+                    restoreManualOverlaysIfNeeded();
+                });
+                return;
+            }
+
             Map<String,String> status = parseStatus(r.output);
             AppStateCache.updateStatus(this,status);
 
@@ -1112,6 +1216,7 @@ public class MainActivity extends Activity {
             });
         });
     }
+
 
     private Map<String,String> parseStatus(String out) {
         Map<String,String> map = new HashMap<>();
@@ -1302,6 +1407,30 @@ public class MainActivity extends Activity {
         checkForUpdate(true);
     }
 
+    private String compactBackendError(String raw){
+        String value=raw==null?"":raw.trim();
+        if(value.isEmpty())value=BackendManager.lastInstallError(this).trim();
+        if(value.isEmpty())return "No diagnostic output";
+
+        String stage="";
+        String detail="";
+        for(String line:value.split("\\R")){
+            String s=line.trim();
+            if(s.isEmpty())continue;
+            if(s.startsWith("stage=") && stage.isEmpty()){
+                stage=s.substring(6).trim();
+            }else if(s.startsWith("exit=")){
+                // Stored diagnostic metadata; prefer the actual error line.
+            }else if(detail.isEmpty()){
+                detail=s;
+            }
+        }
+
+        if(detail.isEmpty())detail=value.replace('\n',' ').replace('\r',' ').trim();
+        String out=stage.isEmpty()?detail:(stage+": "+detail);
+        return out.length()>120?out.substring(0,117)+"...":out;
+    }
+
     private void refreshBackendHealth(){
         backendIo.execute(()->{
             RootBridge.Result r=BackendManager.backendHealth(this);
@@ -1320,12 +1449,14 @@ public class MainActivity extends Activity {
                     backendHealthValue.setText(label);
                     backendHealthValue.setTextColor(Color.rgb(77,210,126));
                 }else{
-                    backendHealthValue.setText("Backend: Needs attention");
+                    backendHealthValue.setText(
+                            "Backend: Needs attention • "+compactBackendError(output));
                     backendHealthValue.setTextColor(Color.rgb(255,170,92));
                 }
             });
         });
     }
+
 
     private void checkForUpdate(boolean quiet) {
         updateIo.execute(() -> {

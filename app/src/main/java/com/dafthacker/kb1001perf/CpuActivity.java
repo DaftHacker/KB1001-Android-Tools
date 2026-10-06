@@ -41,6 +41,9 @@ public class CpuActivity extends Activity {
     private TextView ocStage1Value;
     private TextView ocStage2Value;
     private TextView a53OcValue;
+    private Button ocDynamicButton;
+    private Button ocPerformanceButton;
+    private Button ocDisableButton;
 
     private ClusterUi efficiency;
     private ClusterUi performance;
@@ -168,8 +171,8 @@ public class CpuActivity extends Activity {
                 "cpufreq-cpu4",
                 ORANGE);
 
-        section(content,"EXPERIMENTAL CPU OC",
-                "Readiness for staged boot-time OPP work. No new CPU OPP or voltage is applied by this build.",PURPLE);
+        section(content,"CPU OVERCLOCK",
+                "CPU4 1560 MHz uses the validated vendor_boot turbo OPP and Linux cpufreq boost path. Generic MIN/MAX controls remain stock-only.",PURPLE);
 
         LinearLayout oc=card(PURPLE);
         vfValue=text("Silicon profile • checking…",14,TEXT,true);
@@ -188,8 +191,22 @@ public class CpuActivity extends Activity {
         oc.addView(ocStage2Value);
         oc.addView(a53OcValue);
 
+        LinearLayout ocButtons=row();
+        ocDynamicButton=button("DYNAMIC 1560",PURPLE,v->confirmOcMode("dynamic1560"));
+        ocPerformanceButton=button("PERFORMANCE 1560",ORANGE,v->confirmOcMode("performance1560"));
+        LinearLayout.LayoutParams ocBp=new LinearLayout.LayoutParams(0,dp(44),1);
+        ocBp.setMargins(dp(2),dp(8),dp(2),0);
+        ocButtons.addView(ocDynamicButton,ocBp);
+        ocButtons.addView(ocPerformanceButton,ocBp);
+        oc.addView(ocButtons);
+
+        ocDisableButton=button("DISABLE CPU OC / RESTORE STOCK",GREEN,v->applyOcMode("off"));
+        LinearLayout.LayoutParams ocOff=new LinearLayout.LayoutParams(-1,dp(44));
+        ocOff.setMargins(dp(2),dp(6),dp(2),0);
+        oc.addView(ocDisableButton,ocOff);
+
         TextView warning=text(
-                "The current VF profile exposes 1200 / 1752 / 1512 MHz as its validated maxima. Higher OPPs remain locked until a separate boot-time DT/OPP patch is installed and validated.",
+                "CPU4 1560 MHz at 1.15 V passed the staged vendor_boot, transition, idle, and short CPU4-only load validation. It remains an overclock rather than a factory VF0403 point. CPU4 1608 MHz and CPU2-3 1776 MHz remain locked pending separate validation.",
                 10,MUTED,false);
         warning.setPadding(0,dp(8),0,0);
         oc.addView(warning);
@@ -416,6 +433,9 @@ public class CpuActivity extends Activity {
             ocStage1Value.setText("A73 Stage 1 • status unavailable");
             ocStage2Value.setText("A73 Stage 2 • status unavailable");
             a53OcValue.setText("Fast A53 Stage 1 • status unavailable");
+            if(ocDynamicButton!=null)ocDynamicButton.setEnabled(false);
+            if(ocPerformanceButton!=null)ocPerformanceButton.setEnabled(false);
+            if(ocDisableButton!=null)ocDisableButton.setEnabled(true);
             return;
         }
 
@@ -454,6 +474,45 @@ public class CpuActivity extends Activity {
         setOcLine(ocStage1Value,"A73 Stage 1","1560 MHz",m.get("a73_stage1_1560"));
         setOcLine(ocStage2Value,"A73 Stage 2","1608 MHz",m.get("a73_stage2_1608"));
         setOcLine(a53OcValue,"Fast A53 Stage 1","1776 MHz",m.get("a53_stage1_1776"));
+
+        boolean applySupported="1".equals(m.get("oc_apply_supported"));
+        if(ocDynamicButton!=null)ocDynamicButton.setEnabled(applySupported);
+        if(ocPerformanceButton!=null)ocPerformanceButton.setEnabled(applySupported);
+        if(ocDisableButton!=null)ocDisableButton.setEnabled(true);
+}
+
+    private void confirmOcMode(String mode){
+        String label="dynamic1560".equals(mode)?"Dynamic 1560":"Performance 1560";
+        String behavior="dynamic1560".equals(mode)
+                ?"schedutil may scale CPU4 between 408 and 1560 MHz."
+                :"performance governor will hold CPU4 at the 1560 MHz ceiling while thermal cooling remains active.";
+        new AlertDialog.Builder(this)
+                .setTitle("Enable "+label+"?")
+                .setMessage(behavior+
+                        "\n\nThis is the validated Stage 6C CPU4 overclock: 1560 MHz at 1.15 V on VF0403. "+
+                        "Critical thermal protection is unchanged.")
+                .setNegativeButton("Cancel",null)
+                .setPositiveButton("Apply",(d,w)->applyOcMode(mode))
+                .show();
+    }
+
+    private void applyOcMode(String mode){
+        io.execute(()->{
+            RootBridge.Result r=RootBridge.get().ctl("cpu oc "+mode);
+            if(r.ok())RootBridge.get().ctl("logger refresh");
+            runOnUiThread(()->{
+                if(!r.ok()){
+                    Toast.makeText(this,
+                            r.exitCode==3
+                                    ?"Validated CPU OC support is not installed or does not match this device."
+                                    :"CPU OC request failed.",
+                            Toast.LENGTH_LONG).show();
+                }
+                ocLoaded=false;
+                loadOcStatus();
+                handler.postDelayed(this::refresh,300);
+            });
+        });
     }
 
     private int countOpps(String raw){
@@ -464,10 +523,14 @@ public class CpuActivity extends Activity {
     }
 
     private void setOcLine(TextView view,String label,String clock,String state){
-        boolean available="available".equals(state);
-        view.setText(label+" • "+clock+" • "+(available?"OPP PRESENT / APPLY LOCKED":"BOOT OPP REQUIRED"));
-        view.setTextColor(available?YELLOW:MUTED);
+        boolean validated="validated_available".equals(state);
+        boolean available=validated||"available".equals(state)||"present_unverified".equals(state);
+        String suffix=validated?"VALIDATED / READY":
+                (available?"PRESENT / NOT VALIDATED":"BOOT OPP REQUIRED");
+        view.setText(label+" • "+clock+" • "+suffix);
+        view.setTextColor(validated?GREEN:(available?YELLOW:MUTED));
     }
+
 
     private void refresh(){
         Map<String,String> telemetry=TelemetryStore.read(this);
@@ -672,6 +735,8 @@ public class CpuActivity extends Activity {
     private String friendlyMode(String mode){
         if("balanced".equals(mode))return "Balanced";
         if("performance".equals(mode))return "Locked Maximum";
+        if("oc_dynamic1560".equals(mode))return "Dynamic 1560";
+        if("oc_performance1560".equals(mode))return "Performance 1560";
         if("custom".equals(mode))return "Custom";
         return "Firmware Stock";
     }

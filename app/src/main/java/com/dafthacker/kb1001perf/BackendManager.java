@@ -25,6 +25,9 @@ public final class BackendManager {
     private static final String MIGRATION_MARKER = ROOT + "/.legacy_state_migrated";
     private static final String ROOT_BOOT_HOOK = "/data/adb/service.d/kb1001perf.sh";
 
+    private static final String DIAG_PREFS = "backend_diag";
+    private static final String DIAG_LAST_ERROR = "last_install_error";
+
     private static final String[] BACKEND_FILES = {
             "common.sh",
             "service.sh",
@@ -52,32 +55,78 @@ public final class BackendManager {
         return appContext;
     }
 
+
+    private static RootBridge.Result stageFailure(String stage, RootBridge.Result cause) {
+        int code = cause == null ? -1 : cause.exitCode;
+        String detail = cause == null || cause.output == null ? "" : cause.output.trim();
+        if (detail.isEmpty()) detail = "no diagnostic output";
+        return new RootBridge.Result(code, "stage=" + stage + "\n" + detail);
+    }
+
+    private static RootBridge.Result installResult(Context context, RootBridge.Result result) {
+        if (context != null) {
+            try {
+                if (result != null && result.ok()) {
+                    context.getSharedPreferences(DIAG_PREFS, Context.MODE_PRIVATE)
+                            .edit()
+                            .remove(DIAG_LAST_ERROR)
+                            .apply();
+                } else {
+                    String detail = result == null
+                            ? "Backend installation returned no result."
+                            : "exit=" + result.exitCode + "\n" +
+                              (result.output == null ? "" : result.output.trim());
+                    context.getSharedPreferences(DIAG_PREFS, Context.MODE_PRIVATE)
+                            .edit()
+                            .putString(DIAG_LAST_ERROR, detail.trim())
+                            .apply();
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return result;
+    }
+
+    public static String lastInstallError(Context context) {
+        if (context == null) return "";
+        try {
+            return context.getSharedPreferences(DIAG_PREFS, Context.MODE_PRIVATE)
+                    .getString(DIAG_LAST_ERROR, "");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
     public static synchronized RootBridge.Result ensureInstalled(Context context) {
         initialize(context);
+        Context ctx = appContext != null ? appContext : context;
 
         String backendDigest;
         try {
-            backendDigest = bundledBackendDigest(appContext);
+            backendDigest = bundledBackendDigest(ctx);
         } catch (Exception e) {
-            return new RootBridge.Result(
+            return installResult(ctx, new RootBridge.Result(
                     -1,
-                    "Could not fingerprint bundled backend: " +
-                            e.getClass().getSimpleName() + ": " + e.getMessage());
+                    "stage=bundle_fingerprint\nCould not fingerprint bundled backend: " +
+                            e.getClass().getSimpleName() + ": " + e.getMessage()));
         }
 
         String expectedVersion =
                 BuildConfig.VERSION_CODE + "|" + BuildConfig.VERSION_NAME + "|" + backendDigest;
 
         if (processReady && expectedVersion.equals(processReadyStamp)) {
-            return new RootBridge.Result(0, "backend=ready\nversion=" + expectedVersion);
+            return installResult(ctx,
+                    new RootBridge.Result(0, "backend=ready\nversion=" + expectedVersion));
         }
 
         RootBridge bridge = RootBridge.get();
+
         RootBridge.Result root = bridge.exec("id -u");
         if (!root.ok() || !"0".equals(root.output.trim())) {
-            return new RootBridge.Result(
-                    root.exitCode,
-                    root.output.isEmpty() ? "Root access is required for the privileged backend." : root.output);
+            RootBridge.Result reason = root.ok()
+                    ? new RootBridge.Result(1, "Root shell returned uid=" + root.output.trim())
+                    : root;
+            return installResult(ctx, stageFailure("root_check", reason));
         }
 
         RootBridge.Result prepare = bridge.exec(
@@ -86,10 +135,10 @@ public final class BackendManager {
                         " && chmod 0700 " + RootBridge.shellQuote(ROOT) + " " +
                         RootBridge.shellQuote(BACKEND_DIR) + " " +
                         RootBridge.shellQuote(STATE_DIR));
-        if (!prepare.ok()) return prepare;
+        if (!prepare.ok()) {
+            return installResult(ctx, stageFailure("prepare_directories", prepare));
+        }
 
-        // Stop only processes that are still executing from the old Magisk module.
-        // Do not kill already-migrated app-owned daemons.
         bridge.exec(
                 "ps -A -o PID,ARGS 2>/dev/null | " +
                         "grep " + RootBridge.shellQuote(LEGACY_MODULE + "/") + " | " +
@@ -107,7 +156,9 @@ public final class BackendManager {
                         "touch " + RootBridge.shellQuote(MIGRATION_MARKER) + "; " +
                         "echo migrated; " +
                         "else echo unchanged; fi");
-        if (!migrated.ok()) return migrated;
+        if (!migrated.ok()) {
+            return installResult(ctx, stageFailure("migrate_legacy_state", migrated));
+        }
 
         RootBridge.Result current = bridge.exec(
                 "test -r " + RootBridge.shellQuote(CONTROLLER) +
@@ -117,47 +168,51 @@ public final class BackendManager {
         boolean backendChanged = !current.ok();
 
         if (backendChanged) {
-            // APK replacement does not guarantee that root-owned shell daemons die.
-            // Stop every app-owned backend process before replacing scripts so no
-            // old interpreter can continue executing a stale revision.
+            processReady = false;
+            processReadyStamp = null;
+
             stopAppOwnedBackendProcesses(bridge);
 
             try {
-                AssetManager assets = appContext.getAssets();
+                AssetManager assets = ctx.getAssets();
                 for (String name : BACKEND_FILES) {
                     byte[] data = readAll(assets.open("backend/" + name));
                     RootBridge.Result written = bridge.writeRootFile(
                             BACKEND_DIR + "/" + name,
                             data,
                             "0700");
-                    if (!written.ok()) return written;
+                    if (!written.ok()) {
+                        return installResult(
+                                ctx,
+                                stageFailure("deploy_backend/" + name, written));
+                    }
                 }
 
                 RootBridge.Result version = bridge.writeRootFile(
                         VERSION_FILE,
                         (expectedVersion + "\n").getBytes(StandardCharsets.UTF_8),
                         "0600");
-                if (!version.ok()) return version;
+                if (!version.ok()) {
+                    return installResult(ctx, stageFailure("write_backend_version", version));
+                }
             } catch (Exception e) {
-                return new RootBridge.Result(
+                return installResult(ctx, new RootBridge.Result(
                         -1,
-                        "Backend deployment failed: " + e.getClass().getSimpleName() +
-                                ": " + e.getMessage());
+                        "stage=deploy_backend\nBackend deployment failed: " +
+                                e.getClass().getSimpleName() + ": " + e.getMessage()));
             }
         }
 
         RootBridge.Result hook = installRootBootHook(bridge);
-        if (!hook.ok()) return hook;
+        if (!hook.ok()) {
+            return installResult(ctx, stageFailure("install_boot_hook", hook));
+        }
 
-        // The app-owned backend and service.d hook are now the runtime owner.
-        // After state migration succeeds, retire any installed legacy module automatically.
         bridge.exec(
                 "if [ -d " + RootBridge.shellQuote(LEGACY_MODULE) + " ]; then " +
                         "touch " + RootBridge.shellQuote(LEGACY_MODULE + "/disable") + " " +
                         RootBridge.shellQuote(LEGACY_MODULE + "/remove") + "; fi");
 
-        // Clear runtime ownership markers whenever backend code changes.
-        // This prevents a surviving/stale PID file from blocking a new daemon.
         if (backendChanged || "migrated".equals(migrated.output.trim())) {
             bridge.exec(
                     "rm -f /data/local/tmp/kb1001_game_boost.pid " +
@@ -168,14 +223,17 @@ public final class BackendManager {
 
         RootBridge.Result boot = bridge.exec(
                 "sh " + RootBridge.shellQuote(CONTROLLER) + " bootstrap");
-        if (!boot.ok()) return boot;
+        if (!boot.ok()) {
+            return installResult(ctx, stageFailure("bootstrap_backend", boot));
+        }
 
         processReady = true;
         processReadyStamp = expectedVersion;
-        return new RootBridge.Result(0,
+        return installResult(ctx, new RootBridge.Result(0,
                 "backend=ready\nstate=" + migrated.output.trim() +
-                        "\nversion=" + expectedVersion);
+                        "\nversion=" + expectedVersion));
     }
+
 
     private static RootBridge.Result installRootBootHook(RootBridge bridge) {
         String hook =
