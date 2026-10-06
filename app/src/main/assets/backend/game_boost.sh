@@ -14,11 +14,11 @@ AUTO_STATE="/data/local/tmp/kb1001_game_boost.state"
 VALIDATOR_PKG="com.dafthacker.fpsvalidator"
 
 conf_get(){ v="$(grep -m1 "^$1=" "$AUTO_CONF" 2>/dev/null|cut -d= -f2-)"; [ -n "$v" ]&&printf '%s' "$v"||printf '%s' "$2"; }
-sanitize_profile(){ case "$1" in stock|dynamic744|performance744) printf '%s' "$1";; *) printf dynamic744;; esac; }
+sanitize_profile(){ case "$1" in stock|performance696) printf '%s' "$1";; *) printf stock;; esac; }
 sanitize_game_profile(){
     case "$1" in
-        dynamic744|performance744|extreme792_dynamic|extreme792_full) printf '%s' "$1" ;;
-        *) printf performance744 ;;
+        stock|performance696) printf '%s' "$1" ;;
+        *) printf performance696 ;;
     esac
 }
 
@@ -122,7 +122,7 @@ run_daemon() {
                 auto_fps_visible=0
             fi
             current="$(cat "$CONFIG" 2>/dev/null)"
-            write_state disabled "" "$(sanitize_profile "${current:-dynamic744}")"
+            write_state disabled "" "$(sanitize_profile "${current:-stock}")"
             last_mode=disabled
             last_pkg=""
             retry_target=""
@@ -130,8 +130,8 @@ run_daemon() {
             continue
         fi
 
-        game_profile="$(sanitize_game_profile "$(conf_get game_profile performance744)")"
-        idle_profile="$(sanitize_profile "$(conf_get idle_profile dynamic744)")"
+        game_profile="$(sanitize_game_profile "$(conf_get game_profile performance696)")"
+        idle_profile="$(sanitize_profile "$(conf_get idle_profile stock)")"
         poll="$(conf_get poll_seconds 2)"
         case "$poll" in 1|2|3|4|5|6|7|8|9|10) ;; *) poll=2;; esac
 
@@ -141,7 +141,7 @@ run_daemon() {
                 # Validation must observe the monitor, not trigger unrelated
                 # AutoBoost profile changes that could perturb the workload.
                 active_profile="$(cat "$CONFIG" 2>/dev/null)"
-                [ -n "$active_profile" ] || active_profile=dynamic744
+                [ -n "$active_profile" ] || active_profile=stock
                 retry_target=""
             elif [ "$boost_enabled" = 1 ]; then
                 if [ "$last_mode" != game ] || [ "$last_pkg" != "$pkg" ] || [ "$retry_target" = "$game_profile" ]; then
@@ -154,7 +154,7 @@ run_daemon() {
                 active_profile="$game_profile"
             else
                 active_profile="$(cat "$CONFIG" 2>/dev/null)"
-                [ -n "$active_profile" ] || active_profile=dynamic744
+                [ -n "$active_profile" ] || active_profile=stock
             fi
 
             # Publish the target before starting overlays so the dedicated FPS
@@ -210,7 +210,7 @@ run_daemon() {
                 active_profile="$idle_profile"
             else
                 active_profile="$(cat "$CONFIG" 2>/dev/null)"
-                [ -n "$active_profile" ] || active_profile=dynamic744
+                [ -n "$active_profile" ] || active_profile=stock
             fi
 
             write_state idle "$pkg" "$active_profile"

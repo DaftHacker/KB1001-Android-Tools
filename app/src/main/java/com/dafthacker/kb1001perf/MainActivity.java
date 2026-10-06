@@ -198,7 +198,7 @@ public class MainActivity extends Activity {
     }
 
     private void dashboardPage() {
-        section("LIVE PERFORMANCE","Tap CPU or GPU for deeper controls and details.");
+        section("LIVE PERFORMANCE","Tap CPU, GPU, Thermal, or Battery for deeper controls and details.");
 
         cpuMetric = metricCard("CPU",CPU_COLOR);
         cpuMetric.root.setOnClickListener(v -> showCpuMenu());
@@ -212,6 +212,7 @@ public class MainActivity extends Activity {
         page.addView(ramMetric.root,full());
 
         thermalMetric = metricCard("THERMAL",THERMAL_COOL);
+        thermalMetric.root.setOnClickListener(v -> showThermalMenu());
         page.addView(thermalMetric.root,full());
 
         batteryMetric = metricCard("BATTERY",BATTERY_GOOD);
@@ -244,6 +245,10 @@ public class MainActivity extends Activity {
 
     private void showCpuMenu() {
         startActivity(new Intent(this,CpuActivity.class));
+    }
+
+    private void showThermalMenu() {
+        startActivity(new Intent(this,ThermalActivity.class));
     }
 
     private void showBatteryMenu() {
@@ -1253,8 +1258,9 @@ public class MainActivity extends Activity {
 
     private String displayProfile(String p) {
         if ("stock".equals(p)) return "Stock 696";
-        if ("dynamic744".equals(p)) return "Dynamic 744";
-        if ("performance744".equals(p)) return "Performance 744";
+        if ("performance696".equals(p)) return "Performance 696";
+        if ("dynamic744".equals(p)) return "Experimental Dynamic 744";
+        if ("performance744".equals(p)) return "Experimental Performance 744";
         if ("extreme792".equals(p) || "experimental792".equals(p)) return "Experimental 792";
         return p;
     }
@@ -1442,7 +1448,7 @@ public class MainActivity extends Activity {
     private void experimental() {
         new AlertDialog.Builder(this)
                 .setTitle("Experimental 792 MHz")
-                .setMessage("Apply 792 MHz for this session? It is not persisted and AutoBoost never selects it.")
+                .setMessage("Apply the 792 MHz runtime OPP for this session? The factory ceiling is 696 MHz; this is not persisted and AutoBoost never selects it.")
                 .setNegativeButton("Cancel",(d,w) -> refreshBackendState())
                 .setPositiveButton("Apply",(d,w) -> ctl("apply experimental792"))
                 .show();

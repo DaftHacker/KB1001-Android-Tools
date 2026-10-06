@@ -76,9 +76,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         root.setPadding(dp(14),dp(10),dp(14),dp(10));
         root.setBackgroundColor(Color.rgb(8,13,18));
 
-        root.addView(text("KB1001 GPU / FPS Validation Harness",20,Color.WHITE,true));
+        root.addView(text("KB1001 A333 GPU / FPS Validation Harness",20,Color.WHITE,true));
 
         TextView help=text(
+                "Allwinner A333 / sun65iw1p1 • 4× Cortex-A53 + 1× Cortex-A73 • stock GPU max 696 MHz.\n\n"+
                 "One-launch validation. Performance Manager's normal foreground/game hook recognizes this "+
                         "validator automatically and starts the regular FPS overlay/logger. This app only "+
                         "renders the independent truth workload and never sends expected FPS values to the monitor.",

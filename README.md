@@ -13,14 +13,16 @@ The project is split into two independent halves:
 
 ### Current validated GPU profiles
 
-- Stock 696 MHz
-- Dynamic 744 MHz
-- Performance 744 MHz (pinned)
-- Extreme 792 MHz — manual/session-only test mode; never selected by AutoBoost
+- Stock 696 MHz — factory 200 / 300 / 400 / 600 / 696 MHz table with DVFS
+- Performance 696 MHz — validated stock maximum pinned
+- Experimental 744 MHz — manual/session-only runtime OPP mode
+- Experimental 792 MHz — manual/session-only runtime OPP mode
 
-Default AutoBoost behavior is **Dynamic 744 outside games → Performance 744 in selected games → Dynamic 744 after leaving the game**.
+Default AutoBoost behavior is **Stock 696 outside games → Performance 696 in selected games → Stock 696 after leaving the game**. AutoBoost never selects 744/792 MHz experimental modes.
 
-Thermal protection remains enabled. CPU and DDR tuning are intentionally not applied until the real KB1001 interfaces are mapped and validated.
+### A333 CPU and thermal mapping
+
+Recon identifies the KB1001 SoC as **Allwinner A333 / sun65iw1p1** with 4× Cortex-A53 + 1× Cortex-A73 across three cpufreq policies. The app-owned backend now exposes stock CPU governor/min/max controls plus a Thermal Manager for verified writable non-critical CPU/GPU trip temperatures. Critical shutdown trips remain locked.
 
 ## Build
 
@@ -58,11 +60,16 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the process/lifecycle des
 
 This project is device-specific. Do not flash the module on unrelated hardware.
 
-- Automatic mode never uses Extreme 792.
+- Automatic mode never uses the experimental 744/792 MHz OPP modes.
 - Runtime OPP changes wait for a safe GPU suspend window.
 - Failed OPP changes attempt stock runtime recovery.
 - Thermal protection is not disabled.
-- Extreme 792 keeps a safe reboot fallback.
+- Experimental GPU OPP modes keep a validated reboot fallback.
 
 
 <!-- UI redesign work in progress -->
+
+
+### Persistent hidden CPU OPP work
+
+The remaining boot-image work for activating hidden CPU OPPs is documented in [`docs/VENDOR_BOOT_OPP_HANDOFF.md`](docs/VENDOR_BOOT_OPP_HANDOFF.md). Runtime CPU/thermal controls and OPP diagnostics are integrated; persistent hidden-OPP activation remains an external/manual workflow until its image-build and recovery path is independently validated.

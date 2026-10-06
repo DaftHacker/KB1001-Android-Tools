@@ -199,7 +199,7 @@ bool hasExt(const char* extensions, const char* name) {
 }
 
 void writeHeader(std::ofstream& out) {
-    out << "seq,mode,phase,target_fps,target_frame_ns,render_start_ns,render_end_ns,"
+    out << "# device=KB1001\n# soc=Allwinner A333\n# platform=sun65iw1p1\n# cpu_topology=4x Cortex-A53 + 1x Cortex-A73\n# gpu_stock_max_mhz=696\nseq,mode,phase,target_fps,target_frame_ns,render_start_ns,render_end_ns,"
            "swap_start_ns,swap_end_ns,egl_frame_id,present_supported,"
            "rendering_complete_ns,composition_latch_ns,actual_present_ns,"
            "present_delta_ns,present_fps\n";

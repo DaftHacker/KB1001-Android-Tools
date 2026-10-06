@@ -8,6 +8,7 @@ LOGGER_CONF="$STATE_DIR/logger.conf"
 rm -f "$SESSION_EXTREME"
 rm -f /data/local/tmp/kb1001_telemetry_ui /data/local/tmp/kb1001_telemetry_hud
 sh "$MODDIR/cpu_control.sh" init >/dev/null 2>&1 || log "WARNING: could not capture CPU boot state."
+sh "$MODDIR/thermal_control.sh" init >/dev/null 2>&1 || log "WARNING: could not capture thermal boot state."
 log "KB1001 Performance Manager boot service started."
 
 wait_for_sysfs || { log "ERROR: GPU sysfs controls did not appear."; exit 1; }
@@ -21,7 +22,7 @@ EOC
 nohup sh "$MODDIR/perf_logger.sh" --daemon >/dev/null 2>&1 &
 
 profile="$(cat "$CONFIG" 2>/dev/null)"
-case "$profile" in stock|dynamic744|performance744) ;; *) profile=dynamic744; echo "$profile" > "$CONFIG";; esac
+case "$profile" in stock|performance696) ;; *) profile=stock; echo "$profile" > "$CONFIG";; esac
 
 enabled="$(grep -m1 '^enabled=' "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
 metrics_games="$STATE_DIR/metrics_enabled.list"
@@ -36,7 +37,7 @@ grep -q '[^[:space:]#]' "$fps_games" 2>/dev/null && fps_overlay_enabled=1
 [ "$(cat "$STATE_DIR/manual_fps_overlay" 2>/dev/null)" = 1 ] && manual_fps_enabled=1
 if [ "$enabled" = 1 ]; then
     idle="$(grep -m1 '^idle_profile=' "$AUTO_CONF" 2>/dev/null | cut -d= -f2-)"
-    case "$idle" in stock|dynamic744|performance744) profile="$idle";; esac
+    case "$idle" in stock|performance696) profile="$idle";; esac
 fi
 
 tries=0

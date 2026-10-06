@@ -229,7 +229,9 @@ sample(){
   cmax="$(cat "$cd/max_state" 2>/dev/null)"
   case "$ccur" in ''|*[!0-9]*) ccur=0;; esac
   case "$cmax" in ''|*[!0-9]*) cmax=0;; esac
-  [ "$ccur" -gt 0 ] && THERMAL_THROTTLING=1
+  case "$ctype" in
+   cpufreq-cpu*|devfreq-*|idle-cpu*) [ "$ccur" -gt 0 ] && THERMAL_THROTTLING=1 ;;
+  esac
   cooling="${cooling}${ctype}:${ccur}/${cmax};"
  done
 

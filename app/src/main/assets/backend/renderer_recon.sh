@@ -20,7 +20,12 @@ foreground_package(){
 [ -n "$TARGET" ] || TARGET="$(foreground_package)"
 
 {
- echo "KB1001 raw renderer / injection recon"
+ echo "KB1001 A333 raw renderer / injection recon"
+ echo "device=KB1001"
+ echo "soc=Allwinner A333"
+ echo "platform=sun65iw1p1"
+ echo "cpu_topology=4x Cortex-A53 + 1x Cortex-A73"
+ echo "gpu_stock_max_mhz=696"
  echo "date=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
  echo "target=$TARGET"
  echo "foreground=$(foreground_package)"

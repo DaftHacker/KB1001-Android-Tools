@@ -84,13 +84,113 @@ balanced(){
  return $rc
 }
 
+policy_path(){
+ name="$1"
+ case "$name" in policy[0-9]*) ;; *) return 1;; esac
+ p="/sys/devices/system/cpu/cpufreq/$name"
+ [ -d "$p" ] || return 1
+ echo "$p"
+}
+
+policy_set(){
+ name="$1"; field="$2"; value="$3"
+ save_stock || return 1
+ p="$(policy_path "$name")" || return 2
+
+ case "$field" in
+  min|max)
+   case "$value" in ''|*[!0-9]*) return 2;; esac
+   policy_has_freq "$p" "$value" || return 2
+   cur_min="$(cat "$p/scaling_min_freq" 2>/dev/null)"
+   cur_max="$(cat "$p/scaling_max_freq" 2>/dev/null)"
+   case "$cur_min:$cur_max" in *[!0-9:]*|'':*) return 1;; esac
+
+   if [ "$field" = min ]; then
+    [ "$value" -le "$cur_max" ] 2>/dev/null || return 2
+    node="$p/scaling_min_freq"
+   else
+    [ "$value" -ge "$cur_min" ] 2>/dev/null || return 2
+    node="$p/scaling_max_freq"
+   fi
+
+   old="$(cat "$node" 2>/dev/null)"
+   echo "$value" > "$node" 2>/dev/null || return 1
+   actual="$(cat "$node" 2>/dev/null)"
+   if [ "$actual" != "$value" ]; then
+    echo "$old" > "$node" 2>/dev/null
+    return 1
+   fi
+   ;;
+  governor)
+   grep -qw "$value" "$p/scaling_available_governors" 2>/dev/null || return 2
+   node="$p/scaling_governor"
+   old="$(cat "$node" 2>/dev/null)"
+   echo "$value" > "$node" 2>/dev/null || return 1
+   actual="$(cat "$node" 2>/dev/null)"
+   if [ "$actual" != "$value" ]; then
+    echo "$old" > "$node" 2>/dev/null
+    return 1
+   fi
+   ;;
+  *) return 2 ;;
+ esac
+
+ echo custom > "$CPU_MODE"
+ echo "state=applied"
+ echo "mode=custom"
+ echo "policy=$name"
+ echo "field=$field"
+ echo "value=$value"
+ return 0
+}
+
 policy_has_freq(){
  policy="$1"
  wanted="$2"
  grep -qw "$wanted" "$policy/scaling_available_frequencies" 2>/dev/null
 }
 
+opp_target_uv(){
+ table="$1"; hz="$2"
+ f="/sys/kernel/debug/opp/$table/opp:$hz/supply-0/u_volt_target"
+ cat "$f" 2>/dev/null
+}
+
+opp_map(){
+ table="$1"
+ root="/sys/kernel/debug/opp/$table"
+ [ -d "$root" ] || return 0
+ out=""
+ for d in "$root"/opp:*; do
+  [ -d "$d" ] || continue
+  rate="$(cat "$d/rate_hz" 2>/dev/null)"
+  available="$(cat "$d/available" 2>/dev/null)"
+  volt="$(cat "$d/supply-0/u_volt_target" 2>/dev/null)"
+  case "$rate" in ''|*[!0-9]*) continue;; esac
+  [ -n "$out" ] && out="$out,"
+  out="$out$rate:${available:-?}:${volt:-0}"
+ done
+ echo "$out"
+}
+
 vf_profile(){
+ # Primary source: vendor cpufreq class exposes the raw DVFS selector.
+ # Verified on this KB1001: dvfs_code 0x0034 -> vf_mapping_table index 0x0403.
+ code="$(cat /sys/class/cpufreq/dvfs_code 2>/dev/null | tr 'A-F' 'a-f')"
+ case "$code" in
+  0x0034|0x34) echo vf0403; return ;;
+ esac
+
+ # Fallback: match the runtime OPP voltage signature.
+ p0_912="$(opp_target_uv cpu0 912000000)"
+ p2_1296="$(opp_target_uv cpu2 1296000000)"
+ p4_1392="$(opp_target_uv cpu4 1392000000)"
+ if [ "$p0_912" = 940000 ] && [ "$p2_1296" = 940000 ] && [ "$p4_1392" = 1070000 ]; then
+  echo vf0403
+  return
+ fi
+
+ # Last fallback for kernels without selector/OPP debugfs.
  p0="$(cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq 2>/dev/null)"
  p2="$(cat /sys/devices/system/cpu/cpufreq/policy2/cpuinfo_max_freq 2>/dev/null)"
  p4="$(cat /sys/devices/system/cpu/cpufreq/policy4/cpuinfo_max_freq 2>/dev/null)"
@@ -103,13 +203,59 @@ vf_profile(){
 
 oc_status(){
  echo "vf_profile=$(vf_profile)"
+ dvfs_code_now="$(cat /sys/class/cpufreq/dvfs_code 2>/dev/null | tr 'A-F' 'a-f')"
+ if [ "$dvfs_code_now" = "0x0034" ] || [ "$dvfs_code_now" = "0x34" ]; then
+  echo "vf_profile_source=dvfs_code"
+ else
+  echo "vf_profile_source=runtime_opp_signature"
+ fi
+
+ vf_ver="$(cat /sys/class/cpufreq/vf_version 2>/dev/null)"
+ if [ -z "$vf_ver" ] && [ -r /sys/firmware/devicetree/base/vf_mapping_table/vf-version ]; then
+  vf_ver="$(tr -d '\000' < /sys/firmware/devicetree/base/vf_mapping_table/vf-version 2>/dev/null)"
+ fi
+ [ -n "$vf_ver" ] || vf_ver=unknown
+ echo "vf_version=$vf_ver"
+
+ dvfs_code="$(cat /sys/class/cpufreq/dvfs_code 2>/dev/null)"
+ [ -n "$dvfs_code" ] || dvfs_code=unreadable
+ echo "dvfs_code=$dvfs_code"
+ [ -d /sys/kernel/debug/opp ] && echo "opp_debugfs=1" || echo "opp_debugfs=0"
+
  echo "a53_efficiency_stock_max_khz=$(cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq 2>/dev/null)"
  echo "a53_performance_stock_max_khz=$(cat /sys/devices/system/cpu/cpufreq/policy2/cpuinfo_max_freq 2>/dev/null)"
  echo "a73_prime_stock_max_khz=$(cat /sys/devices/system/cpu/cpufreq/policy4/cpuinfo_max_freq 2>/dev/null)"
+
+ echo "policy0_opp_map=$(opp_map cpu0)"
+ echo "policy2_opp_map=$(opp_map cpu2)"
+ echo "policy4_opp_map=$(opp_map cpu4)"
+ echo "gpu_opp_map=$(opp_map soc@3000000-1800000.gpu)"
+
+ echo "boot_opp_carrier=vendor_boot_a"
+ known_vendor_boot_sha256="11efaf3483b2ef4250ab78b6a160e64adf80d82d3965f156554189ec8083d402"
+ current_vendor_boot_sha256="$(sha256sum /dev/block/by-name/vendor_boot_a 2>/dev/null | awk '{print $1}')"
+ echo "vendor_boot_known_sha256=$known_vendor_boot_sha256"
+ echo "vendor_boot_current_sha256=$current_vendor_boot_sha256"
+ if [ "$current_vendor_boot_sha256" = "$known_vendor_boot_sha256" ]; then
+  echo "vendor_boot_state=verified_stock_20251018"
+  echo "vendor_boot_embedded_avb=hash_footer_algorithm_none"
+ else
+  echo "vendor_boot_state=unknown_or_modified"
+  echo "vendor_boot_embedded_avb=unknown"
+ fi
+ echo "avb_top_level_vendor_boot_hash=present"
+ echo "avb_top_level_flags=0x3"
+ echo "avb_hashtree_verification=disabled"
+ echo "avb_descriptor_verification=disabled"
+ echo "avb_vendor_boot_embedded_footer=algorithm_none_hash"
+ echo "boot_opp_install_supported=0"
+ echo "boot_opp_install_blocker=vendor_boot_patcher_not_implemented"
+
  if policy_has_freq /sys/devices/system/cpu/cpufreq/policy4 1560000; then echo "a73_stage1_1560=available"; else echo "a73_stage1_1560=boot_opp_required"; fi
  if policy_has_freq /sys/devices/system/cpu/cpufreq/policy4 1608000; then echo "a73_stage2_1608=available"; else echo "a73_stage2_1608=boot_opp_required"; fi
  if policy_has_freq /sys/devices/system/cpu/cpufreq/policy2 1776000; then echo "a53_stage1_1776=available"; else echo "a53_stage1_1776=boot_opp_required"; fi
  echo "oc_apply_supported=0"
+ echo "boot_opp_patch_state=not_installed"
 }
 
 status(){
@@ -139,7 +285,8 @@ case "$1" in
  status) status ;;
  balanced) balanced ;;
  performance) performance ;;
+ policy) policy_set "$2" "$3" "$4" ;;
  oc-status) oc_status ;;
  stock|restore) restore_stock ;;
- *) echo "cpu_control.sh init|status|balanced|performance|oc-status|restore"; exit 2 ;;
+ *) echo "cpu_control.sh init|status|balanced|performance|policy POLICY min|max|governor VALUE|oc-status|restore"; exit 2 ;;
 esac
