@@ -86,10 +86,12 @@ public class OverlayService extends Service {
             if("kb1001.refresh_metrics_appearance".equals(action)){
                 float scale=getSharedPreferences("hud",MODE_PRIVATE).getFloat("scale",1f);
                 setOverlayScale(scale);
-            }else if("kb1001.dynamic744".equals(action)){
-                requestProfile("persist","dynamic744");
-            }else if("kb1001.performance744".equals(action)){
-                requestProfile("persist","performance744");
+            }else if("kb1001.stock696".equals(action) || "kb1001.dynamic744".equals(action)){
+                // dynamic744 is a legacy action name from pre-recon builds.
+                requestProfile("persist","stock");
+            }else if("kb1001.performance696".equals(action) || "kb1001.performance744".equals(action)){
+                // performance744 is a legacy action name from pre-recon builds.
+                requestProfile("persist","performance696");
             }
         }
         return START_STICKY;
@@ -107,7 +109,7 @@ public class OverlayService extends Service {
 
         LinearLayout names=new LinearLayout(this);
         names.setOrientation(LinearLayout.VERTICAL);
-        title=txt("Performance",13,Color.rgb(239,246,244),true);
+        title=txt("A333 Performance",13,Color.rgb(239,246,244),true);
         subtitle=txt("Waiting for game state",10,Color.rgb(162,184,181),false);
         names.addView(title);
         names.addView(subtitle);
@@ -390,10 +392,11 @@ public class OverlayService extends Service {
 
     private String displayProfile(String p){
         if("stock".equals(p))return "Stock 696";
-        if("dynamic744".equals(p))return "Dynamic 744";
-        if("performance744".equals(p))return "Performance 744";
-        if("experimental792".equals(p)||"extreme792".equals(p)||"extreme792_dynamic".equals(p))return "Extreme 792 Dynamic";
-        if("extreme792_full".equals(p)||"performance792".equals(p))return "Extreme 792 Full";
+        if("performance696".equals(p))return "Performance 696";
+        if("dynamic744".equals(p))return "Experimental Dynamic 744";
+        if("performance744".equals(p))return "Experimental Performance 744";
+        if("experimental792".equals(p)||"extreme792".equals(p)||"extreme792_dynamic".equals(p))return "Experimental 792 Dynamic";
+        if("extreme792_full".equals(p)||"performance792".equals(p))return "Experimental 792 Full";
         if(p!=null&&p.startsWith("custom_"))return "Custom "+p.substring("custom_".length())+" MHz";
         return p;
     }
@@ -439,18 +442,20 @@ public class OverlayService extends Service {
     private void showProfileMenu(View anchor){
         PopupMenu menu=new PopupMenu(this,anchor);
         menu.getMenu().add("Stock 696");
-        menu.getMenu().add("Dynamic 744");
-        menu.getMenu().add("Performance 744");
-        menu.getMenu().add("Extreme 792 Dynamic");
-        menu.getMenu().add("Extreme 792 Full Throttle");
+        menu.getMenu().add("Performance 696");
+        menu.getMenu().add("Experimental 744 Dynamic");
+        menu.getMenu().add("Experimental 744 Full");
+        menu.getMenu().add("Experimental 792 Dynamic");
+        menu.getMenu().add("Experimental 792 Full");
 
         menu.setOnMenuItemClickListener(item->{
             String title=item.getTitle().toString();
-            if(title.startsWith("Stock")) requestProfile("persist","stock");
-            else if(title.startsWith("Dynamic")) requestProfile("persist","dynamic744");
-            else if(title.startsWith("Performance")) requestProfile("persist","performance744");
-            else if(title.contains("Dynamic")) requestProfile("apply","extreme792_dynamic");
-            else if(title.contains("Full")) requestProfile("apply","extreme792_full");
+            if("Stock 696".equals(title)) requestProfile("persist","stock");
+            else if("Performance 696".equals(title)) requestProfile("persist","performance696");
+            else if("Experimental 744 Dynamic".equals(title)) requestProfile("apply","dynamic744");
+            else if("Experimental 744 Full".equals(title)) requestProfile("apply","performance744");
+            else if("Experimental 792 Dynamic".equals(title)) requestProfile("apply","extreme792_dynamic");
+            else if("Experimental 792 Full".equals(title)) requestProfile("apply","extreme792_full");
             return true;
         });
         menu.show();
@@ -513,12 +518,12 @@ public class OverlayService extends Service {
                 this,1,open,
                 PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
 
-        Intent dyn=new Intent(this,OverlayService.class).setAction("kb1001.dynamic744");
-        PendingIntent dynPi=PendingIntent.getService(
-                this,2,dyn,
+        Intent stock=new Intent(this,OverlayService.class).setAction("kb1001.stock696");
+        PendingIntent stockPi=PendingIntent.getService(
+                this,2,stock,
                 PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
 
-        Intent perf=new Intent(this,OverlayService.class).setAction("kb1001.performance744");
+        Intent perf=new Intent(this,OverlayService.class).setAction("kb1001.performance696");
         PendingIntent perfPi=PendingIntent.getService(
                 this,3,perf,
                 PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
@@ -530,12 +535,12 @@ public class OverlayService extends Service {
 
         return new Notification.Builder(this,CHANNEL)
                 .setSmallIcon(R.drawable.ic_stat_speed)
-                .setContentTitle("Performance Manager")
-                .setContentText("Performance HUD is running")
+                .setContentTitle("KB1001 A333 Performance Manager")
+                .setContentText("A333 performance HUD is running")
                 .setOngoing(true)
                 .setContentIntent(openPi)
-                .addAction(new Notification.Action.Builder(null,"Dynamic",dynPi).build())
-                .addAction(new Notification.Action.Builder(null,"Performance",perfPi).build())
+                .addAction(new Notification.Action.Builder(null,"Stock 696",stockPi).build())
+                .addAction(new Notification.Action.Builder(null,"Performance 696",perfPi).build())
                 .addAction(new Notification.Action.Builder(null,"Stop HUD",stopPi).build())
                 .build();
     }
