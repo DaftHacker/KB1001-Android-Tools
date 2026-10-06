@@ -68,3 +68,8 @@ This project is device-specific. Do not flash the module on unrelated hardware.
 
 
 <!-- UI redesign work in progress -->
+
+
+### Persistent hidden CPU OPP work
+
+The remaining boot-image work for activating hidden CPU OPPs is documented in [`docs/VENDOR_BOOT_OPP_HANDOFF.md`](docs/VENDOR_BOOT_OPP_HANDOFF.md). Runtime CPU/thermal controls and OPP diagnostics are integrated; persistent hidden-OPP activation remains an external/manual workflow until its image-build and recovery path is independently validated.
