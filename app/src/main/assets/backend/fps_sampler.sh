@@ -158,7 +158,7 @@ timestats_layer(){
  target="$1"
  [ -n "$target" ] || { echo "-1|-1|"; return; }
 
- # Allwinner/A523 leaves packageName blank for these layers, so accept either
+ # Allwinner/A333 leaves packageName blank for these layers, so accept either
  # an explicit packageName match or the package embedded in layerName.
  # Prefer the actual SurfaceView/BLAST/BBQ render layer.
  dumpsys SurfaceFlinger --timestats -dump 2>/dev/null | awk -v target="$target" '
@@ -391,7 +391,7 @@ target_stream(){
    if [ "$ts_frames" -ge 0 ] 2>/dev/null; then
     candidate_count=1
 
-    # The A523 SurfaceFlinger publishes averageFPS for the selected BLAST
+    # The A333 vendor SurfaceFlinger publishes averageFPS for the selected BLAST
     # presentation layer. That is already a compositor-derived FPS value, so
     # display it directly instead of estimating FPS from our polling interval.
     ts_fps="$(awk -v v="$ts_avg" 'BEGIN{
@@ -588,7 +588,12 @@ fps_recon(){
  [ -n "$out" ] || out="/data/local/tmp/kb1001_fps_recon.txt"
  [ -n "$target" ] || target="$(foreground_package)"
  {
-  echo "KB1001 FPS architecture recon"
+  echo "KB1001 A333 FPS architecture recon"
+  echo "device=KB1001"
+  echo "soc=Allwinner A333"
+  echo "platform=sun65iw1p1"
+  echo "cpu_topology=4x Cortex-A53 + 1x Cortex-A73"
+  echo "gpu_stock_max_mhz=696"
   echo "date=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
   echo "boottime_ms=$(monotonic_ms)"
   echo "target=$target"
@@ -662,6 +667,11 @@ validator_snapshot(){
  {
   echo "boottime_ms=$(monotonic_ms)"
   echo "date=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
+  echo "device=KB1001"
+  echo "soc=Allwinner A333"
+  echo "platform=sun65iw1p1"
+  echo "cpu_topology=4x Cortex-A53 + 1x Cortex-A73"
+  echo "gpu_stock_max_mhz=696"
   echo "backend_version=$(cat /data/local/kb1001perf/backend.version 2>/dev/null)"
   if command -v sha256sum >/dev/null 2>&1; then
    echo "fps_sampler_sha256=$(sha256sum "$0" 2>/dev/null | awk '{print $1}')"
