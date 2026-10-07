@@ -2,13 +2,13 @@
 
 Updated: 2026-10-07
 Authoritative branch: `main`
-Current main: `e8f57f746b60d926d817e8d4bd8380c0101ce173` — Integrate validated CPU4 1608 MHz overclock
+Production integration baseline: `e8f57f746b60d926d817e8d4bd8380c0101ce173` — Integrate validated CPU4 1608 MHz overclock
 
 ## Current task
 
 Complete validated CPU overclock support for all three A333 CPU domains without weakening recovery, VF, voltage, or thermal safety.
 
-CPU4 / Cortex-A73 is complete through 1608 MHz at the project's current short-load validation standard. Next action is a separate Stage 8 validation for CPU2-3 / Cortex-A53 at 1776 MHz / 1.15 V.
+CPU4 / Cortex-A73 is complete through 1608 MHz at the project's current short-load validation standard. Next action is a separate Stage 8 validation for CPU2-3 / Cortex-A53 at 1776 MHz / 1.15 V.\n\nExternal Stage 8 build-only tooling has now been prepared from the validated Stage 7 workflow. It is intentionally not committed to this repository and has not yet been run against the physical Stage 7 image.
 
 ## Repository status
 
@@ -99,7 +99,7 @@ Behavior:
 
 ## Stage 8 exact next action
 
-Build and validate a new vendor_boot candidate derived from the validated Stage 7 image that changes **only policy2 / CPU2-3 1776 MHz for vf0403 to 1.15 V** and marks only that new node as the Stage 8 candidate.
+Run the external Stage 8 build-only package against the exact validated Stage 7 image (`3107c282f462fc680dfafd82fb1f2a88c8b93c79cdb6904828ec061fa32b10f7`). The prepared tooling changes **only policy2 / CPU2-3 1776 MHz for vf0403 to 1.15 V**, marks that node `turbo-mode`, preserves the validated CPU4 1560/1608 OPPs, and verifies policy2 1800 remains disabled.
 
 Required sequence:
 
