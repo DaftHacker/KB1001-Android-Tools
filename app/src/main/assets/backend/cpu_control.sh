@@ -10,9 +10,12 @@ boot_id(){ cat /proc/sys/kernel/random/boot_id 2>/dev/null; }
 
 CPUFREQ_ROOT="/sys/devices/system/cpu/cpufreq"
 BOOST_NODE="$CPUFREQ_ROOT/boost"
+POLICY0="$CPUFREQ_ROOT/policy0"
+POLICY2="$CPUFREQ_ROOT/policy2"
 POLICY4="$CPUFREQ_ROOT/policy4"
 OC_1560_VENDOR_BOOT_SHA256="def940b0dbb58c68e2b815143f2829f5bef5688e6e62e7e211387fc582e45c87"
 OC_1608_VENDOR_BOOT_SHA256="3107c282f462fc680dfafd82fb1f2a88c8b93c79cdb6904828ec061fa32b10f7"
+OC_1776_VENDOR_BOOT_SHA256="739866913b6daa5dd5d306cc4f7812208499cc86ba89268616b8bf6b8a9fe40b"
 OC_STOCK_VENDOR_BOOT_SHA256="11efaf3483b2ef4250ab78b6a160e64adf80d82d3965f156554189ec8083d402"
 
 stock_max_for_policy(){
@@ -28,12 +31,81 @@ stock_max_for_policy(){
 
 boost_disable_safe(){
  if [ -w "$BOOST_NODE" ] && [ "$(cat "$BOOST_NODE" 2>/dev/null)" = 1 ]; then
-  if [ -d "$POLICY4" ] && grep -qw powersave "$POLICY4/scaling_available_governors" 2>/dev/null; then
-   echo powersave > "$POLICY4/scaling_governor" 2>/dev/null || return 1
-   sleep 1
-  fi
+  # This platform's global boost switch expands each policy's max to its turbo
+  # ceiling. Move every saved policy low and re-apply its normal ceiling before
+  # disabling boost so no cluster can transiently run a turbo OPP during exit.
+  while IFS='|' read -r p gov min max; do
+   case "$p" in "$CPUFREQ_ROOT"/policy*) ;; *) continue;; esac
+   [ -d "$p" ] || continue
+   grep -qw powersave "$p/scaling_available_governors" 2>/dev/null || return 1
+   grep -qw 408000 "$p/scaling_available_frequencies" 2>/dev/null || return 1
+   echo powersave > "$p/scaling_governor" 2>/dev/null || return 1
+   echo 408000 > "$p/scaling_min_freq" 2>/dev/null || return 1
+   echo "$max" > "$p/scaling_max_freq" 2>/dev/null || return 1
+  done < "$CPU_STATE"
+  sleep 1
   echo 0 > "$BOOST_NODE" 2>/dev/null || return 1
  fi
+ return 0
+}
+
+boost_enable_for_target(){
+ target_policy="$1"
+ [ -w "$BOOST_NODE" ] || return 1
+ [ -d "$target_policy" ] || return 1
+
+ # Preserve the live state of every policy so enabling an OC does not silently
+ # replace a user's current Balanced/custom settings on non-target clusters.
+ live_state="$STATE_DIR/cpu_boost_live.$"
+ : > "$live_state" || return 1
+ for p in "$CPUFREQ_ROOT"/policy*; do
+  [ -d "$p" ] || continue
+  gov="$(cat "$p/scaling_governor" 2>/dev/null)"
+  min="$(cat "$p/scaling_min_freq" 2>/dev/null)"
+  max="$(cat "$p/scaling_max_freq" 2>/dev/null)"
+  [ -n "$gov" ] && [ -n "$min" ] && [ -n "$max" ] || { rm -f "$live_state"; return 1; }
+  echo "$p|$gov|$min|$max" >> "$live_state" || { rm -f "$live_state"; return 1; }
+ done
+ [ -s "$live_state" ] || { rm -f "$live_state"; return 1; }
+
+ # Enabling global boost expands scaling_max_freq on every policy. Hold all
+ # policies at the lowest OPP first so that expansion cannot cause a transient
+ # turbo jump.
+ while IFS='|' read -r p gov min max; do
+  case "$p" in "$CPUFREQ_ROOT"/policy*) ;; *) continue;; esac
+  [ -d "$p" ] || continue
+  grep -qw powersave "$p/scaling_available_governors" 2>/dev/null || { rm -f "$live_state"; return 1; }
+  grep -qw 408000 "$p/scaling_available_frequencies" 2>/dev/null || { rm -f "$live_state"; return 1; }
+  echo powersave > "$p/scaling_governor" 2>/dev/null || { rm -f "$live_state"; return 1; }
+  echo 408000 > "$p/scaling_min_freq" 2>/dev/null || { rm -f "$live_state"; return 1; }
+  echo 408000 > "$p/scaling_max_freq" 2>/dev/null || { rm -f "$live_state"; return 1; }
+ done < "$live_state"
+
+ echo 1 > "$BOOST_NODE" 2>/dev/null || { rm -f "$live_state"; return 1; }
+ [ "$(cat "$BOOST_NODE" 2>/dev/null)" = 1 ] || { rm -f "$live_state"; return 1; }
+
+ # Re-clamp immediately after the global boost toggle. Keep the target low until
+ # oc_apply() sets its validated turbo ceiling; restore every non-target policy
+ # to the exact state it had immediately before the OC request.
+ while IFS='|' read -r p gov min max; do
+  case "$p" in "$CPUFREQ_ROOT"/policy*) ;; *) continue;; esac
+  [ -d "$p" ] || continue
+  if [ "$p" = "$target_policy" ]; then
+   echo 408000 > "$p/scaling_min_freq" 2>/dev/null || { rm -f "$live_state"; return 1; }
+   echo 408000 > "$p/scaling_max_freq" 2>/dev/null || { rm -f "$live_state"; return 1; }
+   continue
+  fi
+  echo "$max" > "$p/scaling_max_freq" 2>/dev/null || { rm -f "$live_state"; return 1; }
+  echo "$min" > "$p/scaling_min_freq" 2>/dev/null || { rm -f "$live_state"; return 1; }
+  if grep -qw "$gov" "$p/scaling_available_governors" 2>/dev/null; then
+   echo "$gov" > "$p/scaling_governor" 2>/dev/null || { rm -f "$live_state"; return 1; }
+  else
+   rm -f "$live_state"
+   return 1
+  fi
+ done < "$live_state"
+
+ rm -f "$live_state"
  return 0
 }
 
@@ -56,7 +128,7 @@ oc_1560_support_present(){
  [ -d "$POLICY4" ] || return 1
  sha="$(current_vendor_boot_sha256)"
  case "$sha" in
-  "$OC_1560_VENDOR_BOOT_SHA256"|"$OC_1608_VENDOR_BOOT_SHA256") ;;
+  "$OC_1560_VENDOR_BOOT_SHA256"|"$OC_1608_VENDOR_BOOT_SHA256"|"$OC_1776_VENDOR_BOOT_SHA256") ;;
   *) return 1 ;;
  esac
  grep -qw 1560000 "$POLICY4/scaling_boost_frequencies" 2>/dev/null || return 1
@@ -66,9 +138,21 @@ oc_1560_support_present(){
 oc_1608_support_present(){
  [ -r "$BOOST_NODE" ] || return 1
  [ -d "$POLICY4" ] || return 1
- [ "$(current_vendor_boot_sha256)" = "$OC_1608_VENDOR_BOOT_SHA256" ] || return 1
+ sha="$(current_vendor_boot_sha256)"
+ case "$sha" in
+  "$OC_1608_VENDOR_BOOT_SHA256"|"$OC_1776_VENDOR_BOOT_SHA256") ;;
+  *) return 1 ;;
+ esac
  grep -qw 1608000 "$POLICY4/scaling_boost_frequencies" 2>/dev/null || return 1
  opp_ready cpu4 1608000000 1150000
+}
+
+oc_1776_support_present(){
+ [ -r "$BOOST_NODE" ] || return 1
+ [ -d "$POLICY2" ] || return 1
+ [ "$(current_vendor_boot_sha256)" = "$OC_1776_VENDOR_BOOT_SHA256" ] || return 1
+ grep -qw 1776000 "$POLICY2/scaling_boost_frequencies" 2>/dev/null || return 1
+ opp_ready cpu2 1776000000 1150000
 }
 
 oc_support_present(){
@@ -279,56 +363,84 @@ oc_apply(){
 
  case "$mode" in
   dynamic1560)
+   target_policy="$POLICY4"
+   target_name=policy4
    target=1560000
    governor=schedutil
    state_mode=oc_dynamic1560
    oc_1560_support_present || return 3
    ;;
   performance1560)
+   target_policy="$POLICY4"
+   target_name=policy4
    target=1560000
    governor=performance
    state_mode=oc_performance1560
    oc_1560_support_present || return 3
    ;;
   dynamic1608)
+   target_policy="$POLICY4"
+   target_name=policy4
    target=1608000
    governor=schedutil
    state_mode=oc_dynamic1608
    oc_1608_support_present || return 3
    ;;
   performance1608)
+   target_policy="$POLICY4"
+   target_name=policy4
    target=1608000
    governor=performance
    state_mode=oc_performance1608
    oc_1608_support_present || return 3
    ;;
+  dynamic1776)
+   target_policy="$POLICY2"
+   target_name=policy2
+   target=1776000
+   governor=schedutil
+   state_mode=oc_dynamic1776
+   oc_1776_support_present || return 3
+   ;;
+  performance1776)
+   target_policy="$POLICY2"
+   target_name=policy2
+   target=1776000
+   governor=performance
+   state_mode=oc_performance1776
+   oc_1776_support_present || return 3
+   ;;
   *) return 2 ;;
  esac
 
- grep -qw "$governor" "$POLICY4/scaling_available_governors" 2>/dev/null || return 2
+ grep -qw "$governor" "$target_policy/scaling_available_governors" 2>/dev/null || return 2
 
- # Always enter the boost path from the lowest CPU4 state. Enabling the global
- # boost switch can expose more than one validated turbo OPP on Stage 7, so keep
- # powersave active until scaling_max has been clamped to the requested target.
- echo powersave > "$POLICY4/scaling_governor" 2>/dev/null || return 1
- sleep 1
- echo 1 > "$BOOST_NODE" 2>/dev/null || return 1
- sleep 1
- [ "$(cat "$BOOST_NODE" 2>/dev/null)" = 1 ] || { boost_disable_safe; return 1; }
- grep -qw "$target" "$POLICY4/scaling_boost_frequencies" 2>/dev/null || { boost_disable_safe; return 3; }
+ if ! boost_enable_for_target "$target_policy"; then
+  restore_stock >/dev/null 2>&1 || true
+  return 1
+ fi
 
- echo 408000 > "$POLICY4/scaling_min_freq" 2>/dev/null || { boost_disable_safe; return 1; }
- echo "$target" > "$POLICY4/scaling_max_freq" 2>/dev/null || { boost_disable_safe; return 1; }
- [ "$(cat "$POLICY4/scaling_max_freq" 2>/dev/null)" = "$target" ] || { boost_disable_safe; return 1; }
+ if ! grep -qw "$target" "$target_policy/scaling_boost_frequencies" 2>/dev/null; then
+  restore_stock >/dev/null 2>&1 || true
+  return 3
+ fi
 
- echo "$governor" > "$POLICY4/scaling_governor" 2>/dev/null || { boost_disable_safe; return 1; }
+ echo 408000 > "$target_policy/scaling_min_freq" 2>/dev/null || { restore_stock >/dev/null 2>&1 || true; return 1; }
+ echo "$target" > "$target_policy/scaling_max_freq" 2>/dev/null || { restore_stock >/dev/null 2>&1 || true; return 1; }
+ [ "$(cat "$target_policy/scaling_max_freq" 2>/dev/null)" = "$target" ] || { restore_stock >/dev/null 2>&1 || true; return 1; }
+
+ echo "$governor" > "$target_policy/scaling_governor" 2>/dev/null || { restore_stock >/dev/null 2>&1 || true; return 1; }
  echo "$state_mode" > "$CPU_MODE"
 
  echo "state=applied"
  echo "mode=$mode"
  echo "boost=$(cat "$BOOST_NODE" 2>/dev/null)"
+ echo "target_policy=$target_name"
+ echo "target_max=$(cat "$target_policy/scaling_max_freq" 2>/dev/null)"
+ echo "target_governor=$(cat "$target_policy/scaling_governor" 2>/dev/null)"
+ echo "policy0_max=$(cat "$POLICY0/scaling_max_freq" 2>/dev/null)"
+ echo "policy2_max=$(cat "$POLICY2/scaling_max_freq" 2>/dev/null)"
  echo "policy4_max=$(cat "$POLICY4/scaling_max_freq" 2>/dev/null)"
- echo "policy4_governor=$(cat "$POLICY4/scaling_governor" 2>/dev/null)"
  return 0
 }
 
@@ -375,9 +487,11 @@ oc_status(){
  echo "vendor_boot_stock_sha256=$OC_STOCK_VENDOR_BOOT_SHA256"
  echo "vendor_boot_stage6_1560_sha256=$OC_1560_VENDOR_BOOT_SHA256"
  echo "vendor_boot_stage7_1608_sha256=$OC_1608_VENDOR_BOOT_SHA256"
- echo "vendor_boot_patched_sha256=$OC_1608_VENDOR_BOOT_SHA256"
+ echo "vendor_boot_stage8_1776_sha256=$OC_1776_VENDOR_BOOT_SHA256"
+ echo "vendor_boot_patched_sha256=$OC_1776_VENDOR_BOOT_SHA256"
  echo "vendor_boot_current_sha256=$current_vendor_boot_sha256"
  case "$current_vendor_boot_sha256" in
+  "$OC_1776_VENDOR_BOOT_SHA256") echo "vendor_boot_state=verified_cpu2_1776_patch" ;;
   "$OC_1608_VENDOR_BOOT_SHA256") echo "vendor_boot_state=verified_cpu4_1608_patch" ;;
   "$OC_1560_VENDOR_BOOT_SHA256") echo "vendor_boot_state=verified_cpu4_1560_patch" ;;
   "$OC_STOCK_VENDOR_BOOT_SHA256") echo "vendor_boot_state=verified_stock" ;;
@@ -385,9 +499,13 @@ oc_status(){
  esac
 
  echo "boost=$(cat "$BOOST_NODE" 2>/dev/null)"
+ echo "policy2_boost_frequencies=$(cat "$POLICY2/scaling_boost_frequencies" 2>/dev/null)"
+ echo "policy2_scaling_max_khz=$(cat "$POLICY2/scaling_max_freq" 2>/dev/null)"
+ echo "policy2_cpuinfo_max_khz=$(cat "$POLICY2/cpuinfo_max_freq" 2>/dev/null)"
  echo "policy4_boost_frequencies=$(cat "$POLICY4/scaling_boost_frequencies" 2>/dev/null)"
  echo "policy4_scaling_max_khz=$(cat "$POLICY4/scaling_max_freq" 2>/dev/null)"
  echo "policy4_cpuinfo_max_khz=$(cat "$POLICY4/cpuinfo_max_freq" 2>/dev/null)"
+ echo "cluster1_regulator=axp1530-dcdc2"
  echo "cluster2_regulator=axp1530-dcdc1"
 
  if oc_1560_support_present; then
@@ -438,12 +556,20 @@ oc_status(){
   fi
  fi
 
- if opp_ready cpu2 1776000000 1150000; then
-  echo "a53_stage1_1776=candidate_available"
+ if oc_1776_support_present; then
+  echo "a53_stage1_1776=validated_available"
+  echo "a53_stage1_voltage_uv=1150000"
+  echo "a53_stage1_validation=stage8c_light_load_pass"
+  echo "oc_1776_apply_supported=1"
+  echo "boot_opp_patch_state=installed_stage8_1776"
+  echo "boot_opp_install_blocker=none"
+  echo "oc_max_validated_khz=1776000"
  elif [ "$(cat /sys/kernel/debug/opp/cpu2/opp:1776000000/available 2>/dev/null)" = Y ]; then
   echo "a53_stage1_1776=present_unverified"
+  echo "oc_1776_apply_supported=0"
  else
   echo "a53_stage1_1776=boot_opp_required"
+  echo "oc_1776_apply_supported=0"
  fi
 
  echo "a73_stage2_candidate_voltage_uv=1150000"
@@ -481,7 +607,7 @@ case "$1" in
  performance) performance ;;
  policy) policy_set "$2" "$3" "$4" ;;
  oc-status) oc_status ;;
- oc) case "$2" in dynamic1560|performance1560|dynamic1608|performance1608) oc_apply "$2" ;; off|stock) oc_disable ;; *) exit 2 ;; esac ;;
+ oc) case "$2" in dynamic1560|performance1560|dynamic1608|performance1608|dynamic1776|performance1776) oc_apply "$2" ;; off|stock) oc_disable ;; *) exit 2 ;; esac ;;
  stock|restore) restore_stock ;;
- *) echo "cpu_control.sh init|status|balanced|performance|policy POLICY min|max|governor VALUE|oc-status|oc dynamic1560|performance1560|dynamic1608|performance1608|off|restore"; exit 2 ;;
+ *) echo "cpu_control.sh init|status|balanced|performance|policy POLICY min|max|governor VALUE|oc-status|oc dynamic1560|performance1560|dynamic1608|performance1608|dynamic1776|performance1776|off|restore"; exit 2 ;;
 esac
