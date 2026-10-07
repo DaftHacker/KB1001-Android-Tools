@@ -32,9 +32,9 @@ die() {
 [[ $# -ge 1 && $# -le 2 ]] || { usage; exit 2; }
 
 SOURCE="$(readlink -f "$1")"
-OUTPUT="\${2:-vendor_boot_stage7_candidate_a.img}"
+OUTPUT="${2:-vendor_boot_stage7_candidate_a.img}"
 OUTPUT="$(readlink -m "$OUTPUT")"
-ADB="\${ADB:-adb}"
+ADB="${ADB:-adb}"
 
 [[ -f "$SOURCE" ]] || die "source image not found: $SOURCE"
 command -v "$ADB" >/dev/null || die "adb not found: $ADB"
@@ -43,17 +43,22 @@ command -v python3 >/dev/null || die "python3 not found"
 command -v dtc >/dev/null || die "dtc not found"
 
 ADB_ARGS=()
-if [[ -n "\${ADB_SERIAL:-}" ]]; then
+if [[ -n "${ADB_SERIAL:-}" ]]; then
   ADB_ARGS=(-s "$ADB_SERIAL")
 fi
 
 adb_cmd() {
-  "$ADB" "\${ADB_ARGS[@]}" "$@"
+  "$ADB" "${ADB_ARGS[@]}" "$@"
 }
 
 root_sh() {
   local cmd="$1"
-  adb_cmd shell su -c "$cmd"
+  # This tablet's MagiskSU has shown unreliable su -c argument parsing.
+  # Feed a single command to one interactive root shell instead.
+  {
+    printf '%s\n' "$cmd"
+    printf 'exit\n'
+  } | adb_cmd shell su
 }
 
 SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
@@ -104,7 +109,7 @@ root_sh "rm -rf '$REMOTE' && mkdir -p '$REMOTE/original' '$REMOTE/verify'"
 echo
 echo "[1/7] Push exact validated 1560 source"
 adb_cmd push "$SOURCE" "$REMOTE/source.img" >/dev/null
-REMOTE_SOURCE_SHA="$(root_sh "sha256sum '$REMOTE/source.img' | awk '{print \\\$1}'" | tr -d '\r')"
+REMOTE_SOURCE_SHA="$(root_sh "sha256sum '$REMOTE/source.img' | awk '{print \\$1}'" | tr -d '\r' | tail -n1)"
 [[ "$REMOTE_SOURCE_SHA" == "$SOURCE_EXPECTED_SHA256" ]] ||
   die "remote source hash mismatch"
 
