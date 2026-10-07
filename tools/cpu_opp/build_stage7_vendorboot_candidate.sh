@@ -61,7 +61,7 @@ root_sh() {
   } | adb_cmd shell su
 }
 
-SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCHER="$SCRIPT_DIR/build_stage7_candidate_dtb.py"
 [[ -f "$PATCHER" ]] || die "companion patcher missing: $PATCHER"
 
