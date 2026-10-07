@@ -109,7 +109,7 @@ root_sh "rm -rf '$REMOTE' && mkdir -p '$REMOTE/original' '$REMOTE/verify'"
 echo
 echo "[1/7] Push exact validated 1560 source"
 adb_cmd push "$SOURCE" "$REMOTE/source.img" >/dev/null
-REMOTE_SOURCE_SHA="$(root_sh "sha256sum '$REMOTE/source.img' | awk '{print \\$1}'" | tr -d '\r' | tail -n1)"
+REMOTE_SOURCE_SHA="$(root_sh "sha256sum '$REMOTE/source.img' | cut -d ' ' -f1" | tr -d '\r' | tail -n1)"
 [[ "$REMOTE_SOURCE_SHA" == "$SOURCE_EXPECTED_SHA256" ]] ||
   die "remote source hash mismatch"
 
