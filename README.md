@@ -70,14 +70,14 @@ This project is device-specific. Do not flash the module on unrelated hardware.
 <!-- UI redesign work in progress -->
 
 
-### CPU4 1560 / 1608 MHz boot OPPs
+### Validated CPU boot OPPs
 
-CPU4 1560 MHz and 1608 MHz on VF0403 have both completed staged DTB/repack, patched boot, boost-transition, idle, and short CPU4-only load validation at 1.15 V. The one-time `vendor_boot_a` enablement remains an explicit operation; Performance Manager detects the exact installed Stage 6/Stage 7 image state and only exposes OC controls that have been validated on that image. CPU2-3 1776 MHz and CPU0-1 1296 MHz remain locked pending separate validation.
+CPU4 1560/1608 MHz and CPU2-3 1776 MHz on VF0403 have completed staged DTB/repack, patched boot, boost-transition, idle, and short pinned-load validation at 1.15 V. The one-time `vendor_boot_a` enablement remains an explicit external operation; Performance Manager recognizes exact validated Stage 6/7/8 image states and exposes only OC controls whose image hash and live OPP semantics match. CPU0-1 1296 MHz remains locked pending separate validation.
 
 
 ## Validated A333 overclock controls
 
-- **CPU:** normal MIN/MAX/governor controls stay on non-boost frequencies. CPU4 1560 MHz and 1608 MHz are separate explicit overclock paths using validated `vendor_boot_a` turbo OPPs, Linux cpufreq boost, VF0403, and 1.15 V. Stage 7 exposes Dynamic 1608 and Performance 1608 in addition to the validated 1560 modes.
+- **CPU:** normal MIN/MAX/governor controls stay on non-boost frequencies. CPU4 1560/1608 MHz and CPU2-3 1776 MHz are explicit overclock paths using validated `vendor_boot_a` turbo OPPs, Linux cpufreq boost, VF0403, and 1.15 V. Because the boost switch is global on this platform, the backend holds all CPU policies at the low OPP across boost transitions and re-clamps non-target policies before applying the selected OC.
 - **GPU:** 200/300/400/600/696 MHz are factory OPPs. 744/792 MHz remain session-only runtime OPP experiments through Allwinner `gpu_opp_ops`; read-back checks verify the requested state.
 - **Thermal:** controls map to writable Linux thermal trip points for CPU/GPU/idle cooling. Critical shutdown trips are not modified.
 - **Settings:** CPU OC support reports the exact validated boot/OPP state; unknown configurations fail closed.
