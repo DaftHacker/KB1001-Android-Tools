@@ -740,12 +740,19 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            boolean installed=out.contains("oc_apply_supported=1") &&
-                    out.contains("vendor_boot_state=verified_cpu4_1560_patch");
+            boolean installed1608=out.contains("oc_1608_apply_supported=1") &&
+                    out.contains("vendor_boot_state=verified_cpu4_1608_patch");
+            boolean installed1560=out.contains("oc_apply_supported=1") &&
+                    (out.contains("vendor_boot_state=verified_cpu4_1560_patch") ||
+                     out.contains("vendor_boot_state=verified_cpu4_1608_patch"));
+            boolean installed=installed1608||installed1560;
             boolean stock=out.contains("vendor_boot_state=verified_stock");
             runOnUiThread(()->{
                 if(cpuOcSupportValue==null)return;
-                if(installed){
+                if(installed1608){
+                    cpuOcSupportValue.setText("CPU OC support: Installed • CPU4 1608 MHz validated");
+                    cpuOcSupportValue.setTextColor(CPU_COLOR);
+                }else if(installed1560){
                     cpuOcSupportValue.setText("CPU OC support: Installed • CPU4 1560 MHz validated");
                     cpuOcSupportValue.setTextColor(CPU_COLOR);
                 }else if(stock){
@@ -787,11 +794,20 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            boolean installed=out.contains("oc_apply_supported=1") &&
-                    out.contains("vendor_boot_state=verified_cpu4_1560_patch");
+            boolean installed1608=out.contains("oc_1608_apply_supported=1") &&
+                    out.contains("vendor_boot_state=verified_cpu4_1608_patch");
+            boolean installed1560=out.contains("oc_apply_supported=1") &&
+                    (out.contains("vendor_boot_state=verified_cpu4_1560_patch") ||
+                     out.contains("vendor_boot_state=verified_cpu4_1608_patch"));
+            boolean installed=installed1608||installed1560;
             boolean stock=out.contains("vendor_boot_state=verified_stock");
             String message;
-            if(installed){
+            if(installed1608){
+                message="Validated CPU OC support is installed.\n\n"+
+                        "CPU4: 1560 + 1608 MHz turbo OPPs\nVoltage: 1.15 V\n"+
+                        "Validation: Stage 6C (1560) + Stage 7C (1608) short CPU4 load PASS\n\n"+
+                        "Use the CPU Manager to select Dynamic/Performance 1560 or 1608.";
+            }else if(installed1560){
                 message="Validated CPU OC support is installed.\n\n"+
                         "CPU4: 1560 MHz turbo OPP\nVoltage: 1.15 V\n"+
                         "Validation: Stage 6C short CPU4 load PASS\n\n"+
@@ -801,7 +817,7 @@ public class MainActivity extends Activity {
                         "The one-time CPU4 1560 vendor_boot enablement has not been installed.\n\n"+
                         "The boot-partition write remains an explicit one-time operation.";
             }else{
-                message="The current vendor_boot/OPP state does not match the verified stock or validated 1560 configuration. "+
+                message="The current vendor_boot/OPP state does not match the verified stock or validated CPU4 1560/1608 configurations. "+
                         "CPU OC controls remain disabled.";
             }
             runOnUiThread(()->{

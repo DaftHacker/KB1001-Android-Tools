@@ -44,6 +44,8 @@ public class CpuActivity extends Activity {
     private TextView a53OcValue;
     private Button ocDynamicButton;
     private Button ocPerformanceButton;
+    private Button ocDynamic1608Button;
+    private Button ocPerformance1608Button;
     private Button ocDisableButton;
 
     private ClusterUi efficiency;
@@ -173,7 +175,7 @@ public class CpuActivity extends Activity {
                 ORANGE);
 
         section(content,"CPU OVERCLOCK",
-                "CPU4 1560 MHz uses the validated vendor_boot turbo OPP and Linux cpufreq boost path. Generic MIN/MAX controls remain stock-only.",PURPLE);
+                "CPU4 1560 and 1608 MHz use validated vendor_boot turbo OPPs and the Linux cpufreq boost path. Generic MIN/MAX controls remain stock-only.",PURPLE);
 
         LinearLayout oc=card(PURPLE);
         vfValue=text("Silicon profile • checking…",14,TEXT,true);
@@ -204,13 +206,22 @@ public class CpuActivity extends Activity {
         ocButtons.addView(ocPerformanceButton,ocBp);
         oc.addView(ocButtons);
 
+        LinearLayout oc1608Buttons=row();
+        ocDynamic1608Button=button("DYNAMIC 1608",PURPLE,v->confirmOcMode("dynamic1608"));
+        ocPerformance1608Button=button("PERFORMANCE 1608",ORANGE,v->confirmOcMode("performance1608"));
+        LinearLayout.LayoutParams oc1608Bp=new LinearLayout.LayoutParams(0,dp(44),1);
+        oc1608Bp.setMargins(dp(2),dp(6),dp(2),0);
+        oc1608Buttons.addView(ocDynamic1608Button,oc1608Bp);
+        oc1608Buttons.addView(ocPerformance1608Button,oc1608Bp);
+        oc.addView(oc1608Buttons);
+
         ocDisableButton=button("DISABLE CPU OC / RESTORE STOCK",GREEN,v->applyOcMode("off"));
         LinearLayout.LayoutParams ocOff=new LinearLayout.LayoutParams(-1,dp(44));
         ocOff.setMargins(dp(2),dp(6),dp(2),0);
         oc.addView(ocDisableButton,ocOff);
 
         TextView warning=text(
-                "CPU4 1560 MHz at 1.15 V passed staged boot, transition, idle, and short CPU4-only load validation. CPU4 1608 MHz and CPU2-3 1776 MHz are the next 1.15 V boot-OPP candidates, but remain locked until their own staged physical validation passes.",
+                "CPU4 1560 and 1608 MHz at 1.15 V both passed staged boot, transition, idle, and short CPU4-only load validation. CPU2-3 1776 MHz remains locked until its own staged physical validation passes.",
                 10,MUTED,false);
         warning.setPadding(0,dp(8),0,0);
         oc.addView(warning);
@@ -449,6 +460,8 @@ public class CpuActivity extends Activity {
             a53OcValue.setText("Fast A53 Stage 1 • status unavailable");
             if(ocDynamicButton!=null)ocDynamicButton.setEnabled(false);
             if(ocPerformanceButton!=null)ocPerformanceButton.setEnabled(false);
+            if(ocDynamic1608Button!=null)ocDynamic1608Button.setEnabled(false);
+            if(ocPerformance1608Button!=null)ocPerformance1608Button.setEnabled(false);
             if(ocDisableButton!=null)ocDisableButton.setEnabled(true);
             return;
         }
@@ -470,7 +483,9 @@ public class CpuActivity extends Activity {
         String carrier=m.getOrDefault("boot_opp_carrier","unknown");
         String carrierState=m.getOrDefault("vendor_boot_state","unknown");
         String blocker=m.getOrDefault("boot_opp_install_blocker","unknown");
-        boolean patched="verified_cpu4_1560_patch".equals(carrierState);
+        boolean patched1608="verified_cpu4_1608_patch".equals(carrierState);
+        boolean patched1560="verified_cpu4_1560_patch".equals(carrierState);
+        boolean patched=patched1608||patched1560;
         boolean stock="verified_stock".equals(carrierState);
         String installState;
         if("vendor_boot_patcher_not_implemented".equals(blocker)){
@@ -480,7 +495,8 @@ public class CpuActivity extends Activity {
         }else{
             installState="install blocked";
         }
-        String carrierLabel=patched?"VALIDATED 1560 PATCH":(stock?"VERIFIED STOCK":"UNVERIFIED");
+        String carrierLabel=patched1608?"VALIDATED 1608 PATCH":
+                (patched1560?"VALIDATED 1560 PATCH":(stock?"VERIFIED STOCK":"UNVERIFIED"));
         bootCarrierValue.setText(
                 "Boot OPP carrier • "+carrier+
                 " • "+carrierLabel+
@@ -492,20 +508,29 @@ public class CpuActivity extends Activity {
         setOcLine(a53OcValue,"Fast A53 Stage 1","1776 MHz",m.get("a53_stage1_1776"));
 
         boolean applySupported="1".equals(m.get("oc_apply_supported"));
+        boolean apply1608Supported="1".equals(m.get("oc_1608_apply_supported"));
         if(ocDynamicButton!=null)ocDynamicButton.setEnabled(applySupported);
         if(ocPerformanceButton!=null)ocPerformanceButton.setEnabled(applySupported);
+        if(ocDynamic1608Button!=null)ocDynamic1608Button.setEnabled(apply1608Supported);
+        if(ocPerformance1608Button!=null)ocPerformance1608Button.setEnabled(apply1608Supported);
         if(ocDisableButton!=null)ocDisableButton.setEnabled(true);
 }
 
     private void confirmOcMode(String mode){
-        String label="dynamic1560".equals(mode)?"Dynamic 1560":"Performance 1560";
-        String behavior="dynamic1560".equals(mode)
-                ?"schedutil may scale CPU4 between 408 and 1560 MHz."
-                :"performance governor will hold CPU4 at the 1560 MHz ceiling while thermal cooling remains active.";
+        boolean stage7=mode.endsWith("1608");
+        boolean dynamic=mode.startsWith("dynamic");
+        String mhz=stage7?"1608":"1560";
+        String label=(dynamic?"Dynamic ":"Performance ")+mhz;
+        String behavior=dynamic
+                ?"schedutil may scale CPU4 between 408 and "+mhz+" MHz."
+                :"performance governor will hold CPU4 at the "+mhz+" MHz ceiling while thermal cooling remains active.";
+        String validation=stage7
+                ?"validated Stage 7C CPU4 overclock"
+                :"validated Stage 6C CPU4 overclock";
         new AlertDialog.Builder(this)
                 .setTitle("Enable "+label+"?")
                 .setMessage(behavior+
-                        "\n\nThis is the validated Stage 6C CPU4 overclock: 1560 MHz at 1.15 V on VF0403. "+
+                        "\n\nThis is the "+validation+": "+mhz+" MHz at 1.15 V on VF0403. "+
                         "Critical thermal protection is unchanged.")
                 .setNegativeButton("Cancel",null)
                 .setPositiveButton("Apply",(d,w)->applyOcMode(mode))
@@ -589,7 +614,8 @@ public class CpuActivity extends Activity {
             String liveGov=primePolicy==null?"—":primePolicy.governor;
             int liveMax=primePolicy==null?0:primePolicy.max;
             boolean boosted=primeClock>1512 || liveMax>1512 ||
-                    "oc_dynamic1560".equals(cpuMode) || "oc_performance1560".equals(cpuMode);
+                    "oc_dynamic1560".equals(cpuMode) || "oc_performance1560".equals(cpuMode) ||
+                    "oc_dynamic1608".equals(cpuMode) || "oc_performance1608".equals(cpuMode);
             ocRuntimeValue.setText(
                     "Live OC • CPU4 "+primeClock+" / "+liveMax+" MHz • "+liveGov+
                             (boosted?" • BOOST PATH ACTIVE":" • stock ceiling"));
@@ -768,6 +794,8 @@ public class CpuActivity extends Activity {
         if("performance".equals(mode))return "Locked Maximum";
         if("oc_dynamic1560".equals(mode))return "Dynamic 1560";
         if("oc_performance1560".equals(mode))return "Performance 1560";
+        if("oc_dynamic1608".equals(mode))return "Dynamic 1608";
+        if("oc_performance1608".equals(mode))return "Performance 1608";
         if("custom".equals(mode))return "Custom";
         return "Firmware Stock";
     }
