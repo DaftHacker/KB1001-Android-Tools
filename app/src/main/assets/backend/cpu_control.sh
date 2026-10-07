@@ -54,42 +54,58 @@ boost_enable_for_target(){
  [ -w "$BOOST_NODE" ] || return 1
  [ -d "$target_policy" ] || return 1
 
- # Stage 8 recon established that enabling global boost immediately expands
- # scaling_max_freq on every policy. Hold all saved policies at the lowest OPP
- # first so the boost toggle cannot cause a transient turbo jump.
+ # Preserve the live state of every policy so enabling an OC does not silently
+ # replace a user's current Balanced/custom settings on non-target clusters.
+ live_state="$STATE_DIR/cpu_boost_live.$"
+ : > "$live_state" || return 1
+ for p in "$CPUFREQ_ROOT"/policy*; do
+  [ -d "$p" ] || continue
+  gov="$(cat "$p/scaling_governor" 2>/dev/null)"
+  min="$(cat "$p/scaling_min_freq" 2>/dev/null)"
+  max="$(cat "$p/scaling_max_freq" 2>/dev/null)"
+  [ -n "$gov" ] && [ -n "$min" ] && [ -n "$max" ] || { rm -f "$live_state"; return 1; }
+  echo "$p|$gov|$min|$max" >> "$live_state" || { rm -f "$live_state"; return 1; }
+ done
+ [ -s "$live_state" ] || { rm -f "$live_state"; return 1; }
+
+ # Enabling global boost expands scaling_max_freq on every policy. Hold all
+ # policies at the lowest OPP first so that expansion cannot cause a transient
+ # turbo jump.
  while IFS='|' read -r p gov min max; do
   case "$p" in "$CPUFREQ_ROOT"/policy*) ;; *) continue;; esac
   [ -d "$p" ] || continue
-  grep -qw powersave "$p/scaling_available_governors" 2>/dev/null || return 1
-  grep -qw 408000 "$p/scaling_available_frequencies" 2>/dev/null || return 1
-  echo powersave > "$p/scaling_governor" 2>/dev/null || return 1
-  echo 408000 > "$p/scaling_min_freq" 2>/dev/null || return 1
-  echo 408000 > "$p/scaling_max_freq" 2>/dev/null || return 1
- done < "$CPU_STATE"
+  grep -qw powersave "$p/scaling_available_governors" 2>/dev/null || { rm -f "$live_state"; return 1; }
+  grep -qw 408000 "$p/scaling_available_frequencies" 2>/dev/null || { rm -f "$live_state"; return 1; }
+  echo powersave > "$p/scaling_governor" 2>/dev/null || { rm -f "$live_state"; return 1; }
+  echo 408000 > "$p/scaling_min_freq" 2>/dev/null || { rm -f "$live_state"; return 1; }
+  echo 408000 > "$p/scaling_max_freq" 2>/dev/null || { rm -f "$live_state"; return 1; }
+ done < "$live_state"
 
- echo 1 > "$BOOST_NODE" 2>/dev/null || return 1
- [ "$(cat "$BOOST_NODE" 2>/dev/null)" = 1 ] || return 1
+ echo 1 > "$BOOST_NODE" 2>/dev/null || { rm -f "$live_state"; return 1; }
+ [ "$(cat "$BOOST_NODE" 2>/dev/null)" = 1 ] || { rm -f "$live_state"; return 1; }
 
  # Re-clamp immediately after the global boost toggle. Keep the target low until
  # oc_apply() sets its validated turbo ceiling; restore every non-target policy
- # to its saved normal min/max/governor.
+ # to the exact state it had immediately before the OC request.
  while IFS='|' read -r p gov min max; do
   case "$p" in "$CPUFREQ_ROOT"/policy*) ;; *) continue;; esac
   [ -d "$p" ] || continue
   if [ "$p" = "$target_policy" ]; then
-   echo 408000 > "$p/scaling_min_freq" 2>/dev/null || return 1
-   echo 408000 > "$p/scaling_max_freq" 2>/dev/null || return 1
+   echo 408000 > "$p/scaling_min_freq" 2>/dev/null || { rm -f "$live_state"; return 1; }
+   echo 408000 > "$p/scaling_max_freq" 2>/dev/null || { rm -f "$live_state"; return 1; }
    continue
   fi
-  echo "$max" > "$p/scaling_max_freq" 2>/dev/null || return 1
-  echo "$min" > "$p/scaling_min_freq" 2>/dev/null || return 1
+  echo "$max" > "$p/scaling_max_freq" 2>/dev/null || { rm -f "$live_state"; return 1; }
+  echo "$min" > "$p/scaling_min_freq" 2>/dev/null || { rm -f "$live_state"; return 1; }
   if grep -qw "$gov" "$p/scaling_available_governors" 2>/dev/null; then
-   echo "$gov" > "$p/scaling_governor" 2>/dev/null || return 1
+   echo "$gov" > "$p/scaling_governor" 2>/dev/null || { rm -f "$live_state"; return 1; }
   else
+   rm -f "$live_state"
    return 1
   fi
- done < "$CPU_STATE"
+ done < "$live_state"
 
+ rm -f "$live_state"
  return 0
 }
 
