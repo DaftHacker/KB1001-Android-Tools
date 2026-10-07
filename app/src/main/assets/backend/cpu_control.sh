@@ -612,7 +612,11 @@ oc_status(){
   echo "a53_stage1_voltage_uv=1150000"
   echo "a53_stage1_validation=stage8c_light_load_pass"
   echo "oc_1776_apply_supported=1"
-  echo "boot_opp_patch_state=installed_stage8_1776"
+  if [ "$current_vendor_boot_sha256" = "$OC_1296_VENDOR_BOOT_SHA256" ]; then
+   echo "boot_opp_patch_state=installed_stage9_1296"
+  else
+   echo "boot_opp_patch_state=installed_stage8_1776"
+  fi
   echo "boot_opp_install_blocker=none"
   echo "oc_max_validated_khz=1776000"
  elif [ "$(cat /sys/kernel/debug/opp/cpu2/opp:1776000000/available 2>/dev/null)" = Y ]; then
