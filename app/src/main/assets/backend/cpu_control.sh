@@ -16,6 +16,7 @@ POLICY4="$CPUFREQ_ROOT/policy4"
 OC_1560_VENDOR_BOOT_SHA256="def940b0dbb58c68e2b815143f2829f5bef5688e6e62e7e211387fc582e45c87"
 OC_1608_VENDOR_BOOT_SHA256="3107c282f462fc680dfafd82fb1f2a88c8b93c79cdb6904828ec061fa32b10f7"
 OC_1776_VENDOR_BOOT_SHA256="739866913b6daa5dd5d306cc4f7812208499cc86ba89268616b8bf6b8a9fe40b"
+OC_1296_VENDOR_BOOT_SHA256="0a08e53afe9947019ccd9c1708f104032b694b691aded08b67f46968a90d2251"
 OC_STOCK_VENDOR_BOOT_SHA256="11efaf3483b2ef4250ab78b6a160e64adf80d82d3965f156554189ec8083d402"
 
 stock_max_for_policy(){
@@ -128,7 +129,7 @@ oc_1560_support_present(){
  [ -d "$POLICY4" ] || return 1
  sha="$(current_vendor_boot_sha256)"
  case "$sha" in
-  "$OC_1560_VENDOR_BOOT_SHA256"|"$OC_1608_VENDOR_BOOT_SHA256"|"$OC_1776_VENDOR_BOOT_SHA256") ;;
+  "$OC_1560_VENDOR_BOOT_SHA256"|"$OC_1608_VENDOR_BOOT_SHA256"|"$OC_1776_VENDOR_BOOT_SHA256"|"$OC_1296_VENDOR_BOOT_SHA256") ;;
   *) return 1 ;;
  esac
  grep -qw 1560000 "$POLICY4/scaling_boost_frequencies" 2>/dev/null || return 1
@@ -140,7 +141,7 @@ oc_1608_support_present(){
  [ -d "$POLICY4" ] || return 1
  sha="$(current_vendor_boot_sha256)"
  case "$sha" in
-  "$OC_1608_VENDOR_BOOT_SHA256"|"$OC_1776_VENDOR_BOOT_SHA256") ;;
+  "$OC_1608_VENDOR_BOOT_SHA256"|"$OC_1776_VENDOR_BOOT_SHA256"|"$OC_1296_VENDOR_BOOT_SHA256") ;;
   *) return 1 ;;
  esac
  grep -qw 1608000 "$POLICY4/scaling_boost_frequencies" 2>/dev/null || return 1
@@ -150,9 +151,21 @@ oc_1608_support_present(){
 oc_1776_support_present(){
  [ -r "$BOOST_NODE" ] || return 1
  [ -d "$POLICY2" ] || return 1
- [ "$(current_vendor_boot_sha256)" = "$OC_1776_VENDOR_BOOT_SHA256" ] || return 1
+ sha="$(current_vendor_boot_sha256)"
+ case "$sha" in
+  "$OC_1776_VENDOR_BOOT_SHA256"|"$OC_1296_VENDOR_BOOT_SHA256") ;;
+  *) return 1 ;;
+ esac
  grep -qw 1776000 "$POLICY2/scaling_boost_frequencies" 2>/dev/null || return 1
  opp_ready cpu2 1776000000 1150000
+}
+
+oc_1296_support_present(){
+ [ -r "$BOOST_NODE" ] || return 1
+ [ -d "$POLICY0" ] || return 1
+ [ "$(current_vendor_boot_sha256)" = "$OC_1296_VENDOR_BOOT_SHA256" ] || return 1
+ grep -qw 1296000 "$POLICY0/scaling_boost_frequencies" 2>/dev/null || return 1
+ opp_ready cpu0 1296000000 1100000
 }
 
 oc_support_present(){
@@ -362,6 +375,22 @@ oc_apply(){
  [ "$(vf_profile)" = vf0403 ] || return 3
 
  case "$mode" in
+  dynamic1296)
+   target_policy="$POLICY0"
+   target_name=policy0
+   target=1296000
+   governor=schedutil
+   state_mode=oc_dynamic1296
+   oc_1296_support_present || return 3
+   ;;
+  performance1296)
+   target_policy="$POLICY0"
+   target_name=policy0
+   target=1296000
+   governor=performance
+   state_mode=oc_performance1296
+   oc_1296_support_present || return 3
+   ;;
   dynamic1560)
    target_policy="$POLICY4"
    target_name=policy4
@@ -488,9 +517,11 @@ oc_status(){
  echo "vendor_boot_stage6_1560_sha256=$OC_1560_VENDOR_BOOT_SHA256"
  echo "vendor_boot_stage7_1608_sha256=$OC_1608_VENDOR_BOOT_SHA256"
  echo "vendor_boot_stage8_1776_sha256=$OC_1776_VENDOR_BOOT_SHA256"
- echo "vendor_boot_patched_sha256=$OC_1776_VENDOR_BOOT_SHA256"
+ echo "vendor_boot_stage9_1296_sha256=$OC_1296_VENDOR_BOOT_SHA256"
+ echo "vendor_boot_patched_sha256=$OC_1296_VENDOR_BOOT_SHA256"
  echo "vendor_boot_current_sha256=$current_vendor_boot_sha256"
  case "$current_vendor_boot_sha256" in
+  "$OC_1296_VENDOR_BOOT_SHA256") echo "vendor_boot_state=verified_cpu0_1296_patch" ;;
   "$OC_1776_VENDOR_BOOT_SHA256") echo "vendor_boot_state=verified_cpu2_1776_patch" ;;
   "$OC_1608_VENDOR_BOOT_SHA256") echo "vendor_boot_state=verified_cpu4_1608_patch" ;;
   "$OC_1560_VENDOR_BOOT_SHA256") echo "vendor_boot_state=verified_cpu4_1560_patch" ;;
@@ -499,14 +530,34 @@ oc_status(){
  esac
 
  echo "boost=$(cat "$BOOST_NODE" 2>/dev/null)"
+ echo "policy0_boost_frequencies=$(cat "$POLICY0/scaling_boost_frequencies" 2>/dev/null)"
+ echo "policy0_scaling_max_khz=$(cat "$POLICY0/scaling_max_freq" 2>/dev/null)"
+ echo "policy0_cpuinfo_max_khz=$(cat "$POLICY0/cpuinfo_max_freq" 2>/dev/null)"
  echo "policy2_boost_frequencies=$(cat "$POLICY2/scaling_boost_frequencies" 2>/dev/null)"
  echo "policy2_scaling_max_khz=$(cat "$POLICY2/scaling_max_freq" 2>/dev/null)"
  echo "policy2_cpuinfo_max_khz=$(cat "$POLICY2/cpuinfo_max_freq" 2>/dev/null)"
  echo "policy4_boost_frequencies=$(cat "$POLICY4/scaling_boost_frequencies" 2>/dev/null)"
  echo "policy4_scaling_max_khz=$(cat "$POLICY4/scaling_max_freq" 2>/dev/null)"
  echo "policy4_cpuinfo_max_khz=$(cat "$POLICY4/cpuinfo_max_freq" 2>/dev/null)"
+ echo "cluster0_regulator=axp2202-dcdc1"
  echo "cluster1_regulator=axp1530-dcdc2"
  echo "cluster2_regulator=axp1530-dcdc1"
+
+ if oc_1296_support_present; then
+  echo "a53_efficiency_stage1_1296=validated_available"
+  echo "a53_efficiency_stage1_voltage_uv=1100000"
+  echo "a53_efficiency_stage1_validation=stage9c_light_load_pass"
+  echo "oc_1296_apply_supported=1"
+  echo "boot_opp_patch_state=installed_stage9_1296"
+  echo "boot_opp_install_blocker=none"
+  echo "oc_policy0_max_validated_khz=1296000"
+ elif [ "$(cat /sys/kernel/debug/opp/cpu0/opp:1296000000/available 2>/dev/null)" = Y ]; then
+  echo "a53_efficiency_stage1_1296=present_unverified"
+  echo "oc_1296_apply_supported=0"
+ else
+  echo "a53_efficiency_stage1_1296=boot_opp_required"
+  echo "oc_1296_apply_supported=0"
+ fi
 
  if oc_1560_support_present; then
   echo "a73_stage1_1560=validated_available"
@@ -607,7 +658,7 @@ case "$1" in
  performance) performance ;;
  policy) policy_set "$2" "$3" "$4" ;;
  oc-status) oc_status ;;
- oc) case "$2" in dynamic1560|performance1560|dynamic1608|performance1608|dynamic1776|performance1776) oc_apply "$2" ;; off|stock) oc_disable ;; *) exit 2 ;; esac ;;
+ oc) case "$2" in dynamic1296|performance1296|dynamic1560|performance1560|dynamic1608|performance1608|dynamic1776|performance1776) oc_apply "$2" ;; off|stock) oc_disable ;; *) exit 2 ;; esac ;;
  stock|restore) restore_stock ;;
- *) echo "cpu_control.sh init|status|balanced|performance|policy POLICY min|max|governor VALUE|oc-status|oc dynamic1560|performance1560|dynamic1608|performance1608|dynamic1776|performance1776|off|restore"; exit 2 ;;
+ *) echo "cpu_control.sh init|status|balanced|performance|policy POLICY min|max|governor VALUE|oc-status|oc dynamic1296|performance1296|dynamic1560|performance1560|dynamic1608|performance1608|dynamic1776|performance1776|off|restore"; exit 2 ;;
 esac
