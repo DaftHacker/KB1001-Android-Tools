@@ -794,17 +794,26 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            boolean stage8=out.contains("vendor_boot_state=verified_cpu2_1776_patch");
+            boolean stage9=out.contains("vendor_boot_state=verified_cpu0_1296_patch");
+            boolean stage8=out.contains("vendor_boot_state=verified_cpu2_1776_patch") || stage9;
+            boolean installed1296=out.contains("oc_1296_apply_supported=1") && stage9;
             boolean installed1776=out.contains("oc_1776_apply_supported=1") && stage8;
             boolean installed1608=out.contains("oc_1608_apply_supported=1") &&
                     (out.contains("vendor_boot_state=verified_cpu4_1608_patch") || stage8);
             boolean installed1560=out.contains("oc_apply_supported=1") &&
                     (out.contains("vendor_boot_state=verified_cpu4_1560_patch") ||
                      out.contains("vendor_boot_state=verified_cpu4_1608_patch") || stage8);
-            boolean installed=installed1776||installed1608||installed1560;
+            boolean installed=installed1296||installed1776||installed1608||installed1560;
             boolean stock=out.contains("vendor_boot_state=verified_stock");
             String message;
-            if(installed1776){
+            if(installed1296){
+                message="Validated CPU OC support is installed.\n\n"+
+                        "CPU0-1: 1296 MHz turbo OPP @ 1.10 V\n"+
+                        "CPU2-3: 1776 MHz turbo OPP @ 1.15 V\n"+
+                        "CPU4: 1560 + 1608 MHz turbo OPPs @ 1.15 V\n"+
+                        "Validation: Stage 6C + Stage 7C + Stage 8C + Stage 9C short pinned-load PASS\n\n"+
+                        "Use the CPU Manager to select Dynamic/Performance 1296, 1560, 1608, or 1776.";
+            }else if(installed1776){
                 message="Validated CPU OC support is installed.\n\n"+
                         "CPU4: 1560 + 1608 MHz turbo OPPs\n"+
                         "CPU2-3: 1776 MHz turbo OPP\nVoltage: 1.15 V\n"+
@@ -825,7 +834,7 @@ public class MainActivity extends Activity {
                         "The one-time validated CPU OPP enablement has not been installed.\n\n"+
                         "The boot-partition write remains an explicit one-time operation.";
             }else{
-                message="The current vendor_boot/OPP state does not match a verified stock or validated Stage 6/7/8 CPU OC configuration. "+
+                message="The current vendor_boot/OPP state does not match a verified stock or validated Stage 6/7/8/9 CPU OC configuration. "+
                         "CPU OC controls remain disabled.";
             }
             runOnUiThread(()->{
