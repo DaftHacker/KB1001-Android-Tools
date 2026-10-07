@@ -57,7 +57,7 @@ boost_enable_for_target(){
 
  # Preserve the live state of every policy so enabling an OC does not silently
  # replace a user's current Balanced/custom settings on non-target clusters.
- live_state="$STATE_DIR/cpu_boost_live.$"
+ live_state="$STATE_DIR/cpu_boost_live.$(cut -d' ' -f1 /proc/self/stat 2>/dev/null)"
  : > "$live_state" || return 1
  for p in "$CPUFREQ_ROOT"/policy*; do
   [ -d "$p" ] || continue
