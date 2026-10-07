@@ -70,14 +70,14 @@ This project is device-specific. Do not flash the module on unrelated hardware.
 <!-- UI redesign work in progress -->
 
 
-### CPU4 1560 MHz boot OPP
+### CPU4 1560 / 1608 MHz boot OPPs
 
-The CPU4 1560 MHz VF0403 path completed staged DTB/repack, patched boot, boost-transition, and short-load validation. The validated one-time `vendor_boot_a` enablement remains an explicit operation; Performance Manager detects its exact installed state and only then enables the 1560 MHz controls. Higher hidden CPU OPPs remain locked pending separate validation.
+CPU4 1560 MHz and 1608 MHz on VF0403 have both completed staged DTB/repack, patched boot, boost-transition, idle, and short CPU4-only load validation at 1.15 V. The one-time `vendor_boot_a` enablement remains an explicit operation; Performance Manager detects the exact installed Stage 6/Stage 7 image state and only exposes OC controls that have been validated on that image. CPU2-3 1776 MHz and CPU0-1 1296 MHz remain locked pending separate validation.
 
 
 ## Validated A333 overclock controls
 
-- **CPU:** normal MIN/MAX/governor controls stay on non-boost frequencies. CPU4 1560 MHz is a separate explicit overclock path using the validated `vendor_boot_a` turbo OPP, Linux cpufreq boost, VF0403, and 1.15 V.
+- **CPU:** normal MIN/MAX/governor controls stay on non-boost frequencies. CPU4 1560 MHz and 1608 MHz are separate explicit overclock paths using validated `vendor_boot_a` turbo OPPs, Linux cpufreq boost, VF0403, and 1.15 V. Stage 7 exposes Dynamic 1608 and Performance 1608 in addition to the validated 1560 modes.
 - **GPU:** 200/300/400/600/696 MHz are factory OPPs. 744/792 MHz remain session-only runtime OPP experiments through Allwinner `gpu_opp_ops`; read-back checks verify the requested state.
 - **Thermal:** controls map to writable Linux thermal trip points for CPU/GPU/idle cooling. Critical shutdown trips are not modified.
 - **Settings:** CPU OC support reports the exact validated boot/OPP state; unknown configurations fail closed.
