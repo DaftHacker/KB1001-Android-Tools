@@ -57,7 +57,11 @@ start(){
  dd if="$PART" of="$dir/recovery.img" bs=1048576 count=32 2>/dev/null || err backup_failed
  [ "$(wc -c < "$dir/recovery.img" | tr -d ' ')" = "$SIZE" ] || err backup_bad_size
  [ "$(sha "$dir/recovery.img")" = "$live" ] || err backup_mismatch
- ( cd "$dir/work" && "$MAGISKBOOT" unpack -h "$dir/recovery.img" >/dev/null ) || err unpack_failed
+ unpack_rc=0
+ ( cd "$dir/work" && "$MAGISKBOOT" unpack -h "$dir/recovery.img" ) > "$dir/magiskboot-unpack.log" 2>&1 || unpack_rc=$?
+ echo "magiskboot_unpack_exit=$unpack_rc" > "$dir/diagnostic.log"
+ echo "magiskboot_log=$dir/magiskboot-unpack.log" >> "$dir/diagnostic.log"
+ [ "$unpack_rc" = 0 ] || err unpack_failed
  [ -s "$dir/work/dtb" ] || err missing_dtb
  echo "transaction=$tx"
  echo "source_sha256=$live"
