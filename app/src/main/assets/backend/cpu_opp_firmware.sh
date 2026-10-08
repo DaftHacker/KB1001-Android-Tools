@@ -8,7 +8,7 @@ SIZE=33554432
 S15=9eb390f96d2c3b320aff471ee33bb478f6ea7ff682e954305b418f4a31b1fb15
 S3B=a4906f29b8ae138fee0606e017e9405d8eebfef72d749fcae0aef6dbb76ce13c
 umask 077
-err(){ echo "firmware_error=$1"; exit 3; }
+err(){ echo "firmware_error=$1"; if [ -n "${dir:-}" ] && [ -d "$dir" ]; then echo "diagnostic_log=$dir/diagnostic.log"; fi; exit 3; }
 sha(){ sha256sum "$1" | cut -d ' ' -f1; }
 known(){ case "$1" in "$S15"|"$S3B") return 0;; *) return 1;; esac; }
 allowed(){ case "$1" in 1296|1344|1368|1416|1464|1512|1560|1608|1776) return 0;; *) return 1;; esac; }
@@ -80,6 +80,7 @@ start(){
  echo "original_dtb=$dir/work/dtb"
  echo "recovery_image=$dir/recovery.img"
  echo "firmware_stage=extracted_no_flash"
+ echo "diagnostic_log=$dir/diagnostic.log"
 }
 finish(){
  tx="$1"; mhz="$2"; mode="$3"; patched="$4"
