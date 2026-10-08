@@ -72,6 +72,7 @@
         <activity android:name=".GamePickerActivity" android:exported="false" />
         <activity android:name=".GpuActivity" android:exported="false" />
         <activity android:name=".CpuActivity" android:exported="false" />
+        <activity android:name=".CpuOppFirmwareActivity" android:exported="false" />
         <activity android:name=".ThermalActivity" android:exported="false" />
         <activity android:name=".BatteryActivity" android:exported="false" />
         <activity android:name=".DisplaySleepActivity" android:exported="false" />
