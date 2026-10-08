@@ -21,6 +21,7 @@ OC_1344_VENDOR_BOOT_SHA256="ef34d4990e5ab68efb69eeb1f1b80c90917971c4814066a77c57
 OC_1368_VENDOR_BOOT_SHA256="10bdd0d36482f3dd6a82331292a7912e11587408424847944525c206ee5303b5"
 OC_1416_VENDOR_BOOT_SHA256="455fdcf0af44e1d0fc3c8c0678205bf7dd867112a0b27b0666a8825e5a896f0c"
 OC_1464_VENDOR_BOOT_SHA256="97fbb58790e1be4b934b3cd71198af99463af5fac0948de1c0b71948658402f8"
+OC_1512_VENDOR_BOOT_SHA256="5fde11b0a2799d86f30ed321085e5f95768aecb5abffb9b84cd9bf2e9eac324c"
 OC_STOCK_VENDOR_BOOT_SHA256="11efaf3483b2ef4250ab78b6a160e64adf80d82d3965f156554189ec8083d402"
 
 stock_max_for_policy(){
@@ -133,7 +134,7 @@ oc_1560_support_present(){
  [ -d "$POLICY4" ] || return 1
  sha="$(current_vendor_boot_sha256)"
  case "$sha" in
-  "$OC_1560_VENDOR_BOOT_SHA256"|"$OC_1608_VENDOR_BOOT_SHA256"|"$OC_1776_VENDOR_BOOT_SHA256"|"$OC_1296_VENDOR_BOOT_SHA256"|"$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256") ;;
+  "$OC_1560_VENDOR_BOOT_SHA256"|"$OC_1608_VENDOR_BOOT_SHA256"|"$OC_1776_VENDOR_BOOT_SHA256"|"$OC_1296_VENDOR_BOOT_SHA256"|"$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
   *) return 1 ;;
  esac
  grep -qw 1560000 "$POLICY4/scaling_boost_frequencies" 2>/dev/null || return 1
@@ -145,7 +146,7 @@ oc_1608_support_present(){
  [ -d "$POLICY4" ] || return 1
  sha="$(current_vendor_boot_sha256)"
  case "$sha" in
-  "$OC_1608_VENDOR_BOOT_SHA256"|"$OC_1776_VENDOR_BOOT_SHA256"|"$OC_1296_VENDOR_BOOT_SHA256"|"$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256") ;;
+  "$OC_1608_VENDOR_BOOT_SHA256"|"$OC_1776_VENDOR_BOOT_SHA256"|"$OC_1296_VENDOR_BOOT_SHA256"|"$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
   *) return 1 ;;
  esac
  grep -qw 1608000 "$POLICY4/scaling_boost_frequencies" 2>/dev/null || return 1
@@ -157,7 +158,7 @@ oc_1776_support_present(){
  [ -d "$POLICY2" ] || return 1
  sha="$(current_vendor_boot_sha256)"
  case "$sha" in
-  "$OC_1776_VENDOR_BOOT_SHA256"|"$OC_1296_VENDOR_BOOT_SHA256"|"$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256") ;;
+  "$OC_1776_VENDOR_BOOT_SHA256"|"$OC_1296_VENDOR_BOOT_SHA256"|"$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
   *) return 1 ;;
  esac
  grep -qw 1776000 "$POLICY2/scaling_boost_frequencies" 2>/dev/null || return 1
@@ -169,7 +170,7 @@ oc_1296_support_present(){
  [ -d "$POLICY0" ] || return 1
  sha="$(current_vendor_boot_sha256)"
  case "$sha" in
-  "$OC_1296_VENDOR_BOOT_SHA256"|"$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256") ;;
+  "$OC_1296_VENDOR_BOOT_SHA256"|"$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
   *) return 1 ;;
  esac
  grep -qw 1296000 "$POLICY0/scaling_boost_frequencies" 2>/dev/null || return 1
@@ -181,7 +182,7 @@ oc_1344_support_present(){
  [ -d "$POLICY0" ] || return 1
  sha="$(current_vendor_boot_sha256)"
  case "$sha" in
-  "$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256") ;;
+  "$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
   *) return 1 ;;
  esac
  grep -qw 1344000 "$POLICY0/scaling_boost_frequencies" 2>/dev/null || return 1
@@ -193,7 +194,7 @@ oc_1368_support_present(){
  [ -d "$POLICY0" ] || return 1
  sha="$(current_vendor_boot_sha256)"
  case "$sha" in
-  "$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256") ;;
+  "$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
   *) return 1 ;;
  esac
  grep -qw 1368000 "$POLICY0/scaling_boost_frequencies" 2>/dev/null || return 1
@@ -205,7 +206,7 @@ oc_1416_support_present(){
  [ -d "$POLICY0" ] || return 1
  sha="$(current_vendor_boot_sha256)"
  case "$sha" in
-  "$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256") ;;
+  "$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
   *) return 1 ;;
  esac
  grep -qw 1416000 "$POLICY0/scaling_boost_frequencies" 2>/dev/null || return 1
@@ -215,9 +216,21 @@ oc_1416_support_present(){
 oc_1464_support_present(){
  [ -r "$BOOST_NODE" ] || return 1
  [ -d "$POLICY0" ] || return 1
- [ "$(current_vendor_boot_sha256)" = "$OC_1464_VENDOR_BOOT_SHA256" ] || return 1
+ sha="$(current_vendor_boot_sha256)"
+ case "$sha" in
+  "$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
+  *) return 1 ;;
+ esac
  grep -qw 1464000 "$POLICY0/scaling_boost_frequencies" 2>/dev/null || return 1
  opp_ready cpu0 1464000000 1150000
+}
+
+oc_1512_support_present(){
+ [ -r "$BOOST_NODE" ] || return 1
+ [ -d "$POLICY0" ] || return 1
+ [ "$(current_vendor_boot_sha256)" = "$OC_1512_VENDOR_BOOT_SHA256" ] || return 1
+ grep -qw 1512000 "$POLICY0/scaling_boost_frequencies" 2>/dev/null || return 1
+ opp_ready cpu0 1512000000 1150000
 }
 
 oc_support_present(){
@@ -507,6 +520,22 @@ oc_apply(){
    state_mode=oc_performance1464
    oc_1464_support_present || return 3
    ;;
+  dynamic1512)
+   target_policy="$POLICY0"
+   target_name=policy0
+   target=1512000
+   governor=schedutil
+   state_mode=oc_dynamic1512
+   oc_1512_support_present || return 3
+   ;;
+  performance1512)
+   target_policy="$POLICY0"
+   target_name=policy0
+   target=1512000
+   governor=performance
+   state_mode=oc_performance1512
+   oc_1512_support_present || return 3
+   ;;
   dynamic1560)
    target_policy="$POLICY4"
    target_name=policy4
@@ -638,9 +667,11 @@ oc_status(){
  echo "vendor_boot_stage11_1368_sha256=$OC_1368_VENDOR_BOOT_SHA256"
  echo "vendor_boot_stage12_1416_sha256=$OC_1416_VENDOR_BOOT_SHA256"
  echo "vendor_boot_stage13_1464_sha256=$OC_1464_VENDOR_BOOT_SHA256"
- echo "vendor_boot_patched_sha256=$OC_1464_VENDOR_BOOT_SHA256"
+ echo "vendor_boot_stage14_1512_sha256=$OC_1512_VENDOR_BOOT_SHA256"
+ echo "vendor_boot_patched_sha256=$OC_1512_VENDOR_BOOT_SHA256"
  echo "vendor_boot_current_sha256=$current_vendor_boot_sha256"
  case "$current_vendor_boot_sha256" in
+  "$OC_1512_VENDOR_BOOT_SHA256") echo "vendor_boot_state=verified_cpu0_1512_patch" ;;
   "$OC_1464_VENDOR_BOOT_SHA256") echo "vendor_boot_state=verified_cpu0_1464_patch" ;;
   "$OC_1416_VENDOR_BOOT_SHA256") echo "vendor_boot_state=verified_cpu0_1416_patch" ;;
   "$OC_1368_VENDOR_BOOT_SHA256") echo "vendor_boot_state=verified_cpu0_1368_patch" ;;
@@ -672,7 +703,9 @@ oc_status(){
   echo "a53_efficiency_stage1_voltage_uv=1100000"
   echo "a53_efficiency_stage1_validation=stage9c_light_load_pass"
   echo "oc_1296_apply_supported=1"
-  if [ "$current_vendor_boot_sha256" = "$OC_1464_VENDOR_BOOT_SHA256" ]; then
+  if [ "$current_vendor_boot_sha256" = "$OC_1512_VENDOR_BOOT_SHA256" ]; then
+   echo "boot_opp_patch_state=installed_stage14_1512"
+  elif [ "$current_vendor_boot_sha256" = "$OC_1464_VENDOR_BOOT_SHA256" ]; then
    echo "boot_opp_patch_state=installed_stage13_1464"
   elif [ "$current_vendor_boot_sha256" = "$OC_1416_VENDOR_BOOT_SHA256" ]; then
    echo "boot_opp_patch_state=installed_stage12_1416"
@@ -698,7 +731,9 @@ oc_status(){
   echo "a53_efficiency_stage2_voltage_uv=1150000"
   echo "a53_efficiency_stage2_validation=stage10c_light_load_pass"
   echo "oc_1344_apply_supported=1"
-  if [ "$current_vendor_boot_sha256" = "$OC_1464_VENDOR_BOOT_SHA256" ]; then
+  if [ "$current_vendor_boot_sha256" = "$OC_1512_VENDOR_BOOT_SHA256" ]; then
+   echo "boot_opp_patch_state=installed_stage14_1512"
+  elif [ "$current_vendor_boot_sha256" = "$OC_1464_VENDOR_BOOT_SHA256" ]; then
    echo "boot_opp_patch_state=installed_stage13_1464"
   elif [ "$current_vendor_boot_sha256" = "$OC_1416_VENDOR_BOOT_SHA256" ]; then
    echo "boot_opp_patch_state=installed_stage12_1416"
@@ -722,7 +757,9 @@ oc_status(){
   echo "a53_efficiency_stage3_voltage_uv=1150000"
   echo "a53_efficiency_stage3_validation=stage11c_light_load_pass"
   echo "oc_1368_apply_supported=1"
-  if [ "$current_vendor_boot_sha256" = "$OC_1464_VENDOR_BOOT_SHA256" ]; then
+  if [ "$current_vendor_boot_sha256" = "$OC_1512_VENDOR_BOOT_SHA256" ]; then
+   echo "boot_opp_patch_state=installed_stage14_1512"
+  elif [ "$current_vendor_boot_sha256" = "$OC_1464_VENDOR_BOOT_SHA256" ]; then
    echo "boot_opp_patch_state=installed_stage13_1464"
   elif [ "$current_vendor_boot_sha256" = "$OC_1416_VENDOR_BOOT_SHA256" ]; then
    echo "boot_opp_patch_state=installed_stage12_1416"
@@ -744,7 +781,9 @@ oc_status(){
   echo "a53_efficiency_stage4_voltage_uv=1150000"
   echo "a53_efficiency_stage4_validation=stage12c_light_load_pass"
   echo "oc_1416_apply_supported=1"
-  if [ "$current_vendor_boot_sha256" = "$OC_1464_VENDOR_BOOT_SHA256" ]; then
+  if [ "$current_vendor_boot_sha256" = "$OC_1512_VENDOR_BOOT_SHA256" ]; then
+   echo "boot_opp_patch_state=installed_stage14_1512"
+  elif [ "$current_vendor_boot_sha256" = "$OC_1464_VENDOR_BOOT_SHA256" ]; then
    echo "boot_opp_patch_state=installed_stage13_1464"
   else
    echo "boot_opp_patch_state=installed_stage12_1416"
@@ -764,7 +803,11 @@ oc_status(){
   echo "a53_efficiency_stage5_voltage_uv=1150000"
   echo "a53_efficiency_stage5_validation=stage13c_light_load_pass"
   echo "oc_1464_apply_supported=1"
-  echo "boot_opp_patch_state=installed_stage13_1464"
+  if [ "$current_vendor_boot_sha256" = "$OC_1512_VENDOR_BOOT_SHA256" ]; then
+   echo "boot_opp_patch_state=installed_stage14_1512"
+  else
+   echo "boot_opp_patch_state=installed_stage13_1464"
+  fi
   echo "boot_opp_install_blocker=none"
   echo "oc_policy0_max_validated_khz=1464000"
  elif [ "$(cat /sys/kernel/debug/opp/cpu0/opp:1464000000/available 2>/dev/null)" = Y ]; then
@@ -773,6 +816,22 @@ oc_status(){
  else
   echo "a53_efficiency_stage5_1464=boot_opp_required"
   echo "oc_1464_apply_supported=0"
+ fi
+
+ if oc_1512_support_present; then
+  echo "a53_efficiency_stage6_1512=validated_available"
+  echo "a53_efficiency_stage6_voltage_uv=1150000"
+  echo "a53_efficiency_stage6_validation=stage14c_light_load_pass"
+  echo "oc_1512_apply_supported=1"
+  echo "boot_opp_patch_state=installed_stage14_1512"
+  echo "boot_opp_install_blocker=none"
+  echo "oc_policy0_max_validated_khz=1512000"
+ elif [ "$(cat /sys/kernel/debug/opp/cpu0/opp:1512000000/available 2>/dev/null)" = Y ]; then
+  echo "a53_efficiency_stage6_1512=present_unverified"
+  echo "oc_1512_apply_supported=0"
+ else
+  echo "a53_efficiency_stage6_1512=boot_opp_required"
+  echo "oc_1512_apply_supported=0"
  fi
 
  if oc_1560_support_present; then
@@ -828,7 +887,9 @@ oc_status(){
   echo "a53_stage1_voltage_uv=1150000"
   echo "a53_stage1_validation=stage8c_light_load_pass"
   echo "oc_1776_apply_supported=1"
-  if [ "$current_vendor_boot_sha256" = "$OC_1464_VENDOR_BOOT_SHA256" ]; then
+  if [ "$current_vendor_boot_sha256" = "$OC_1512_VENDOR_BOOT_SHA256" ]; then
+   echo "boot_opp_patch_state=installed_stage14_1512"
+  elif [ "$current_vendor_boot_sha256" = "$OC_1464_VENDOR_BOOT_SHA256" ]; then
    echo "boot_opp_patch_state=installed_stage13_1464"
   elif [ "$current_vendor_boot_sha256" = "$OC_1416_VENDOR_BOOT_SHA256" ]; then
    echo "boot_opp_patch_state=installed_stage12_1416"
@@ -857,6 +918,7 @@ oc_status(){
  echo "a53_efficiency_stage3_candidate_voltage_uv=1150000"
  echo "a53_efficiency_stage4_candidate_voltage_uv=1150000"
  echo "a53_efficiency_stage5_candidate_voltage_uv=1150000"
+ echo "a53_efficiency_stage6_candidate_voltage_uv=1150000"
  echo "higher_opp_validation_required=1"
 }
 
@@ -890,7 +952,7 @@ case "$1" in
  performance) performance ;;
  policy) policy_set "$2" "$3" "$4" ;;
  oc-status) oc_status ;;
- oc) case "$2" in dynamic1296|performance1296|dynamic1344|performance1344|dynamic1368|performance1368|dynamic1416|performance1416|dynamic1464|performance1464|dynamic1560|performance1560|dynamic1608|performance1608|dynamic1776|performance1776) oc_apply "$2" ;; off|stock) oc_disable ;; *) exit 2 ;; esac ;;
+ oc) case "$2" in dynamic1296|performance1296|dynamic1344|performance1344|dynamic1368|performance1368|dynamic1416|performance1416|dynamic1464|performance1464|dynamic1512|performance1512|dynamic1560|performance1560|dynamic1608|performance1608|dynamic1776|performance1776) oc_apply "$2" ;; off|stock) oc_disable ;; *) exit 2 ;; esac ;;
  stock|restore) restore_stock ;;
- *) echo "cpu_control.sh init|status|balanced|performance|policy POLICY min|max|governor VALUE|oc-status|oc dynamic1296|performance1296|dynamic1344|performance1344|dynamic1368|performance1368|dynamic1416|performance1416|dynamic1464|performance1464|dynamic1560|performance1560|dynamic1608|performance1608|dynamic1776|performance1776|off|restore"; exit 2 ;;
+ *) echo "cpu_control.sh init|status|balanced|performance|policy POLICY min|max|governor VALUE|oc-status|oc dynamic1296|performance1296|dynamic1344|performance1344|dynamic1368|performance1368|dynamic1416|performance1416|dynamic1464|performance1464|dynamic1512|performance1512|dynamic1560|performance1560|dynamic1608|performance1608|dynamic1776|performance1776|off|restore"; exit 2 ;;
 esac

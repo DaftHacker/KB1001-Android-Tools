@@ -794,12 +794,14 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            boolean stage13=out.contains("vendor_boot_state=verified_cpu0_1464_patch");
+            boolean stage14=out.contains("vendor_boot_state=verified_cpu0_1512_patch");
+            boolean stage13=out.contains("vendor_boot_state=verified_cpu0_1464_patch") || stage14;
             boolean stage12=out.contains("vendor_boot_state=verified_cpu0_1416_patch") || stage13;
             boolean stage11=out.contains("vendor_boot_state=verified_cpu0_1368_patch") || stage12;
             boolean stage10=out.contains("vendor_boot_state=verified_cpu0_1344_patch") || stage11;
             boolean stage9=out.contains("vendor_boot_state=verified_cpu0_1296_patch") || stage10;
             boolean stage8=out.contains("vendor_boot_state=verified_cpu2_1776_patch") || stage9;
+            boolean installed1512=out.contains("oc_1512_apply_supported=1") && stage14;
             boolean installed1464=out.contains("oc_1464_apply_supported=1") && stage13;
             boolean installed1416=out.contains("oc_1416_apply_supported=1") && stage12;
             boolean installed1368=out.contains("oc_1368_apply_supported=1") && stage11;
@@ -811,10 +813,17 @@ public class MainActivity extends Activity {
             boolean installed1560=out.contains("oc_apply_supported=1") &&
                     (out.contains("vendor_boot_state=verified_cpu4_1560_patch") ||
                      out.contains("vendor_boot_state=verified_cpu4_1608_patch") || stage8);
-            boolean installed=installed1464||installed1416||installed1368||installed1344||installed1296||installed1776||installed1608||installed1560;
+            boolean installed=installed1512||installed1464||installed1416||installed1368||installed1344||installed1296||installed1776||installed1608||installed1560;
             boolean stock=out.contains("vendor_boot_state=verified_stock");
             String message;
-            if(installed1464){
+            if(installed1512){
+                message="Validated CPU OC support is installed.\n\n"+
+                        "CPU0-1: 1296 MHz @ 1.10 V + 1344/1368/1416/1464/1512 MHz @ 1.15 V turbo OPPs\n"+
+                        "CPU2-3: 1776 MHz turbo OPP @ 1.15 V\n"+
+                        "CPU4: 1560 + 1608 MHz turbo OPPs @ 1.15 V\n"+
+                        "Validation: Stage 6C + Stage 7C + Stage 8C + Stage 9C + Stage 10C + Stage 11C + Stage 12C + Stage 13C + Stage 14C short pinned-load PASS\n\n"+
+                        "Use the CPU Manager to select Dynamic/Performance 1296, 1344, 1368, 1416, 1464, 1512, 1560, 1608, or 1776.";
+            }else if(installed1464){
                 message="Validated CPU OC support is installed.\n\n"+
                         "CPU0-1: 1296 MHz @ 1.10 V + 1344/1368/1416/1464 MHz @ 1.15 V turbo OPPs\n"+
                         "CPU2-3: 1776 MHz turbo OPP @ 1.15 V\n"+
@@ -870,7 +879,7 @@ public class MainActivity extends Activity {
                         "The one-time validated CPU OPP enablement has not been installed.\n\n"+
                         "The boot-partition write remains an explicit one-time operation.";
             }else{
-                message="The current vendor_boot/OPP state does not match a verified stock or validated Stage 6/7/8/9/10/11/12/13 CPU OC configuration. "+
+                message="The current vendor_boot/OPP state does not match a verified stock or validated Stage 6/7/8/9/10/11/12/13/14 CPU OC configuration. "+
                         "CPU OC controls remain disabled.";
             }
             runOnUiThread(()->{
