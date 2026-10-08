@@ -194,6 +194,10 @@ public class CpuActivity extends Activity {
                 "cpufreq-cpu4",
                 ORANGE);
 
+        Button firmwarePrep=button("FIRMWARE OPP LOCK / UNLOCK (PREPARE ONLY)",PURPLE,
+                v->startActivity(new Intent(this,CpuOppFirmwareActivity.class)));
+        content.addView(firmwarePrep,full());
+
         section(content,"CPU OVERCLOCK",
                 "Validated vendor_boot turbo OPPs: CPU0-1 1296/1344/1368/1416/1464/1512 MHz, CPU2-3 1776 MHz, and CPU4 1560/1608 MHz. Generic MIN/MAX controls remain stock-only.",PURPLE);
 
