@@ -72,12 +72,12 @@ This project is device-specific. Do not flash the module on unrelated hardware.
 
 ### Validated CPU boot OPPs
 
-CPU0-1 1296 MHz at 1.10 V and 1344/1368/1416/1464 MHz at 1.15 V, CPU2-3 1776 MHz at 1.15 V, and CPU4 1560/1608 MHz at 1.15 V on VF0403 have completed staged DTB/repack, patched boot, boost-transition, idle, and short pinned-load validation. The one-time `vendor_boot_a` enablement remains an explicit external operation; Performance Manager recognizes exact validated Stage 6/7/8/9/10/11/12/13 image states and exposes only OC controls whose image hash and live OPP semantics match.
+CPU0-1 1296 MHz at 1.10 V and 1344/1368/1416/1464/1512 MHz at 1.15 V, CPU2-3 1776 MHz at 1.15 V, and CPU4 1560/1608 MHz at 1.15 V on VF0403 have completed staged DTB/repack, patched boot, boost-transition, idle, and short pinned-load validation. The one-time `vendor_boot_a` enablement remains an explicit external operation; Performance Manager recognizes exact validated Stage 6/7/8/9/10/11/12/13/14 image states and exposes only OC controls whose image hash and live OPP semantics match.
 
 
 ## Validated A333 overclock controls
 
-- **CPU:** normal MIN/MAX/governor controls stay on non-boost frequencies. CPU0-1 1296 MHz @ 1.10 V and 1344/1368/1416/1464 MHz @ 1.15 V, CPU2-3 1776 MHz @ 1.15 V, and CPU4 1560/1608 MHz @ 1.15 V are explicit overclock paths using validated `vendor_boot_a` turbo OPPs, Linux cpufreq boost, and VF0403. Because the boost switch is global on this platform, the backend holds all CPU policies at the low OPP across boost transitions and re-clamps non-target policies before applying the selected OC.
+- **CPU:** normal MIN/MAX/governor controls stay on non-boost frequencies. CPU0-1 1296 MHz @ 1.10 V and 1344/1368/1416/1464/1512 MHz @ 1.15 V, CPU2-3 1776 MHz @ 1.15 V, and CPU4 1560/1608 MHz @ 1.15 V are explicit overclock paths using validated `vendor_boot_a` turbo OPPs, Linux cpufreq boost, and VF0403. Because the boost switch is global on this platform, the backend holds all CPU policies at the low OPP across boost transitions and re-clamps non-target policies before applying the selected OC.
 - **GPU:** 200/300/400/600/696 MHz are factory OPPs. 744/792 MHz remain session-only runtime OPP experiments through Allwinner `gpu_opp_ops`; read-back checks verify the requested state.
 - **Thermal:** controls map to writable Linux thermal trip points for CPU/GPU/idle cooling. Critical shutdown trips are not modified.
 - **Settings:** CPU OC support reports the exact validated boot/OPP state; unknown configurations fail closed.
