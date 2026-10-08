@@ -479,6 +479,9 @@ case "$cmd" in
      stream) exec sh "$MODDIR/fps_sampler.sh" stream ;;
      *) exit 2 ;;
    esac ;;
+ firmware)
+   sh "$MODDIR/cpu_opp_firmware.sh" "$@"
+   ;;
  cpu)
    case "$1" in
     request) cpu_request "$2" ;;
