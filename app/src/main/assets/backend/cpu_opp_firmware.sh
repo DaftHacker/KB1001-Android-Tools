@@ -61,8 +61,20 @@ start(){
  ( cd "$dir/work" && "$MAGISKBOOT" unpack -h "$dir/recovery.img" ) > "$dir/magiskboot-unpack.log" 2>&1 || unpack_rc=$?
  echo "magiskboot_unpack_exit=$unpack_rc" > "$dir/diagnostic.log"
  echo "magiskboot_log=$dir/magiskboot-unpack.log" >> "$dir/diagnostic.log"
- [ "$unpack_rc" = 0 ] || err unpack_failed
+ # MagiskBoot may report a nonzero status despite extracting the components.
+ # Trust only exact known-good hashes, never its exit code alone.
+ if [ "$live" = "$S15" ]; then
+  expected_dtb=0c6dd5d70f4ad6de5e378c330635483a444b0343821824fa49141b034de626f8
+ else
+  expected_dtb=88e5fdf7b249ba9e0111a139ea5b199480459ce8e8f7a44f77a2e018169cb435
+ fi
  [ -s "$dir/work/dtb" ] || err missing_dtb
+ [ "$(sha "$dir/work/dtb")" = "$expected_dtb" ] || err extracted_dtb_hash_mismatch
+ [ -f "$dir/work/bootconfig" ] || err missing_bootconfig
+ [ "$(sha "$dir/work/bootconfig")" = 2c377199832de350f65144ea82d2a9ccc7cd619ebc4ad4a865127302587da1e9 ] || err bootconfig_hash_mismatch
+ [ -f "$dir/work/vendor_ramdisk/ramdisk.cpio" ] || err missing_ramdisk
+ [ "$(sha "$dir/work/vendor_ramdisk/ramdisk.cpio")" = eaa00bac784b7a57db666df0f871155929acca302049b3fc28a6effc3e29f4bc ] || err ramdisk_hash_mismatch
+ echo "source_components_verified=YES" >> "$dir/diagnostic.log"
  echo "transaction=$tx"
  echo "source_sha256=$live"
  echo "original_dtb=$dir/work/dtb"
