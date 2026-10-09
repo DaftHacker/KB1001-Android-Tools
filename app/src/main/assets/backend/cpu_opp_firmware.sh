@@ -190,6 +190,7 @@ install_check(){
  [ "$(manifest_value "$file" partition)" = vendor_boot_a ] || err wrong_partition
  [ "$(manifest_value "$file" candidate_size)" = "$SIZE" ] || err candidate_size_bad
  [ "$(manifest_value "$file" installation)" = NOT_PERFORMED ] || err already_installed
+ [ "$(manifest_value "$file" action)" = config ] || err install_requires_combined_config
  source="$(manifest_value "$file" source_sha256)"
  candidate="$(manifest_value "$file" candidate_sha256)"
  target_dtb="$(manifest_value "$file" patched_dtb_sha256)"
