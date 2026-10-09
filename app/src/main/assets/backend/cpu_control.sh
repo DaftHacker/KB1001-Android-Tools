@@ -159,105 +159,64 @@ opp_ready(){
 }
 
 oc_1560_support_present(){
- [ -r "$BOOST_NODE" ] || return 1
- [ -d "$POLICY4" ] || return 1
- sha="$(current_vendor_boot_sha256)"
- case "$sha" in
-  "$OC_1560_VENDOR_BOOT_SHA256"|"$OC_1608_VENDOR_BOOT_SHA256"|"$OC_1776_VENDOR_BOOT_SHA256"|"$OC_1296_VENDOR_BOOT_SHA256"|"$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
-  *) return 1 ;;
- esac
+ [ -r "$BOOST_NODE" ] && [ -d "$POLICY4" ] || return 1
+ oc_firmware_trusted "$(current_vendor_boot_sha256)" || return 1
  grep -qw 1560000 "$POLICY4/scaling_boost_frequencies" 2>/dev/null || return 1
  opp_ready cpu4 1560000000 1150000
 }
 
 oc_1608_support_present(){
- [ -r "$BOOST_NODE" ] || return 1
- [ -d "$POLICY4" ] || return 1
- sha="$(current_vendor_boot_sha256)"
- case "$sha" in
-  "$OC_1608_VENDOR_BOOT_SHA256"|"$OC_1776_VENDOR_BOOT_SHA256"|"$OC_1296_VENDOR_BOOT_SHA256"|"$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
-  *) return 1 ;;
- esac
+ [ -r "$BOOST_NODE" ] && [ -d "$POLICY4" ] || return 1
+ oc_firmware_trusted "$(current_vendor_boot_sha256)" || return 1
  grep -qw 1608000 "$POLICY4/scaling_boost_frequencies" 2>/dev/null || return 1
  opp_ready cpu4 1608000000 1150000
 }
 
 oc_1776_support_present(){
- [ -r "$BOOST_NODE" ] || return 1
- [ -d "$POLICY2" ] || return 1
- sha="$(current_vendor_boot_sha256)"
- case "$sha" in
-  "$OC_1776_VENDOR_BOOT_SHA256"|"$OC_1296_VENDOR_BOOT_SHA256"|"$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
-  *) return 1 ;;
- esac
+ [ -r "$BOOST_NODE" ] && [ -d "$POLICY2" ] || return 1
+ oc_firmware_trusted "$(current_vendor_boot_sha256)" || return 1
  grep -qw 1776000 "$POLICY2/scaling_boost_frequencies" 2>/dev/null || return 1
  opp_ready cpu2 1776000000 1150000
 }
 
 oc_1296_support_present(){
- [ -r "$BOOST_NODE" ] || return 1
- [ -d "$POLICY0" ] || return 1
- sha="$(current_vendor_boot_sha256)"
- case "$sha" in
-  "$OC_1296_VENDOR_BOOT_SHA256"|"$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
-  *) return 1 ;;
- esac
+ [ -r "$BOOST_NODE" ] && [ -d "$POLICY0" ] || return 1
+ oc_firmware_trusted "$(current_vendor_boot_sha256)" || return 1
  grep -qw 1296000 "$POLICY0/scaling_boost_frequencies" 2>/dev/null || return 1
  opp_ready cpu0 1296000000 1100000
 }
 
 oc_1344_support_present(){
- [ -r "$BOOST_NODE" ] || return 1
- [ -d "$POLICY0" ] || return 1
- sha="$(current_vendor_boot_sha256)"
- case "$sha" in
-  "$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
-  *) return 1 ;;
- esac
+ [ -r "$BOOST_NODE" ] && [ -d "$POLICY0" ] || return 1
+ oc_firmware_trusted "$(current_vendor_boot_sha256)" || return 1
  grep -qw 1344000 "$POLICY0/scaling_boost_frequencies" 2>/dev/null || return 1
  opp_ready cpu0 1344000000 1150000
 }
 
 oc_1368_support_present(){
- [ -r "$BOOST_NODE" ] || return 1
- [ -d "$POLICY0" ] || return 1
- sha="$(current_vendor_boot_sha256)"
- case "$sha" in
-  "$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
-  *) return 1 ;;
- esac
+ [ -r "$BOOST_NODE" ] && [ -d "$POLICY0" ] || return 1
+ oc_firmware_trusted "$(current_vendor_boot_sha256)" || return 1
  grep -qw 1368000 "$POLICY0/scaling_boost_frequencies" 2>/dev/null || return 1
  opp_ready cpu0 1368000000 1150000
 }
 
 oc_1416_support_present(){
- [ -r "$BOOST_NODE" ] || return 1
- [ -d "$POLICY0" ] || return 1
- sha="$(current_vendor_boot_sha256)"
- case "$sha" in
-  "$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
-  *) return 1 ;;
- esac
+ [ -r "$BOOST_NODE" ] && [ -d "$POLICY0" ] || return 1
+ oc_firmware_trusted "$(current_vendor_boot_sha256)" || return 1
  grep -qw 1416000 "$POLICY0/scaling_boost_frequencies" 2>/dev/null || return 1
  opp_ready cpu0 1416000000 1150000
 }
 
 oc_1464_support_present(){
- [ -r "$BOOST_NODE" ] || return 1
- [ -d "$POLICY0" ] || return 1
- sha="$(current_vendor_boot_sha256)"
- case "$sha" in
-  "$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") ;;
-  *) return 1 ;;
- esac
+ [ -r "$BOOST_NODE" ] && [ -d "$POLICY0" ] || return 1
+ oc_firmware_trusted "$(current_vendor_boot_sha256)" || return 1
  grep -qw 1464000 "$POLICY0/scaling_boost_frequencies" 2>/dev/null || return 1
  opp_ready cpu0 1464000000 1150000
 }
 
 oc_1512_support_present(){
- [ -r "$BOOST_NODE" ] || return 1
- [ -d "$POLICY0" ] || return 1
- [ "$(current_vendor_boot_sha256)" = "$OC_1512_VENDOR_BOOT_SHA256" ] || return 1
+ [ -r "$BOOST_NODE" ] && [ -d "$POLICY0" ] || return 1
+ oc_firmware_trusted "$(current_vendor_boot_sha256)" || return 1
  grep -qw 1512000 "$POLICY0/scaling_boost_frequencies" 2>/dev/null || return 1
  opp_ready cpu0 1512000000 1150000
 }
