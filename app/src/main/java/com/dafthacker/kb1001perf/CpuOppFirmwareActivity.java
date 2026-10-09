@@ -165,6 +165,8 @@ public final class CpuOppFirmwareActivity extends Activity {
                     if(CpuOppDtbPatcher.inspect(patched,CLOCKS[i]).enabled!=(mask.charAt(i)=='1'))
                         throw new IllegalStateException("Combined OPP validation failed");
                 writeDtb(root,path,patched);
+                RootBridge.Result savedMask=root.exec("printf '%s' "+q(mask)+" > "+q(ROOT+"/"+tx+"/selected_mask"));
+                if(!savedMask.ok())throw new IllegalStateException("Saving OPP selection failed");
                 RootBridge.Result result=root.ctl("firmware finish "+tx+" 0 config "+sha(patched));
                 if(!result.ok())throw new IllegalStateException("Candidate verification failed: "+result.output);
                 preparedTransaction=tx;
