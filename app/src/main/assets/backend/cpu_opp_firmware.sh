@@ -76,7 +76,7 @@ start(){
  if [ "$live" = "$S15" ]; then
   expected_dtb=0c6dd5d70f4ad6de5e378c330635483a444b0343821824fa49141b034de626f8
  elif [ "$live" = "$S3B" ]; then
-  expected_dtb=88e5fdf7b249ba9e0111a139ea5b199480459ce8e8f7a2e018169cb435
+  expected_dtb=88e5fdf7b249ba9e0111a139ea5b199480459ce8e8f7a44f77a2e018169cb435
  elif [ "$live" = "$S4C" ]; then
   expected_dtb="$DTB_S4C"
  elif [ -f "$ROOT/last_install_verified" ] && [ "$live" = "$(sed -n 's/^candidate_sha256=//p' "$ROOT/last_install_verified" | head -n 1)" ]; then
