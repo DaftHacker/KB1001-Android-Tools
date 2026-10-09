@@ -251,6 +251,17 @@ public final class CpuOppDtbPatcher {
         }
         return result;
     }
+    /** Applies a nine-bit configuration in approvedFrequenciesMhz() order. */
+    public static byte[] patchConfiguration(byte[] original,String mask) {
+        require(mask!=null && mask.matches("[01]{9}"),"nine OPP settings required");
+        byte[] updated=Arrays.copyOf(original,original.length);
+        for(int i=0;i<APPROVED.length;i++) {
+            int mhz=APPROVED[i].mhz;
+            boolean enabled=mask.charAt(i)=='1';
+            if(inspect(updated,mhz).enabled!=enabled) updated=patch(updated,mhz,enabled);
+        }
+        return updated;
+    }
     private static int findNameOff(byte[] str,String name) {
         byte[] search=(name+"\0").getBytes(StandardCharsets.US_ASCII);
         for(int pos=0;pos<str.length;) {
