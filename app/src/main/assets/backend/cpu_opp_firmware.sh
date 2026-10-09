@@ -119,6 +119,12 @@ finish(){
  known "$source" || err unsupported_source
  [ "$(sha "$PART")" = "$source" ] && [ "$(sha "$dir/recovery.img")" = "$source" ] || err source_changed
  [ "$(sha "$dir/work/dtb")" = "$patched" ] || err patched_dtb_mismatch
+ if [ "$mode" = config ]; then
+  [ -f "$dir/selected_mask" ] || err missing_selected_opp_mask
+  selection="$(cat "$dir/selected_mask")"
+  case "$selection" in *[!01]*|'') err invalid_opp_mask;; esac
+  [ "${#selection}" -eq 9 ] || err invalid_mask_length
+ fi
  # Combined config is a candidate-only path. Exact boot-source and component verification still apply.
  # Some MagiskBoot versions return exit 3 even after producing a full image.
  # Do not accept a nonzero status unless complete independent checks pass.
@@ -161,6 +167,7 @@ finish(){
  echo "frequency_mhz=$mhz"
  echo "action=$mode"
  echo "installation=NOT_PERFORMED"
+ if [ "$mode" = config ]; then echo "opp_mask=$selection"; fi
  } > "$dir/MANIFEST.txt"
  echo "transaction=$tx"
  echo "source_sha256=$source"
