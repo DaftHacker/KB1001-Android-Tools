@@ -206,11 +206,31 @@ public final class CpuOppFirmwareActivity extends Activity {
                 if(!result.ok())throw new IllegalStateException(
                     "Installation FAILED; external fastboot recovery may be required. "+result.output);
                 preparedTransaction="";
+                runOnUiThread(this::promptRestart);
                 info("FIRMWARE WRITE VERIFIED — MANUAL REBOOT REQUIRED\n"+result.output+
                     "\nKeep the recovery image on your Linux desktop until the tablet boots successfully.");
             }catch(Exception ex){
                 info("INSTALLATION NOT CONFIRMED:\n"+ex.getMessage());
             }finally{busy=false;}
+        });
+    }
+    private void promptRestart(){
+        if(isFinishing() || isDestroyed())return;
+        new AlertDialog.Builder(this)
+            .setTitle("Firmware write verified — restart now?")
+            .setMessage("The complete vendor_boot_a partition matches the prepared candidate. Restarting loads the new OPP configuration. Keep your external recovery backup until the tablet boots and verifies successfully.")
+            .setNegativeButton("Later",null)
+            .setPositiveButton("Restart now",(d,w)->requestRestart())
+            .show();
+    }
+    private void requestRestart(){
+        if(busy)return;
+        busy=true;
+        info("Syncing and requesting a system restart…");
+        io.execute(()->{
+            RootBridge.Result r=RootBridge.get().exec("sync; (sleep 2; /system/bin/reboot) </dev/null >/dev/null 2>&1 & echo reboot_requested");
+            if(!r.ok())info("Restart request failed. Restart from Android's power menu after verifying the install. "+r.output);
+            busy=false;
         });
     }
     private static byte[] readDtb(RootBridge root,String path)throws Exception{
