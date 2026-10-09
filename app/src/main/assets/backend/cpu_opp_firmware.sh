@@ -204,7 +204,7 @@ install_image(){
  battery="$(dumpsys battery | sed -n "s/^[[:space:]]*level: //p" | head -n 1)"
  case "$battery" in ""|*[!0-9]*) err battery_unavailable ;; esac
  [ "$battery" -ge 50 ] || err low_battery
- printf "transaction=%s\nsource_sha256=%s\ncandidate_sha256=%s\nstate=STARTED\n" "$tx" "$source" "$candidate" > "$ROOT/install_pending"
+ printf "transaction=%s\nsource_sha256=%s\ncandidate_sha256=%s\nboot_id=%s\nstate=STARTED\n" "$tx" "$source" "$candidate" "$(cat /proc/sys/kernel/random/boot_id)" > "$ROOT/install_pending"
  sync
  write_rc=0
  dd if="$dir/candidate.img" of="$PART" bs=1048576 count=32 > "$dir/install-write.log" 2>&1 || write_rc=$?
@@ -229,6 +229,7 @@ verify_install_boot(){
  valid_tx "$tx" || err pending_transaction_bad
  candidate="$(manifest_value "$pending" candidate_sha256)"
  [ "$(sha "$PART")" = "$candidate" ] || err installed_image_does_not_match
+ [ "$(manifest_value "$pending" boot_id)" != "$(cat /proc/sys/kernel/random/boot_id)" ] || err reboot_not_completed
  [ "$(manifest_value "$pending" state | tail -n 1)" = WRITE_VERIFIED_AWAITING_REBOOT ] || err pending_install_incomplete
  for spec in "1296 cpu0 1100000" "1344 cpu0 1150000" "1368 cpu0 1150000" "1416 cpu0 1150000" "1464 cpu0 1150000" "1512 cpu0 1150000" "1560 cpu4 1150000" "1608 cpu4 1150000" "1776 cpu2 1150000"; do
   set -- $spec
