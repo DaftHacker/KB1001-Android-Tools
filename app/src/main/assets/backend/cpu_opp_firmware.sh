@@ -14,7 +14,7 @@ umask 077
 err(){ echo "firmware_error=$1"; if [ -n "${dir:-}" ] && [ -d "$dir" ]; then echo "diagnostic_log=$dir/diagnostic.log"; fi; exit 3; }
 sha(){ sha256sum "$1" | cut -d ' ' -f1; }
 known(){ case "$1" in "$S15"|"$S3B"|"$S4C") return 0;; *) return 1;; esac; }
-allowed(){ case "$1" in 1296|1344|1368|1416|1464|1512|1560|1608|1776) return 0;; *) return 1;; esac; }
+allowed(){ case "$1" in 0|1296|1344|1368|1416|1464|1512|1560|1608|1776) return 0;; *) return 1;; esac; }
 valid_tx(){ case "$1" in tx-[0-9]*) case "$1" in *[!a-z0-9-]*) return 1;; esac; return 0;; *) return 1;; esac; }
 check(){
  [ "$(id -u)" = 0 ] || err no_root
@@ -45,7 +45,7 @@ start(){
  tx="$1"; mhz="$2"; mode="$3"
  valid_tx "$tx" || err invalid_transaction
  allowed "$mhz" || err not_validated
- case "$mode" in lock|unlock) ;; *) err invalid_action;; esac
+ case "$mode" in lock|unlock|config) ;; *) err invalid_action;; esac
  check
  live="$(sha "$PART")"
  known "$live" || err unknown_boot_image
@@ -100,10 +100,13 @@ finish(){
  dir="$ROOT/$tx"
  [ -d "$dir/work" ] && [ -d "$dir/check" ] || err missing_transaction
  [ "$(cat "$dir/mhz")" = "$mhz" ] && [ "$(cat "$dir/mode")" = "$mode" ] || err transaction_mismatch
+ [ "$mode" != config ] || [ "$mhz" = 0 ] || err invalid_combined_configuration
  source="$(cat "$dir/source.sha")"
  known "$source" || err unsupported_source
  [ "$(sha "$PART")" = "$source" ] && [ "$(sha "$dir/recovery.img")" = "$source" ] || err source_changed
  [ "$(sha "$dir/work/dtb")" = "$patched" ] || err patched_dtb_mismatch
+ # Combined config is a candidate-only path. Exact boot-source and component verification still apply.
+ [ "$mode" != config ] || [ "$mhz" = 0 ] || err invalid_combined_configuration
  # Some MagiskBoot versions return exit 3 even after producing a full image.
  # Do not accept a nonzero status unless complete independent checks pass.
  repack_rc=0
