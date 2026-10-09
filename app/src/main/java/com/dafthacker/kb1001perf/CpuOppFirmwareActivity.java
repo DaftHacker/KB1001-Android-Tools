@@ -92,8 +92,22 @@ public final class CpuOppFirmwareActivity extends Activity {
         busy=true;
         io.execute(()->{
             RootBridge.Result r=RootBridge.get().ctl("firmware status");
-            info(r.ok()?r.output:"Firmware status unavailable:\n"+r.output);
-            busy=false;
+            final String output=r.output;
+            runOnUiThread(()->{
+                status.setText(r.ok()?output:"Firmware status unavailable:\n"+output);
+                boolean recognized=r.ok() && "recognized".equals(key(output,"firmware_source"));
+                for(int mhz:CLOCKS){
+                    String[] fields=key(output,"opp_"+mhz).split(",",-1);
+                    boolean unlocked=fields.length==4 && "Y".equals(fields[0]) && "Y".equals(fields[1]) && fields[2].equals(fields[3]);
+                    boolean locked=fields.length==4 && "N".equals(fields[0]) && "N".equals(fields[1]) && "0".equals(fields[2]);
+                    TextView label=oppLabels.get(mhz);
+                    label.setText(unlocked?"UNLOCKED • "+fields[2]+" µV":locked?"LOCKED":"UNKNOWN / inconsistent");
+                    label.setTextColor(unlocked?Color.rgb(112,226,162):locked?Color.rgb(253,195,88):Color.LTGRAY);
+                    lockButtons.get(mhz).setEnabled(recognized && unlocked);
+                    unlockButtons.get(mhz).setEnabled(recognized && locked);
+                }
+                busy=false;
+            });
         });
     }
     private void confirm(int mhz,boolean unlock){
@@ -155,7 +169,7 @@ public final class CpuOppFirmwareActivity extends Activity {
                      "\nKeep the recovery image and manifest. Do not flash without independent verification.");
             }catch(Exception e){
                 info("FAILED — NO FLASH:\n"+e.getMessage());
-            }finally{busy=false;}
+            }finally{busy=false;runOnUiThread(()->refresh());}
         });
     }
     @Override protected void onDestroy(){io.shutdown();super.onDestroy();}
