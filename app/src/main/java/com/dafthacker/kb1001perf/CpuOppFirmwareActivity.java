@@ -16,6 +16,8 @@ public final class CpuOppFirmwareActivity extends Activity {
     private volatile boolean busy;
     private final java.util.Map<Integer,Switch> toggles=new java.util.LinkedHashMap<>();
     private Button applyConfiguration;
+    private Button installConfiguration;
+    private String preparedTransaction="";
     private boolean loadingStates;
     private final java.util.Map<Integer,TextView> oppLabels=new java.util.LinkedHashMap<>();
     private static final int[] CLOCKS={1296,1344,1368,1416,1464,1512,1560,1608,1776};
@@ -35,7 +37,7 @@ public final class CpuOppFirmwareActivity extends Activity {
         layout.addView(heading);
         TextView warning=new TextView(this);
         warning.setText("Select any combination of nine approved frequencies, then prepare one verified firmware image. " +
-            "No partition write or reboot occurs here; installation is not enabled. " +
+            "Installation can overwrite vendor_boot_a after explicit confirmation. Keep a Linux fastboot recovery backup. The app never reboots automatically. " +
             "1800 MHz is not validated and is excluded.");
         warning.setTextColor(Color.LTGRAY);warning.setPadding(0,8,0,14);
         layout.addView(warning);
@@ -63,7 +65,11 @@ public final class CpuOppFirmwareActivity extends Activity {
             toggle.setEnabled(false);
             toggle.setOnCheckedChangeListener((v,checked)->{
                 toggle.setText(checked?"Unlocked":"Locked");
-                if(!loadingStates) status.setText("Configuration edited. Press Prepare configuration to build one candidate. Changes are not installed.");
+                if(!loadingStates){
+                    preparedTransaction="";
+                    installConfiguration.setEnabled(false);
+                    status.setText("Configuration edited. Prepare the candidate before installation.");
+                }
             });
             toggles.put(mhz,toggle);
             layout.addView(toggle);
@@ -73,6 +79,11 @@ public final class CpuOppFirmwareActivity extends Activity {
         applyConfiguration.setEnabled(false);
         applyConfiguration.setOnClickListener(v->confirmConfiguration());
         layout.addView(applyConfiguration);
+        installConfiguration=new Button(this);
+        installConfiguration.setText("INSTALL VERIFIED CONFIGURATION");
+        installConfiguration.setEnabled(false);
+        installConfiguration.setOnClickListener(v->confirmInstall());
+        layout.addView(installConfiguration);
         refresh();
     }
 
@@ -154,10 +165,44 @@ public final class CpuOppFirmwareActivity extends Activity {
                 writeDtb(root,path,patched);
                 RootBridge.Result result=root.ctl("firmware finish "+tx+" 0 config "+sha(patched));
                 if(!result.ok())throw new IllegalStateException("Candidate verification failed: "+result.output);
+                preparedTransaction=tx;
+                runOnUiThread(()->installConfiguration.setEnabled(true));
                 info("ONE CONFIGURATION READY — NOT INSTALLED\n"+result.output+
                     "\nKeep recovery.img and the manifest. Do not flash without independent verification.");
             }catch(Exception error){
                 info("FAILED — NO FLASH:\n"+error.getMessage());
+            }finally{busy=false;}
+        });
+    }
+    private void confirmInstall(){
+        if(busy || preparedTransaction.isEmpty())return;
+        String tx=preparedTransaction;
+        new AlertDialog.Builder(this)
+            .setTitle("Install prepared CPU firmware?")
+            .setMessage("This overwrites vendor_boot_a. Power loss or an incompatible image can make Android unbootable. Keep an independently verified fastboot recovery backup on your Linux PC. The app checks the partition readback but does not reboot.")
+            .setNegativeButton("Cancel",null)
+            .setPositiveButton("Install", (dialog,which)->install(tx))
+            .show();
+    }
+    private void install(String tx){
+        if(busy)return;
+        busy=true;
+        installConfiguration.setEnabled(false);
+        info("Checking firmware, backup and candidate before installation…");
+        io.execute(()->{
+            RootBridge root=RootBridge.get();
+            try{
+                RootBridge.Result check=root.ctl("firmware install-check "+tx);
+                if(!check.ok() || !check.output.contains("install_preflight=PASS"))
+                    throw new IllegalStateException("Installation preflight failed: "+check.output);
+                RootBridge.Result result=root.ctl("firmware install "+tx+" CONFIRM_INSTALL");
+                if(!result.ok())throw new IllegalStateException(
+                    "Installation FAILED; external fastboot recovery may be required. "+result.output);
+                preparedTransaction="";
+                info("FIRMWARE WRITE VERIFIED — MANUAL REBOOT REQUIRED\n"+result.output+
+                    "\nKeep the recovery image on your Linux desktop until the tablet boots successfully.");
+            }catch(Exception ex){
+                info("INSTALLATION NOT CONFIRMED:\n"+ex.getMessage());
             }finally{busy=false;}
         });
     }
