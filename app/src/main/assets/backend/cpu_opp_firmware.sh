@@ -46,6 +46,8 @@ start(){
  valid_tx "$tx" || err invalid_transaction
  allowed "$mhz" || err not_validated
  case "$mode" in lock|unlock|config) ;; *) err invalid_action;; esac
+ [ "$mode" != config ] || [ "$mhz" = 0 ] || err invalid_combined_configuration
+ [ "$mode" = config ] || [ "$mhz" != 0 ] || err invalid_single_frequency
  check
  live="$(sha "$PART")"
  known "$live" || err unknown_boot_image
@@ -93,7 +95,7 @@ finish(){
  tx="$1"; mhz="$2"; mode="$3"; patched="$4"
  valid_tx "$tx" || err invalid_transaction
  allowed "$mhz" || err not_validated
- case "$mode" in lock|unlock) ;; *) err invalid_action;; esac
+ case "$mode" in lock|unlock|config) ;; *) err invalid_action;; esac
  case "$patched" in *[!a-f0-9]*|'') err invalid_sha;; esac
  [ "$(printf '%s' "$patched" | wc -c | tr -d ' ')" = 64 ] || err invalid_sha_length
  check
@@ -101,12 +103,12 @@ finish(){
  [ -d "$dir/work" ] && [ -d "$dir/check" ] || err missing_transaction
  [ "$(cat "$dir/mhz")" = "$mhz" ] && [ "$(cat "$dir/mode")" = "$mode" ] || err transaction_mismatch
  [ "$mode" != config ] || [ "$mhz" = 0 ] || err invalid_combined_configuration
+ [ "$mode" = config ] || [ "$mhz" != 0 ] || err invalid_single_frequency
  source="$(cat "$dir/source.sha")"
  known "$source" || err unsupported_source
  [ "$(sha "$PART")" = "$source" ] && [ "$(sha "$dir/recovery.img")" = "$source" ] || err source_changed
  [ "$(sha "$dir/work/dtb")" = "$patched" ] || err patched_dtb_mismatch
  # Combined config is a candidate-only path. Exact boot-source and component verification still apply.
- [ "$mode" != config ] || [ "$mhz" = 0 ] || err invalid_combined_configuration
  # Some MagiskBoot versions return exit 3 even after producing a full image.
  # Do not accept a nonzero status unless complete independent checks pass.
  repack_rc=0
