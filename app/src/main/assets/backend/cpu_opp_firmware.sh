@@ -265,7 +265,7 @@ verify_install_boot(){
  fi
  [ "$live" = "$candidate" ] || err pending_partition_unknown_hash
  [ "$(manifest_value "$pending" boot_id)" != "$(cat /proc/sys/kernel/random/boot_id)" ] || err reboot_not_completed
- [ "$(manifest_value "$pending" state | tail -n 1)" = WRITE_VERIFIED_AWAITING_REBOOT ] || err pending_install_incomplete
+ [ "$(sed -n 's/^state=//p' "$pending" | tail -n 1)" = WRITE_VERIFIED_AWAITING_REBOOT ] || err pending_install_incomplete
  selection="$(manifest_value "$ROOT/$tx/MANIFEST.txt" opp_mask)"
  case "$selection" in *[!01]*|'') err missing_postboot_mask;; esac
  [ "${#selection}" -eq 9 ] || err invalid_postboot_mask
