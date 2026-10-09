@@ -169,6 +169,9 @@ public final class CpuOppFirmwareActivity extends Activity {
                 if(!savedMask.ok())throw new IllegalStateException("Saving OPP selection failed");
                 RootBridge.Result result=root.ctl("firmware finish "+tx+" 0 config "+sha(patched));
                 if(!result.ok())throw new IllegalStateException("Candidate verification failed: "+result.output);
+                // Do not offer Install when an older transaction needs reconciliation.
+                RootBridge.Result preflight=root.ctl("firmware install-check "+tx);
+                if(!preflight.ok())throw new IllegalStateException("Install preflight failed: "+preflight.output);
                 preparedTransaction=tx;
                 runOnUiThread(()->installConfiguration.setEnabled(true));
                 info("ONE CONFIGURATION READY — NOT INSTALLED\n"+result.output+
