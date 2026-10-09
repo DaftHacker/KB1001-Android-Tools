@@ -162,8 +162,40 @@ finish(){
  echo "NO_PARTITION_MODIFIED"
  echo "diagnostic_log=$dir/diagnostic.log"
 }
+manifest_value(){ sed -n "s/^$2=//p" "$1" | head -n 1; }
+install_check(){
+ tx="$1"; valid_tx "$tx" || err invalid_transaction
+ check
+ dir="$ROOT/$tx"; file="$dir/MANIFEST.txt"
+ [ -f "$file" ] || err missing_manifest
+ [ "$(manifest_value "$file" transaction)" = "$tx" ] || err manifest_mismatch
+ [ "$(manifest_value "$file" partition)" = vendor_boot_a ] || err wrong_partition
+ [ "$(manifest_value "$file" candidate_size)" = "$SIZE" ] || err candidate_size_bad
+ [ "$(manifest_value "$file" installation)" = NOT_PERFORMED ] || err already_installed
+ source="$(manifest_value "$file" source_sha256)"
+ candidate="$(manifest_value "$file" candidate_sha256)"
+ target_dtb="$(manifest_value "$file" patched_dtb_sha256)"
+ [ "$(sha "$PART")" = "$source" ] || err running_firmware_changed
+ [ "$(sha "$dir/recovery.img")" = "$source" ] || err recovery_mismatch
+ [ "$(sha "$dir/candidate.img")" = "$candidate" ] || err candidate_mismatch
+ [ "$(sha "$dir/check/dtb")" = "$target_dtb" ] || err candidate_dtb_mismatch
+ [ "$(sha "$dir/work/dtb")" = "$target_dtb" ] || err staged_dtb_mismatch
+ cmp -s "$dir/components_before.txt" "$dir/components_after.txt" || err component_integrity_failed
+ grep -qx "candidate_components_verified=YES" "$dir/diagnostic.log" || err readback_not_verified
+ grep -qx "non_dtb_components_unchanged=YES" "$dir/diagnostic.log" || err components_not_verified
+ [ "$(wc -c < "$dir/recovery.img" | tr -d " ")" = "$SIZE" ] || err recovery_size_bad
+ [ "$(wc -c < "$dir/candidate.img" | tr -d " ")" = "$SIZE" ] || err candidate_size_bad
+ echo "install_preflight=PASS"
+ echo "transaction=$tx"
+ echo "source_sha256=$source"
+ echo "candidate_sha256=$candidate"
+ echo "recovery_image=$dir/recovery.img"
+ echo "candidate_image=$dir/candidate.img"
+ echo "automatic_reboot=NO"
+}
 case "$1" in
  status) status ;;
+ install-check) [ "$#" = 2 ] || err arguments; install_check "$2" ;;
  start) [ "$#" = 4 ] || err arguments; start "$2" "$3" "$4" ;;
  finish) [ "$#" = 5 ] || err arguments; finish "$2" "$3" "$4" "$5" ;;
  *) echo "cpu_opp_firmware.sh status|start TX MHz lock/unlock|finish TX MHz lock/unlock SHA"; exit 2 ;;
