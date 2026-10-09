@@ -249,13 +249,23 @@ verify_install_boot(){
  [ "$(sha "$PART")" = "$candidate" ] || err installed_image_does_not_match
  [ "$(manifest_value "$pending" boot_id)" != "$(cat /proc/sys/kernel/random/boot_id)" ] || err reboot_not_completed
  [ "$(manifest_value "$pending" state | tail -n 1)" = WRITE_VERIFIED_AWAITING_REBOOT ] || err pending_install_incomplete
+ selection="$(manifest_value "$ROOT/$tx/MANIFEST.txt" opp_mask)"
+ case "$selection" in *[!01]*|'') err missing_postboot_mask;; esac
+ [ "${#selection}" -eq 9 ] || err invalid_postboot_mask
+ mask_index=1
  for spec in "1296 cpu0 1100000" "1344 cpu0 1150000" "1368 cpu0 1150000" "1416 cpu0 1150000" "1464 cpu0 1150000" "1512 cpu0 1150000" "1560 cpu4 1150000" "1608 cpu4 1150000" "1776 cpu2 1150000"; do
   set -- $spec
   path="/sys/kernel/debug/opp/$2/opp:$(($1 * 1000000))"
   available="$(cat "$path/available" 2>/dev/null || echo unknown)"
   turbo="$(cat "$path/turbo" 2>/dev/null || echo unknown)"
   volts="$(cat "$path/supply-0/u_volt_target" 2>/dev/null || echo unknown)"
-  case "$available:$turbo:$volts" in "Y:Y:$3"|"N:N:0") ;; *) err postboot_opp_inconsistent ;; esac
+  expected="$(printf '%s' "$selection" | cut -c "$mask_index")"
+  if [ "$expected" = 1 ]; then
+   [ "$available:$turbo:$volts" = "Y:Y:$3" ] || err postboot_opp_mismatch
+  else
+   [ "$available:$turbo:$volts" = "N:N:0" ] || err postboot_opp_mismatch
+  fi
+  mask_index=$((mask_index + 1))
  done
  mv "$pending" "$ROOT/last_install_verified"
  echo "install_postboot=VERIFIED"
