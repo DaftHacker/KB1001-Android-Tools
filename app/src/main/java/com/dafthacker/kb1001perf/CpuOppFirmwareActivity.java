@@ -104,10 +104,12 @@ public final class CpuOppFirmwareActivity extends Activity {
         if(busy)return;
         busy=true;
         io.execute(()->{
+            RootBridge.Result verification=RootBridge.get().ctl("firmware verify-install-boot");
             RootBridge.Result r=RootBridge.get().ctl("firmware status");
             final String output=r.output;
             runOnUiThread(()->{
-                status.setText(r.ok()?output:"Firmware status unavailable:\n"+output);
+                String note=verification.ok()?verification.output:"Firmware post-boot check: "+verification.output;
+                status.setText((r.ok()?output:"Firmware status unavailable:\n"+output)+"\n"+note);
                 boolean recognized=r.ok() && "recognized".equals(key(output,"firmware_source"));
                 loadingStates=true;
                 boolean complete=true;
