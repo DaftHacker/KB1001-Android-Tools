@@ -97,14 +97,34 @@ finish(){
  known "$source" || err unsupported_source
  [ "$(sha "$PART")" = "$source" ] && [ "$(sha "$dir/recovery.img")" = "$source" ] || err source_changed
  [ "$(sha "$dir/work/dtb")" = "$patched" ] || err patched_dtb_mismatch
- ( cd "$dir/work" && "$MAGISKBOOT" repack "$dir/recovery.img" "$dir/candidate.img" >/dev/null ) || err repack_failed
+ # Some MagiskBoot versions return exit 3 even after producing a full image.
+ # Do not accept a nonzero status unless complete independent checks pass.
+ repack_rc=0
+ ( cd "$dir/work" && "$MAGISKBOOT" repack "$dir/recovery.img" "$dir/candidate.img" ) > "$dir/magiskboot-repack.log" 2>&1 || repack_rc=$?
+ echo "magiskboot_repack_exit=$repack_rc" >> "$dir/diagnostic.log"
+ echo "repack_log=$dir/magiskboot-repack.log" >> "$dir/diagnostic.log"
+ [ -f "$dir/candidate.img" ] || err candidate_not_created
  [ "$(wc -c < "$dir/candidate.img" | tr -d ' ')" = "$SIZE" ] || err candidate_bad_size
- ( cd "$dir/check" && "$MAGISKBOOT" unpack -h "$dir/candidate.img" >/dev/null ) || err readback_failed
+ echo "candidate_size_verified=YES" >> "$dir/diagnostic.log"
+ readback_rc=0
+ ( cd "$dir/check" && "$MAGISKBOOT" unpack -h "$dir/candidate.img" ) > "$dir/magiskboot-readback.log" 2>&1 || readback_rc=$?
+ echo "magiskboot_readback_exit=$readback_rc" >> "$dir/diagnostic.log"
+ echo "readback_log=$dir/magiskboot-readback.log" >> "$dir/diagnostic.log"
+ [ -s "$dir/check/dtb" ] || err readback_dtb_missing
  [ "$(sha "$dir/check/dtb")" = "$patched" ] || err candidate_dtb_mismatch
+ [ -f "$dir/check/bootconfig" ] || err readback_bootconfig_missing
+ [ "$(sha "$dir/check/bootconfig")" = 2c377199832de350f65144ea82d2a9ccc7cd619ebc4ad4a865127302587da1e9 ] || err readback_bootconfig_bad_hash
+ [ -f "$dir/check/vendor_ramdisk/ramdisk.cpio" ] || err readback_ramdisk_missing
+ [ "$(sha "$dir/check/vendor_ramdisk/ramdisk.cpio")" = eaa00bac784b7a57db666df0f871155929acca302049b3fc28a6effc3e29f4bc ] || err readback_ramdisk_bad_hash
+ echo "candidate_components_verified=YES" >> "$dir/diagnostic.log"
  ( cd "$dir/work" && find . -type f ! -name dtb ! -name header | sort | while IFS= read -r name; do sha256sum "$name"; done ) > "$dir/components_before.txt" || err component_list_failed
  ( cd "$dir/check" && find . -type f ! -name dtb ! -name header | sort | while IFS= read -r name; do sha256sum "$name"; done ) > "$dir/components_after.txt" || err component_list_failed
  [ -s "$dir/components_before.txt" ] || err component_list_empty
  cmp -s "$dir/components_before.txt" "$dir/components_after.txt" || err non_dtb_components_changed
+ echo "non_dtb_components_unchanged=YES" >> "$dir/diagnostic.log"
+ if [ "$repack_rc" -ne 0 ] || [ "$readback_rc" -ne 0 ]; then
+  echo "magiskboot_nonzero_accepted_only_after_exact_readback=YES" >> "$dir/diagnostic.log"
+ fi
  [ "$(sha "$PART")" = "$source" ] || err live_image_changed
  result="$(sha "$dir/candidate.img")"
  {
@@ -128,6 +148,7 @@ finish(){
  echo "firmware_stage=prepared_not_flashed"
  echo "NO_FLASH_PERFORMED"
  echo "NO_PARTITION_MODIFIED"
+ echo "diagnostic_log=$dir/diagnostic.log"
 }
 case "$1" in
  status) status ;;
