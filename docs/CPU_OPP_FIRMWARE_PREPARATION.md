@@ -1,6 +1,6 @@
 # Firmware OPP candidate staging — NO FLASH
 
-**State:** backend staged on main, Android UI preparation is pending. This is an engineering preview, not an approved installer.
+**State (2026-10-09):** Android preparation UI and backend are implemented. Stage 4B boot-tested an app-generated 1512 MHz unlock image; Stage 4C checked all nine targeted runtime OPPs. **No automatic installation is implemented or authorized.**
 
 The physically tested Stage 3B image has SHA256 `a4906f29b8ae138fee0606e017e9405d8eebfef72d749fcae0aef6dbb76ce13c`. It is the exact Stage 15 candidate with only CPU0–1 1512 MHz disabled.
 
@@ -13,7 +13,7 @@ It reports the live SHA and nine real OPP debugfs entries. The current backend a
 
 **Hard limits:**
 
-- Only the exact Stage 15 and tested 1512-locked Stage 3B source images are currently allowlisted.
+- Only the exact Stage 15, Stage 3B and Stage 4C boot-tested source images are currently allowlisted. The allowlist does not automatically accept arbitrary app-generated images.
 - Nine fully qualified frequencies only (1296–1776 MHz; excluding the unvalidated 1800).
 - The current `cpu_control.sh` still requires known stage-image hashes; support for arbitrary generated combinations must not be enabled until per-image provenance and live checks are established.
 - Repacked custom images are NOT authorized for installation by this tool.
@@ -30,3 +30,19 @@ It reports the live SHA and nine real OPP debugfs entries. The current backend a
 5. Do not flash automatically or silently.
 
 See `docs/CPU_OPP_FIRMWARE_UNLOCK.md` for the architecture and separate staged physical boot validations.
+
+## Stage 4B / Stage 4C validated milestone (2026-10-09)
+
+Stage 4B source image: Stage 3B locked `vendor_boot_a`, SHA256 `a4906f29b8ae138fee0606e017e9405d8eebfef72d749fcae0aef6dbb76ce13c`.
+
+App-generated 1512 MHz **unlock** candidate and now physically booted Stage 4C image:
+
+- `vendor_boot_a` SHA256: `4f7e071938cc4712f2ee9e77c657db38c64f353221b69a96e5c14076bf13163f`
+- Candidate DTB SHA256: `aacfecd3dc616994c0d8f461b25b4335bf720504d3ee09467164c4e0df2146bf`
+- Prepared manifest: transaction `tx-1791527896204`, 32 MiB, target `1512`, action `unlock`, `installation=NOT_PERFORMED` at preparation time.
+- Subsequent **manual** fastboot flash was followed by `sys.boot_completed=1`; running partition SHA exactly matched the candidate.
+- Kernel debugfs `cpu0/opp:1512000000` reported `available=Y`, `turbo=Y`, `u_volt_target=1150000`.
+- Stage 4C checked all nine approved OPPs: 1296 MHz @ 1100000 µV, 1344/1368/1416/1464/1512/1560/1608/1776 MHz @ 1150000 µV; every entry `available=Y`, `turbo=Y`.
+- `policy0/scaling_max_freq=1200000`, `policy2/scaling_max_freq=1752000`, `policy4/scaling_max_freq=1512000`, global CPU boost `0`.
+
+The main firmware backend now pins Stage 4C's exact full-image SHA **and** known-good DTB SHA, allowing future **candidate preparation** from this boot-tested state. This does **not** enable flashing, runtime boost or arbitrary OPP combinations. Load/stability validation for 1512 MHz and the experimental 1800 MHz OPP remains outstanding.
