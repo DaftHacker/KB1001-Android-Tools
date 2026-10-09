@@ -31,6 +31,14 @@ It reports the live SHA and nine real OPP debugfs entries. The current backend a
 
 See `docs/CPU_OPP_FIRMWARE_UNLOCK.md` for the architecture and separate staged physical boot validations.
 
+## Unified nine-OPP configuration (2026-10-09)
+
+The Android firmware screen now offers nine independent lock/unlock switches and one **PREPARE NINE-OPP CONFIGURATION** operation. The Java DTB patcher applies the selected states to one DTB. The backend's `firmware start TX 0 config` / `firmware finish TX 0 config SHA` routes produce a single candidate image and a SHA-verified copy of the previously installed image. The manifest uses `frequency_mhz=0` and `action=config` to indicate a combined operation.
+
+The backend remains pinned to exact Stage 15, Stage 3B or Stage 4C source image hashes. Arbitrary newly installed configurations cannot yet be used as the next trusted source, because they need provenance validation; the existing runtime OC backend also retains its independent exact-image allowlist. Preparing a combined image does not write any partition or activate its OPP changes. The candidate is untested for boot compatibility. Keep the previously verified external Linux fastboot recovery image.
+
+Each configuration operation produces one candidate, not nine candidates. Historical transaction directories and their recovery copies are intentionally retained instead of automatically deleting the only backups. Automatic installation, deletion of backed-up firmware, and updating the running kernel are not implemented.
+
 ## Stage 4B / Stage 4C validated milestone (2026-10-09)
 
 Stage 4B source image: Stage 3B locked `vendor_boot_a`, SHA256 `a4906f29b8ae138fee0606e017e9405d8eebfef72d749fcae0aef6dbb76ce13c`.
