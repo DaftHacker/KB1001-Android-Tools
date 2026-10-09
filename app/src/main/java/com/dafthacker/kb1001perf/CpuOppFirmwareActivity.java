@@ -169,7 +169,7 @@ public final class CpuOppFirmwareActivity extends Activity {
                      "\nKeep the recovery image and manifest. Do not flash without independent verification.");
             }catch(Exception e){
                 info("FAILED — NO FLASH:\n"+e.getMessage());
-            }finally{busy=false;runOnUiThread(()->refresh());}
+            }finally{busy=false;}
         });
     }
     @Override protected void onDestroy(){io.shutdown();super.onDestroy();}
