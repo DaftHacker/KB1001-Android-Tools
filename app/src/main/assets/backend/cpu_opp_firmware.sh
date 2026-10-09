@@ -247,7 +247,22 @@ verify_install_boot(){
  tx="$(manifest_value "$pending" transaction)"
  valid_tx "$tx" || err pending_transaction_bad
  candidate="$(manifest_value "$pending" candidate_sha256)"
- [ "$(sha "$PART")" = "$candidate" ] || err installed_image_does_not_match
+ source="$(manifest_value "$pending" source_sha256)"
+ live="$(sha "$PART")"
+ # A failed/aborted attempt may leave a pending marker despite the partition
+ # still being byte-for-byte identical to the trusted original image.
+ # Archive the record; never mark that candidate as installed.
+ if [ "$live" = "$source" ]; then
+  [ -f "$ROOT/$tx/MANIFEST.txt" ] || err pending_manifest_missing
+  [ "$(manifest_value "$ROOT/$tx/MANIFEST.txt" source_sha256)" = "$source" ] || err pending_source_manifest_mismatch
+  [ "$(sha "$ROOT/$tx/recovery.img")" = "$source" ] || err pending_recovery_mismatch
+  [ ! -e "$ROOT/$tx/install_aborted.txt" ] || err previous_resolution_exists
+  mv "$pending" "$ROOT/$tx/install_aborted.txt" || err cannot_archive_pending
+  echo "install_postboot=NOT_APPLIED_SOURCE_INTACT"
+  echo "recovery_retained=YES"
+  return 0
+ fi
+ [ "$live" = "$candidate" ] || err pending_partition_unknown_hash
  [ "$(manifest_value "$pending" boot_id)" != "$(cat /proc/sys/kernel/random/boot_id)" ] || err reboot_not_completed
  [ "$(manifest_value "$pending" state | tail -n 1)" = WRITE_VERIFIED_AWAITING_REBOOT ] || err pending_install_incomplete
  selection="$(manifest_value "$ROOT/$tx/MANIFEST.txt" opp_mask)"
