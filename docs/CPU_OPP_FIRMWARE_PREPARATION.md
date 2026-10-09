@@ -31,6 +31,14 @@ It reports the live SHA and nine real OPP debugfs entries. The current backend a
 
 See `docs/CPU_OPP_FIRMWARE_UNLOCK.md` for the architecture and separate staged physical boot validations.
 
+## Runtime OC integration and restart prompt (2026-10-09)
+
+The Android combined OPP manager now offers an explicit **Restart now / Later** dialog only after the in-app installer reports a successful full-partition SHA-256 readback. It does not automatically reboot, and a failed write does not trigger the prompt. The external host recovery backup should remain available until the new firmware boots and is verified.
+
+The runtime CPU OC backend now supports legacy physically qualified firmware image hashes and app-generated combined configurations **only after** a successful post-reboot verification record matches the installed firmware's full image SHA and manifest. Each OC mode still validates its own CPU cluster, kernel OPP availability, turbo state, target voltage, and policy boost-frequency advertisement before applying a requested clock. Global boost transitions still use the existing low-clock clamps and stock restoration logic. Candidate preparation or readback alone is **not** sufficient authorization for an OC mode.
+
+The new runtime integration has not yet completed an on-device dynamic/performance transition validation. Firmware readback success also does not establish that a custom OPP combination is stable under sustained load. Do not delete the independent Linux recovery backup.
+
 ## Unified nine-OPP configuration (2026-10-09)
 
 The Android firmware screen now offers nine independent lock/unlock switches and one **PREPARE NINE-OPP CONFIGURATION** operation. The Java DTB patcher applies the selected states to one DTB. The backend's `firmware start TX 0 config` / `firmware finish TX 0 config SHA` routes produce a single candidate image and a SHA-verified copy of the previously installed image. The manifest uses `frequency_mhz=0` and `action=config` to indicate a combined operation.
