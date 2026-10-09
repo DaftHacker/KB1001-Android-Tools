@@ -14,6 +14,9 @@ public final class CpuOppFirmwareActivity extends Activity {
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     private TextView status;
     private volatile boolean busy;
+    private final java.util.Map<Integer,Switch> toggles=new java.util.LinkedHashMap<>();
+    private Button applyConfiguration;
+    private boolean loadingStates;
     private final java.util.Map<Integer,TextView> oppLabels=new java.util.LinkedHashMap<>();
     private final java.util.Map<Integer,Button> lockButtons=new java.util.LinkedHashMap<>();
     private final java.util.Map<Integer,Button> unlockButtons=new java.util.LinkedHashMap<>();
@@ -33,8 +36,8 @@ public final class CpuOppFirmwareActivity extends Activity {
         heading.setTextSize(22);heading.setTextColor(Color.WHITE);
         layout.addView(heading);
         TextView warning=new TextView(this);
-        warning.setText("Prepare a real firmware-level CPU frequency Lock/Unlock candidate. " +
-            "This tool NEVER flashes or reboots. Installation is a separate, currently disabled operation. " +
+        warning.setText("Select any combination of nine approved frequencies, then prepare one verified firmware image. " +
+            "No partition write or reboot occurs here; installation is not enabled. " +
             "1800 MHz is not validated and is excluded.");
         warning.setTextColor(Color.LTGRAY);warning.setPadding(0,8,0,14);
         layout.addView(warning);
@@ -56,21 +59,22 @@ public final class CpuOppFirmwareActivity extends Activity {
             oppStatus.setTextColor(Color.LTGRAY);
             layout.addView(oppStatus);
             oppLabels.put(mhz,oppStatus);
-            LinearLayout row=new LinearLayout(this);
-            Button lock=new Button(this);
-            lock.setText("Prepare LOCK");
-            lock.setEnabled(false);
-            lockButtons.put(mhz,lock);
-            lock.setOnClickListener(v->confirm(mhz,false));
-            row.addView(lock,new LinearLayout.LayoutParams(0,-2,1));
-            Button unlock=new Button(this);
-            unlock.setText("Prepare UNLOCK");
-            unlock.setEnabled(false);
-            unlockButtons.put(mhz,unlock);
-            unlock.setOnClickListener(v->confirm(mhz,true));
-            row.addView(unlock,new LinearLayout.LayoutParams(0,-2,1));
-            layout.addView(row);
+            Switch toggle=new Switch(this);
+            toggle.setText("Unlocked");
+            toggle.setTextColor(Color.WHITE);
+            toggle.setEnabled(false);
+            toggle.setOnCheckedChangeListener((v,checked)->{
+                toggle.setText(checked?"Unlocked":"Locked");
+                if(!loadingStates) status.setText("Configuration edited. Press Prepare configuration to build one candidate. Changes are not installed.");
+            });
+            toggles.put(mhz,toggle);
+            layout.addView(toggle);
         }
+        applyConfiguration=new Button(this);
+        applyConfiguration.setText("PREPARE NINE-OPP CONFIGURATION");
+        applyConfiguration.setEnabled(false);
+        applyConfiguration.setOnClickListener(v->confirmConfiguration());
+        layout.addView(applyConfiguration);
         refresh();
     }
 
@@ -96,6 +100,8 @@ public final class CpuOppFirmwareActivity extends Activity {
             runOnUiThread(()->{
                 status.setText(r.ok()?output:"Firmware status unavailable:\n"+output);
                 boolean recognized=r.ok() && "recognized".equals(key(output,"firmware_source"));
+                loadingStates=true;
+                boolean complete=true;
                 for(int mhz:CLOCKS){
                     String[] fields=key(output,"opp_"+mhz).split(",",-1);
                     boolean unlocked=fields.length==4 && "Y".equals(fields[0]) && "Y".equals(fields[1]) && fields[2].equals(fields[3]);
@@ -103,9 +109,13 @@ public final class CpuOppFirmwareActivity extends Activity {
                     TextView label=oppLabels.get(mhz);
                     label.setText(unlocked?"UNLOCKED • "+fields[2]+" µV":locked?"LOCKED":"UNKNOWN / inconsistent");
                     label.setTextColor(unlocked?Color.rgb(112,226,162):locked?Color.rgb(253,195,88):Color.LTGRAY);
-                    lockButtons.get(mhz).setEnabled(recognized && unlocked);
-                    unlockButtons.get(mhz).setEnabled(recognized && locked);
+                    Switch toggle=toggles.get(mhz);
+                    toggle.setChecked(unlocked);
+                    toggle.setEnabled(recognized && (unlocked||locked));
+                    if(!unlocked&&!locked) complete=false;
                 }
+                loadingStates=false;
+                applyConfiguration.setEnabled(recognized && complete);
                 busy=false;
             });
         });
@@ -119,6 +129,49 @@ public final class CpuOppFirmwareActivity extends Activity {
             .setNegativeButton("Cancel",null)
             .setPositiveButton("Prepare",(d,w)->prepare(mhz,unlock))
             .show();
+    }
+    private void confirmConfiguration(){
+        if(busy)return;
+        StringBuilder mask=new StringBuilder();
+        for(int mhz:CLOCKS)mask.append(toggles.get(mhz).isChecked()?'1':'0');
+        String selection=mask.toString();
+        new AlertDialog.Builder(this)
+            .setTitle("Prepare one firmware configuration?")
+            .setMessage("Build one verified vendor_boot candidate for all nine selected OPPs. The existing firmware is backed up. Nothing will be flashed or rebooted.")
+            .setNegativeButton("Cancel",null)
+            .setPositiveButton("Prepare", (dialog,which)->prepareConfiguration(selection))
+            .show();
+    }
+    private void prepareConfiguration(String mask){
+        if(busy)return;
+        busy=true;
+        info("Preparing combined OPP configuration. NO FLASH.");
+        io.execute(()->{
+            String tx="tx-"+System.currentTimeMillis();
+            RootBridge root=RootBridge.get();
+            try{
+                RootBridge.Result started=root.ctl("firmware start "+tx+" 0 config");
+                if(!started.ok())throw new IllegalStateException("Preflight: "+started.output);
+                String path=key(started.output,"original_dtb");
+                if(!path.equals(ROOT+"/"+tx+"/work/dtb"))throw new IllegalStateException("Unexpected DTB path");
+                byte[] original=readDtb(root,path);
+                boolean changed=false;
+                for(int i=0;i<CLOCKS.length;i++)
+                    if(CpuOppDtbPatcher.inspect(original,CLOCKS[i]).enabled!=(mask.charAt(i)=='1'))changed=true;
+                if(!changed)throw new IllegalStateException("All nine OPPs already match the selected configuration");
+                byte[] patched=CpuOppDtbPatcher.patchConfiguration(original,mask);
+                for(int i=0;i<CLOCKS.length;i++)
+                    if(CpuOppDtbPatcher.inspect(patched,CLOCKS[i]).enabled!=(mask.charAt(i)=='1'))
+                        throw new IllegalStateException("Combined OPP validation failed");
+                writeDtb(root,path,patched);
+                RootBridge.Result result=root.ctl("firmware finish "+tx+" 0 config "+sha(patched));
+                if(!result.ok())throw new IllegalStateException("Candidate verification failed: "+result.output);
+                info("ONE CONFIGURATION READY — NOT INSTALLED\n"+result.output+
+                    "\nKeep recovery.img and the manifest. Do not flash without independent verification.");
+            }catch(Exception error){
+                info("FAILED — NO FLASH:\n"+error.getMessage());
+            }finally{busy=false;}
+        });
     }
     private static byte[] readDtb(RootBridge root,String path)throws Exception{
         RootBridge.Result r=root.exec("base64 "+q(path)+" | tr -d '\\r\\n'; echo");
