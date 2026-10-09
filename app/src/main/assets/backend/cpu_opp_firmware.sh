@@ -193,8 +193,37 @@ install_check(){
  echo "candidate_image=$dir/candidate.img"
  echo "automatic_reboot=NO"
 }
+install_image(){
+ tx="$1"; [ "$2" = CONFIRM_INSTALL ] || err install_confirmation_missing
+ install_check "$tx" >/dev/null
+ [ ! -e "$ROOT/install_pending" ] || err prior_install_pending_verification
+ mkdir "$ROOT/.install_lock" 2>/dev/null || err install_busy
+ trap 'rmdir "$ROOT/.install_lock" 2>/dev/null || :' EXIT
+ install_check "$tx" >/dev/null
+ [ "$(blockdev --getsize64 "$PART" 2>/dev/null)" = "$SIZE" ] || err partition_size_mismatch
+ battery="$(dumpsys battery | sed -n "s/^[[:space:]]*level: //p" | head -n 1)"
+ case "$battery" in ""|*[!0-9]*) err battery_unavailable ;; esac
+ [ "$battery" -ge 50 ] || err low_battery
+ printf "transaction=%s\nsource_sha256=%s\ncandidate_sha256=%s\nstate=STARTED\n" "$tx" "$source" "$candidate" > "$ROOT/install_pending"
+ sync
+ write_rc=0
+ dd if="$dir/candidate.img" of="$PART" bs=1048576 count=32 > "$dir/install-write.log" 2>&1 || write_rc=$?
+ sync
+ readback="$(sha "$PART")"
+ printf "write_exit=%s\nreadback_sha256=%s\n" "$write_rc" "$readback" >> "$ROOT/install_pending"
+ if [ "$write_rc" -ne 0 ] || [ "$readback" != "$candidate" ]; then
+  echo "state=FAILED_RECOVERY_REQUIRED" >> "$ROOT/install_pending"
+  err partition_write_or_readback_failed
+ fi
+ echo "state=WRITE_VERIFIED_AWAITING_REBOOT" >> "$ROOT/install_pending"
+ echo "install_write=VERIFIED"
+ echo "readback_sha256=$readback"
+ echo "reboot_required=YES"
+ echo "recovery_image=$dir/recovery.img"
+}
 case "$1" in
  status) status ;;
+ install) [ "$#" = 3 ] || err arguments; install_image "$2" "$3" ;;
  install-check) [ "$#" = 2 ] || err arguments; install_check "$2" ;;
  start) [ "$#" = 4 ] || err arguments; start "$2" "$3" "$4" ;;
  finish) [ "$#" = 5 ] || err arguments; finish "$2" "$3" "$4" "$5" ;;
