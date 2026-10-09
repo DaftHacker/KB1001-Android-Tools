@@ -7,10 +7,13 @@ MAGISKBOOT=/data/adb/magisk/magiskboot
 SIZE=33554432
 S15=9eb390f96d2c3b320aff471ee33bb478f6ea7ff682e954305b418f4a31b1fb15
 S3B=a4906f29b8ae138fee0606e017e9405d8eebfef72d749fcae0aef6dbb76ce13c
+# Stage 4B/C: app-generated 1512 MHz unlock, physical boot and all nine OPPs verified.
+S4C=4f7e071938cc4712f2ee9e77c657db38c64f353221b69a96e5c14076bf13163f
+DTB_S4C=aacfecd3dc616994c0d8f461b25b4335bf720504d3ee09467164c4e0df2146bf
 umask 077
 err(){ echo "firmware_error=$1"; if [ -n "${dir:-}" ] && [ -d "$dir" ]; then echo "diagnostic_log=$dir/diagnostic.log"; fi; exit 3; }
 sha(){ sha256sum "$1" | cut -d ' ' -f1; }
-known(){ case "$1" in "$S15"|"$S3B") return 0;; *) return 1;; esac; }
+known(){ case "$1" in "$S15"|"$S3B"|"$S4C") return 0;; *) return 1;; esac; }
 allowed(){ case "$1" in 1296|1344|1368|1416|1464|1512|1560|1608|1776) return 0;; *) return 1;; esac; }
 valid_tx(){ case "$1" in tx-[0-9]*) case "$1" in *[!a-z0-9-]*) return 1;; esac; return 0;; *) return 1;; esac; }
 check(){
@@ -65,8 +68,12 @@ start(){
  # Trust only exact known-good hashes, never its exit code alone.
  if [ "$live" = "$S15" ]; then
   expected_dtb=0c6dd5d70f4ad6de5e378c330635483a444b0343821824fa49141b034de626f8
+ elif [ "$live" = "$S3B" ]; then
+  expected_dtb=88e5fdf7b249ba9e0111a139ea5b199480459ce8e8f7a2e018169cb435
+ elif [ "$live" = "$S4C" ]; then
+  expected_dtb="$DTB_S4C"
  else
-  expected_dtb=88e5fdf7b249ba9e0111a139ea5b199480459ce8e8f7a44f77a2e018169cb435
+  err unknown_boot_image
  fi
  [ -s "$dir/work/dtb" ] || err missing_dtb
  [ "$(sha "$dir/work/dtb")" = "$expected_dtb" ] || err extracted_dtb_hash_mismatch
