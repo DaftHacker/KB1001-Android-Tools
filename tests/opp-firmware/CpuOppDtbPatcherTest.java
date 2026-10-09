@@ -35,6 +35,18 @@ public class CpuOppDtbPatcherTest {
         successive=CpuOppDtbPatcher.patch(successive,1512,false);
         check(!CpuOppDtbPatcher.inspect(successive,1512).enabled,"lock one");
         for(int mhz:approved)if(mhz!=1512)check(CpuOppDtbPatcher.inspect(successive,mhz).enabled,"other OPP still unlocked "+mhz);
+        // One firmware DTB candidate with a mixed nine-frequency configuration.
+        byte[] mixed=CpuOppDtbPatcher.patchConfiguration(original,"101010101");
+        for(int i=0;i<approved.length;i++)
+            check(CpuOppDtbPatcher.inspect(mixed,approved[i]).enabled==(i%2==0),
+                "combined state "+approved[i]);
+        byte[] restored=CpuOppDtbPatcher.patchConfiguration(mixed,"111111111");
+        for(int mhz:approved)
+            check(CpuOppDtbPatcher.inspect(restored,mhz).enabled,"restore "+mhz);
+        check(Arrays.equals(restored,CpuOppDtbPatcher.patchConfiguration(restored,"111111111")),
+            "combined idempotent");
+        rejected(()->CpuOppDtbPatcher.patchConfiguration(original,"000"),"short mask rejected");
+        rejected(()->CpuOppDtbPatcher.patchConfiguration(original,"111111112"),"invalid mask rejected");
         System.out.println("PASS: "+assertions+" assertions; 9 isolated OPPs + combinations + corrupt images + experimental rejection");
     }
 }
