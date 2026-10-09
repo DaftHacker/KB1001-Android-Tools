@@ -119,6 +119,35 @@ current_vendor_boot_sha256(){
  sha256sum /dev/block/by-name/vendor_boot_a 2>/dev/null | awk '{print $1}'
 }
 
+# Permit only known boot images or a post-boot verified app configuration.
+# Runtime OPP voltage and turbo checks remain mandatory for each target.
+oc_firmware_trusted(){
+ candidate_sha="$1"
+ case "$candidate_sha" in
+  "$OC_1560_VENDOR_BOOT_SHA256"|"$OC_1608_VENDOR_BOOT_SHA256"|"$OC_1776_VENDOR_BOOT_SHA256"|"$OC_1296_VENDOR_BOOT_SHA256"|"$OC_1344_VENDOR_BOOT_SHA256"|"$OC_1368_VENDOR_BOOT_SHA256"|"$OC_1416_VENDOR_BOOT_SHA256"|"$OC_1464_VENDOR_BOOT_SHA256"|"$OC_1512_VENDOR_BOOT_SHA256") return 0 ;;
+  "9eb390f96d2c3b320aff471ee33bb478f6ea7ff682e954305b418f4a31b1fb15"|"a4906f29b8ae138fee0606e017e9405d8eebfef72d749fcae0aef6dbb76ce13c"|"4f7e071938cc4712f2ee9e77c657db38c64f353221b69a96e5c14076bf13163f") return 0 ;;
+ esac
+ record="/data/local/kb1001perf/opp_firmware/last_install_verified"
+ [ -r "$record" ] || return 1
+ tx="$(sed -n 's/^transaction=//p' "$record" | head -n 1)"
+ case "$tx" in tx-[0-9]*) case "$tx" in *[!a-z0-9-]*) return 1;; esac ;; *) return 1;; esac
+ [ "$(sed -n 's/^candidate_sha256=//p' "$record" | head -n 1)" = "$candidate_sha" ] || return 1
+ [ "$(sed -n 's/^state=//p' "$record" | tail -n 1)" = WRITE_VERIFIED_AWAITING_REBOOT ] || return 1
+ [ "$(sed -n 's/^boot_id=//p' "$record" | head -n 1)" != "$(boot_id)" ] || return 1
+ base="/data/local/kb1001perf/opp_firmware/$tx"
+ manifest="$base/MANIFEST.txt"
+ [ -r "$manifest" ] && [ -r "$base/candidate.img" ] && [ -r "$base/check/dtb" ] || return 1
+ [ "$(sed -n 's/^candidate_sha256=//p' "$manifest" | head -n 1)" = "$candidate_sha" ] || return 1
+ [ "$(sed -n 's/^action=//p' "$manifest" | head -n 1)" = config ] || return 1
+ mask="$(sed -n 's/^opp_mask=//p' "$manifest" | head -n 1)"
+ case "$mask" in ''|*[!01]*) return 1;; esac
+ [ "${#mask}" -eq 9 ] || return 1
+ target_dtb="$(sed -n 's/^patched_dtb_sha256=//p' "$manifest" | head -n 1)"
+ [ "$(sha256sum "$base/check/dtb" 2>/dev/null | cut -d ' ' -f1)" = "$target_dtb" ] || return 1
+ [ "$(sha256sum "$base/candidate.img" 2>/dev/null | cut -d ' ' -f1)" = "$candidate_sha" ] || return 1
+ return 0
+}
+
 opp_ready(){
  table="$1"; hz="$2"; expected_uv="$3"
  d="/sys/kernel/debug/opp/$table/opp:$hz"
