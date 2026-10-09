@@ -18,8 +18,6 @@ public final class CpuOppFirmwareActivity extends Activity {
     private Button applyConfiguration;
     private boolean loadingStates;
     private final java.util.Map<Integer,TextView> oppLabels=new java.util.LinkedHashMap<>();
-    private final java.util.Map<Integer,Button> lockButtons=new java.util.LinkedHashMap<>();
-    private final java.util.Map<Integer,Button> unlockButtons=new java.util.LinkedHashMap<>();
     private static final int[] CLOCKS={1296,1344,1368,1416,1464,1512,1560,1608,1776};
     private static final String ROOT="/data/local/kb1001perf/opp_firmware";
 
@@ -120,16 +118,6 @@ public final class CpuOppFirmwareActivity extends Activity {
             });
         });
     }
-    private void confirm(int mhz,boolean unlock){
-        if(busy)return;
-        new AlertDialog.Builder(this)
-            .setTitle("Prepare "+(unlock?"UNLOCK":"LOCK")+" "+mhz+" MHz?")
-            .setMessage("Build a candidate vendor_boot image and save a recovery copy. " +
-                "This does not install or activate the change. No reboot or partition writes.")
-            .setNegativeButton("Cancel",null)
-            .setPositiveButton("Prepare",(d,w)->prepare(mhz,unlock))
-            .show();
-    }
     private void confirmConfiguration(){
         if(busy)return;
         StringBuilder mask=new StringBuilder();
@@ -194,36 +182,6 @@ public final class CpuOppFirmwareActivity extends Activity {
         RootBridge.Result proof=root.exec("sha256sum "+q(path));
         if(!proof.ok() || !proof.output.startsWith(sha(data)))
             throw new IllegalStateException("Staged DTB checksum mismatch");
-    }
-    private void prepare(int mhz,boolean unlock){
-        if(busy)return;
-        busy=true;
-        info("Preparing "+mhz+" MHz "+(unlock?"unlock":"lock")+" candidate. NO FLASH.");
-        io.execute(()->{
-            String op=unlock?"unlock":"lock";
-            String tx="tx-"+System.currentTimeMillis();
-            RootBridge root=RootBridge.get();
-            try{
-                RootBridge.Result started=root.ctl("firmware start "+tx+" "+mhz+" "+op);
-                if(!started.ok())throw new IllegalStateException("Preflight: "+started.output);
-                String path=key(started.output,"original_dtb");
-                if(!path.equals(ROOT+"/"+tx+"/work/dtb"))
-                    throw new IllegalStateException("Unexpected extracted DTB path");
-                byte[] original=readDtb(root,path);
-                if(CpuOppDtbPatcher.inspect(original,mhz).enabled==unlock)
-                    throw new IllegalStateException("Already "+(unlock?"unlocked":"locked"));
-                byte[] changed=CpuOppDtbPatcher.patch(original,mhz,unlock);
-                if(CpuOppDtbPatcher.inspect(changed,mhz).enabled!=unlock)
-                    throw new IllegalStateException("OPP patch verification mismatch");
-                writeDtb(root,path,changed);
-                RootBridge.Result finished=root.ctl("firmware finish "+tx+" "+mhz+" "+op+" "+sha(changed));
-                if(!finished.ok())throw new IllegalStateException("Repack rejected: "+finished.output);
-                info("CANDIDATE READY — NOT INSTALLED\n"+finished.output+
-                     "\nKeep the recovery image and manifest. Do not flash without independent verification.");
-            }catch(Exception e){
-                info("FAILED — NO FLASH:\n"+e.getMessage());
-            }finally{busy=false;}
-        });
     }
     @Override protected void onDestroy(){io.shutdown();super.onDestroy();}
 }
