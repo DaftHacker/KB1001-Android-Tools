@@ -13,7 +13,10 @@ import java.util.concurrent.*;
 public final class CpuOppFirmwareActivity extends Activity {
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     private TextView status;
-    private boolean busy;
+    private volatile boolean busy;
+    private final java.util.Map<Integer,TextView> oppLabels=new java.util.LinkedHashMap<>();
+    private final java.util.Map<Integer,Button> lockButtons=new java.util.LinkedHashMap<>();
+    private final java.util.Map<Integer,Button> unlockButtons=new java.util.LinkedHashMap<>();
     private static final int[] CLOCKS={1296,1344,1368,1416,1464,1512,1560,1608,1776};
     private static final String ROOT="/data/local/kb1001perf/opp_firmware";
 
