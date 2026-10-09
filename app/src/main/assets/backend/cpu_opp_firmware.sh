@@ -13,7 +13,12 @@ DTB_S4C=aacfecd3dc616994c0d8f461b25b4335bf720504d3ee09467164c4e0df2146bf
 umask 077
 err(){ echo "firmware_error=$1"; if [ -n "${dir:-}" ] && [ -d "$dir" ]; then echo "diagnostic_log=$dir/diagnostic.log"; fi; exit 3; }
 sha(){ sha256sum "$1" | cut -d ' ' -f1; }
-known(){ case "$1" in "$S15"|"$S3B"|"$S4C") return 0;; *) return 1;; esac; }
+known(){
+ case "$1" in "$S15"|"$S3B"|"$S4C") return 0;; esac
+ # Accept an app-generated image only after a verified, completed boot record.
+ [ -f "$ROOT/last_install_verified" ] || return 1
+ [ "$(sed -n 's/^candidate_sha256=//p' "$ROOT/last_install_verified" | head -n 1)" = "$1" ]
+}
 allowed(){ case "$1" in 0|1296|1344|1368|1416|1464|1512|1560|1608|1776) return 0;; *) return 1;; esac; }
 valid_tx(){ case "$1" in tx-[0-9]*) case "$1" in *[!a-z0-9-]*) return 1;; esac; return 0;; *) return 1;; esac; }
 check(){
@@ -74,6 +79,12 @@ start(){
   expected_dtb=88e5fdf7b249ba9e0111a139ea5b199480459ce8e8f7a2e018169cb435
  elif [ "$live" = "$S4C" ]; then
   expected_dtb="$DTB_S4C"
+ elif [ -f "$ROOT/last_install_verified" ] && [ "$live" = "$(sed -n 's/^candidate_sha256=//p' "$ROOT/last_install_verified" | head -n 1)" ]; then
+  prior_tx="$(sed -n 's/^transaction=//p' "$ROOT/last_install_verified" | head -n 1)"
+  valid_tx "$prior_tx" || err invalid_verified_transaction
+  [ "$(sha "$ROOT/$prior_tx/candidate.img")" = "$live" ] || err verified_candidate_not_preserved
+  expected_dtb="$(sed -n 's/^patched_dtb_sha256=//p' "$ROOT/$prior_tx/MANIFEST.txt" | head -n 1)"
+  [ "$(sha "$ROOT/$prior_tx/check/dtb")" = "$expected_dtb" ] || err verified_dtb_mismatch
  else
   err unknown_boot_image
  fi
